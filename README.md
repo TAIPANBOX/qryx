@@ -1,56 +1,61 @@
 # qryx — Cryptography Security Graph
 
-Інвентаризація і керування криптографією на рівні всієї організації: що, де і
-яким алгоритмом шифрується, які з цих активів квантово-вразливі, і як їх
-мігрувати. Open-core, dev-first, для mid-market.
+Organization-wide cryptography inventory and management: what is encrypted,
+where, and with which algorithm; which of those assets are quantum-vulnerable;
+and how to migrate them. Open-core, dev-first, built for mid-market.
 
-> Sibling-продукт до [idryx](../Idryx) (Identity Security Graph). Спільна
-> архітектурна ДНК: **X-BOM → граф → ризик → ремедіація**. idryx робить це для
-> ідентичностей, qryx — для криптографії.
+> Sibling product to [idryx](https://github.com/TAIPANBOX/idryx) (Identity
+> Security Graph). Shared architectural DNA: **X-BOM → graph → risk →
+> remediation**. idryx does this for identities, qryx for cryptography.
 
-## Навіщо
-NIST стандартизував постквантові алгоритми (2024); CNSA 2.0 ставить дедлайни
-(нові системи 2027, legacy 2030, повна міграція 2035). «Harvest now, decrypt
-later» робить дані, зашифровані вразливою крипто, скомпрометованими вже сьогодні.
-Перший крок будь-якої міграції — discovery, а організації стабільно знаходять у
-3-5x більше крипто-активів, ніж очікували. Готового mid-market / open-source
-тулінгу для цього майже немає (усі гравці — enterprise-дорогі).
+## Why
+NIST standardized post-quantum algorithms (2024); CNSA 2.0 sets the deadlines
+(new systems 2027, legacy 2030, full migration 2035). "Harvest now, decrypt
+later" means data encrypted with vulnerable crypto is already compromised today.
+The first step of any migration is discovery, and organizations consistently find
+3-5x more cryptographic assets than expected. Off-the-shelf mid-market /
+open-source tooling for this barely exists — every vendor is enterprise-priced.
 
-## Що робить
-1. **Discovery** — сканує код, бінарі, TLS/мережу, сертифікати, key stores,
-   cloud KMS, залежності; знаходить кожне використання криптографії.
-2. **CBOM** — будує Cryptography Bill of Materials (CycloneDX) у єдиному графі.
-3. **Ризик** — позначає квантово-вразливе (RSA/ECC), слабке (MD5/SHA-1/DES),
-   misconfig, прострочені сертифікати, hardcoded ключі.
-4. **Crypto-agility / ремедіація** — рекомендації переходу + PR у код/конфіг.
+## What it does
+1. **Discovery** — scans code, binaries, TLS/network, certificates, key stores,
+   cloud KMS, and dependencies; finds every use of cryptography.
+2. **CBOM** — builds a Cryptography Bill of Materials (CycloneDX) in one graph.
+3. **Risk** — flags quantum-vulnerable (RSA/ECC), weak (MD5/SHA-1/DES),
+   misconfig, expired certificates, hardcoded keys.
+4. **Crypto-agility / remediation** — migration recommendations + PRs to
+   code/config.
 
-Деталі та дорожня карта — у [`qryx-plan.md`](./qryx-plan.md).
+See [`qryx-plan.md`](./qryx-plan.md) for the full design and roadmap.
 
-## Швидкий старт
+## Quick start
 ```bash
 make build
-./bin/qryx scan <path>                 # людиночитний звіт
+./bin/qryx scan <path>                 # human-readable report
 ./bin/qryx scan --format cbom <path>   # CycloneDX 1.6 CBOM (JSON)
-./bin/qryx scan --fail-on high <path>  # exit 2 якщо є finding >= high (для CI)
+./bin/qryx scan --fail-on high <path>  # exit 2 if any finding >= high (for CI)
 ```
 
-Приклад на вбудованих фікстурах:
+Run against the bundled fixtures:
 ```bash
 make scan
 ```
 
-## Що вже працює (Фаза 0)
-CLI-сканер одного дерева, 5 детекторів:
-- `cryptocall` — крипто-API в коді (Go / Python / JS / TS)
-- `certfile` — парс PEM-сертифікатів (алгоритм, key size, expiry)
-- `tlsconfig` — застарілі TLS/SSL у коді й nginx/apache-конфігах
-- `hardcoded` — приватні ключі в коді/конфігах
-- `deps` — крипто-бібліотеки в маніфестах залежностей
+## What works today (Phase 0)
+A single-tree CLI scanner with 5 detectors:
+- `cryptocall` — crypto API usage in source (Go / Python / JS / TS)
+- `certfile` — PEM certificate parsing (algorithm, key size, expiry)
+- `tlsconfig` — legacy TLS/SSL in code and nginx/apache config
+- `hardcoded` — private keys embedded in source/config
+- `deps` — crypto libraries in dependency manifests
 
-Класифікація ризику: `quantum-vulnerable` (RSA/ECC/DSA — Shor), `weak`
-(MD5/SHA-1/DES/RC4, RSA<2048), `misconfig`, `expired`, `hardcoded`. PQC-алгоритми
-(ML-KEM/ML-DSA, FIPS 203/204/205) розпізнаються як безпечні.
+Risk classification: `quantum-vulnerable` (RSA/ECC/DSA — Shor), `weak`
+(MD5/SHA-1/DES/RC4, RSA<2048), `misconfig`, `expired`, `hardcoded`. Post-quantum
+algorithms (ML-KEM/ML-DSA, FIPS 203/204/205) are recognized as safe.
 
-## Статус
-Фаза 0 (MVP CLI-сканер) — робоча. Далі за [`qryx-plan.md`](./qryx-plan.md):
-tree-sitter замість regex, CBOM-граф у Postgres, активний TLS-скан, cloud KMS.
+## Status
+Phase 0 (MVP CLI scanner) — working. Next, per [`qryx-plan.md`](./qryx-plan.md):
+tree-sitter instead of regex, a CBOM graph in Postgres, active TLS scanning,
+cloud KMS connectors.
+
+## License
+Apache-2.0.

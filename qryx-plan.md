@@ -1,168 +1,171 @@
 # qryx — Cryptography Security Graph
 
-## Суть
-Шар видимості й керування криптографією поверх коду, інфраструктури й хмар. qryx
-сканує все, що використовує крипто (код, бінарі, TLS-з'єднання, сертифікати,
-ключі, cloud KMS, залежності), зшиває це в єдиний **CBOM-граф** і відповідає на
-питання, на яке сьогодні мало хто може відповісти швидко:
+## Essence
+A visibility and management layer for cryptography across code, infrastructure,
+and clouds. qryx scans everything that uses crypto (code, binaries, TLS
+connections, certificates, keys, cloud KMS, dependencies), stitches it into a
+single **CBOM graph**, and answers a question few can answer quickly today:
 
-> «Де саме в нас використовується вразлива криптографія, що під загрозою при її
-> компрометації, і який мінімальний набір змін потрібен, щоб мігрувати?»
+> "Where exactly are we using vulnerable cryptography, what is at risk if it is
+> compromised, and what is the minimal set of changes needed to migrate?"
 
-Sibling до idryx. Спільна ДНК: **X-BOM → нормалізація → граф → ризик →
-ремедіація (PR)**. idryx — про ідентичності, qryx — про крипто. Одне ядро-мислення,
-різні BOM-конектори.
+Sibling to idryx. Shared DNA: **X-BOM → normalize → graph → risk →
+remediation (PR)**. idryx is about identities, qryx about crypto. One core way of
+thinking, different BOM connectors.
 
-## Проблема (з цифрами)
-1. **Регуляторний дедлайн є й він жорсткий.** NIST PQC-стандарти (FIPS 203/204/205,
-   2024). CNSA 2.0: нові нацбезпекові системи — 2027, legacy — 2030, повна
-   міграція — 2035. ЄС/фінсектор підтягуються.
-2. **Harvest-now-decrypt-later.** Дані, зашифровані RSA/ECC сьогодні, можуть бути
-   зібрані й розшифровані пізніше. Тобто вразливість діє вже зараз, не «у 2030».
-3. **Сліпота на старті.** Перший крок міграції — discovery, і організації
-   стабільно знаходять у 3-5x більше крипто-активів, ніж очікували. «Не можна
-   мігрувати те, чого не бачиш.»
-4. **Тулінг-гап.** Жодна загальна security-платформа не дає CBOM/PQC-міграції;
-   потрібен purpose-built. Наявні рішення (SandboxAQ, Keyfactor, Venafi, IBM)
-   enterprise-дорогі. Mid-market + open-source — порожньо.
+## Problem (with numbers)
+1. **A hard regulatory deadline exists.** NIST PQC standards (FIPS 203/204/205,
+   2024). CNSA 2.0: new national-security systems by 2027, legacy by 2030, full
+   migration by 2035. EU / financial sector are following.
+2. **Harvest-now-decrypt-later.** Data encrypted with RSA/ECC today can be
+   collected now and decrypted later. The vulnerability is active today, not "in
+   2030".
+3. **Blindness at the start.** The first migration step is discovery, and
+   organizations consistently find 3-5x more crypto assets than expected. "You
+   can't migrate what you can't see."
+4. **Tooling gap.** No general security platform provides CBOM/PQC migration; it
+   requires purpose-built tooling. Existing solutions (SandboxAQ, Keyfactor,
+   Venafi, IBM) are enterprise-priced. Mid-market + open-source is empty.
 
-## Цільовий покупець
-- Спершу: **platform / security-інженери mid-market** компаній (фінтех, SaaS,
-  healthcare), яким регуляція або клієнтський аудит ставить вимогу CBOM, а Wiz/
-  SandboxAQ — поза бюджетом.
-- Далі: GRC / compliance-команди (звітність під CNSA 2.0 / EU / DORA), які платять
-  за governance і докази.
+## Target buyer
+- First: **platform / security engineers at mid-market** companies (fintech,
+  SaaS, healthcare) for whom regulation or a customer audit requires a CBOM, but
+  Wiz / SandboxAQ are out of budget.
+- Then: GRC / compliance teams (reporting under CNSA 2.0 / EU / DORA) who pay for
+  governance and evidence.
 
-## Конкуренти і диференціація
+## Competitors and differentiation
 
-| | Тип | Сегмент | Слабкість, яку б'ємо |
+| | Type | Segment | Weakness we exploit |
 |---|---|---|---|
-| SandboxAQ AQtive Guard | crypto-management | enterprise | дорого, closed, важкий onboarding |
-| Keyfactor Command | PKI/cert lifecycle | enterprise | cert-центричний, не повний CBOM |
-| Venafi (CyberArk) | machine identity/certs | enterprise | про сертифікати, не про крипто в коді |
-| IBM Quantum Safe Explorer | crypto discovery | enterprise | прив'язка до IBM-екосистеми |
+| SandboxAQ AQtive Guard | crypto-management | enterprise | expensive, closed, heavy onboarding |
+| Keyfactor Command | PKI/cert lifecycle | enterprise | cert-centric, not a full CBOM |
+| Venafi (CyberArk) | machine identity/certs | enterprise | about certificates, not crypto in code |
+| IBM Quantum Safe Explorer | crypto discovery | enterprise | tied to the IBM ecosystem |
 
-**Щілина qryx (як у idryx):**
-1. **Open-core** — OSS-сканер + CBOM-генератор для adoption і self-host у
-   регульованих; платне — enforcement, governance, SaaS, звіти.
-2. **Mid-market / dev-first** — CLI + CI-інтеграція, що ставиться за годину; великі
-   цілять Fortune-1000.
-3. **CBOM-native граф**, не cert-lifecycle з прикрученим скануванням: крипто в
-   коді, бінарях, протоколах і хмарі — в одній моделі з шляхами впливу.
+**qryx's gap (same as idryx):**
+1. **Open-core** — OSS scanner + CBOM generator for adoption and self-hosting in
+   regulated environments; paid: enforcement, governance, SaaS, reports.
+2. **Mid-market / dev-first** — CLI + CI integration that installs in an hour;
+   the big players target Fortune 1000.
+3. **CBOM-native graph**, not cert-lifecycle with scanning bolted on: crypto in
+   code, binaries, protocols, and cloud — in one model with impact paths.
 
-Ризик: ринок compliance-driven (довший цикл продажу), потрібна крипто-доменна
-експертиза. Перевага: бюджет з'являється примусово за календарем регуляції, а не
-за хайпом — на відміну від перенасиченого AI-security.
+Risk: a compliance-driven market (longer sales cycle), requires crypto-domain
+expertise. Upside: the budget appears by force on the regulatory calendar, not on
+hype — unlike the oversaturated AI-security space.
 
-## Що це технічно
-- **CBOM** — Cryptography Bill of Materials у форматі CycloneDX (є офіційне
-  розширення під крипто-активи). Стандартний вивід → інтеграція в наявні pipeline.
-- **Discovery** — статичний аналіз (виклики крипто-API, конфіги TLS, hardcoded
-  ключі) + динамічний (активні TLS-handshake скани, інспекція сертифікатів) +
-  інвентар з cloud KMS / key stores.
-- **Crypto-agility** — оцінка, наскільки систему можна перевести на інший алгоритм
-  без переписування; рекомендація абстракційного шару, де його бракує.
+## What this is technically
+- **CBOM** — Cryptography Bill of Materials in CycloneDX format (there is an
+  official extension for crypto assets). Standard output → integrates into
+  existing pipelines.
+- **Discovery** — static analysis (crypto API calls, TLS config, hardcoded keys)
+  + dynamic (active TLS handshake scans, certificate inspection) + inventory from
+  cloud KMS / key stores.
+- **Crypto-agility** — assessment of how easily a system can switch algorithms
+  without a rewrite; recommends an abstraction layer where one is missing.
 
-## Архітектура
+## Architecture
 
 ```
-Джерела (конектори, тільки читання):
-  Код-репо (статичний аналіз крипто)  ─┐
-  Бінарі / контейнер-образи           ─┤
-  TLS / мережеві скани                ─┤──► Інжест/нормалізація ──► CBOM-граф
-  Сертифікати (CT, endpoints)         ─┤                              │
-  Key stores / HSM                    ─┤                              ▼
-  Cloud KMS (AWS/GCP/Azure)           ─┤        Risk-движок (вразливе/слабке/
-  Залежності (SBOM/crypto libs)       ─┘         misconfig/quantum-vulnerable)
-                                                              │
-                              ┌───────────────────────────────┤
-                              ▼                                ▼
-                       CBOM-звіт / алерти            Crypto-agility рекомендації
-                       (CycloneDX, SIEM, GRC)        (PR у код/конфіг, план міграції)
+Sources (read-only connectors):
+  Code repos (static crypto analysis)  ─┐
+  Binaries / container images          ─┤
+  TLS / network scans                  ─┤──► Ingest/normalize ──► CBOM graph
+  Certificates (CT, endpoints)         ─┤                            │
+  Key stores / HSM                     ─┤                            ▼
+  Cloud KMS (AWS/GCP/Azure)            ─┤        Risk engine (vulnerable/weak/
+  Dependencies (SBOM/crypto libs)      ─┘         misconfig/quantum-vulnerable)
+                                                            │
+                              ┌──────────────────────────────┤
+                              ▼                               ▼
+                       CBOM report / alerts           Crypto-agility recommendations
+                       (CycloneDX, SIEM, GRC)         (PR to code/config, migration plan)
 ```
 
-Те саме ядро, що в idryx: багато конекторів на вході → одна нормалізована модель
-→ граф → ризик → ремедіація. Конектори різні, рушій спільний.
+Same core as idryx: many connectors in → one normalized model → graph → risk →
+remediation. Connectors differ, the engine is shared.
 
-## Модель даних (ескіз)
+## Data model (sketch)
 - **CryptoAsset** {type: key|cert|algorithm|protocol|library, algo, key_size,
   source, location, created, expires}
 - **Usage** {asset, where (file/host/service), how (sign|encrypt|tls|hash), context}
 - **Risk** {asset, class: quantum-vulnerable|weak|misconfig|expired|hardcoded, severity}
-- **Relationship** ребра: asset→usage, asset→dependency, asset→owner,
-  usage→data_protected (що саме під захистом цього активу).
-- Запити: «всі quantum-vulnerable активи, що захищають PII», «де RSA <2048»,
-  «сертифікати, що спливають за 30 днів і чим підписані», «що зламається при
-  вимкненні TLS 1.2».
+- **Relationship** edges: asset→usage, asset→dependency, asset→owner,
+  usage→data_protected (what the asset is protecting).
+- Queries: "all quantum-vulnerable assets protecting PII", "where is RSA <2048",
+  "certificates expiring in 30 days and what signed them", "what breaks if TLS
+  1.2 is disabled".
 
-## Стек
-- Сканери/ядро: **Go** (CLI, оркестрація, конектори, TLS-скани).
-- Гарячі парсери (бінарі, ASN.1/x509, протоколи): **Rust** за потреби.
-- Аналіз/звіти/класифікація ризику: **Python**.
-- Граф: спершу Postgres → за потреби графова БД (як в idryx).
-- Вивід: CycloneDX CBOM, OTLP/SIEM, GRC-звіти.
-- UI: **TypeScript** (React) — пізніше.
-- Ліцензія: open-core (OSS сканер+CBOM, платні enforcement/governance/SaaS).
+## Stack
+- Scanners/core: **Go** (CLI, orchestration, connectors, TLS scans).
+- Hot parsers (binaries, ASN.1/x509, protocols): **Rust** as needed.
+- Analysis/reports/risk classification: **Python** if needed.
+- Graph: Postgres first → graph DB if needed (like idryx).
+- Output: CycloneDX CBOM, OTLP/SIEM, GRC reports.
+- UI: **TypeScript** (React) — later.
+- License: open-core (OSS scanner+CBOM, paid enforcement/governance/SaaS).
 
-## Дорожня карта (фази)
+## Roadmap (phases)
 
-### Фаза 0 — CLI-сканер + CBOM (2-3 тижні)
-- Статичний скан одного репо: крипто-виклики, TLS-конфіги, hardcoded ключі.
-- Вивід CBOM (CycloneDX) + людиночитний звіт.
-- Класифікація: quantum-vulnerable / weak / ok.
-- **Go/no-go:** на реальному репо знаходимо те, чого власник не знав, за 10 хв.
+### Phase 0 — CLI scanner + CBOM (2-3 weeks) — DONE
+- Static scan of one repo: crypto calls, TLS config, hardcoded keys.
+- CBOM output (CycloneDX) + human-readable report.
+- Classification: quantum-vulnerable / weak / ok.
+- **Go/no-go:** on a real repo, find something the owner didn't know in 10 min.
 
-### Фаза 1 — MVP discovery (1-1.5 міс)
-- Конектори: код + бінарі/образи + TLS-скан endpoint'ів + сертифікати.
-- CBOM-граф у Postgres, дедуплікація активів між джерелами.
-- Risk-движок: повний набір класів ризику + severity.
-- CI-інтеграція (fail на нову вразливу крипту) + базовий web-звіт.
-- **Демо:** під'єднав репо+домени → за годину карта крипто-ризику з пріоритетами.
+### Phase 1 — MVP discovery (1-1.5 months)
+- tree-sitter instead of regex (accuracy, fewer false positives).
+- Connectors: code + binaries/images + TLS scan of endpoints + certificates.
+- CBOM graph in Postgres, asset deduplication across sources.
+- Risk engine: full set of risk classes + severity.
+- CI integration (fail on new vulnerable crypto) + basic web report.
+- **Demo:** connect repo + domains → in an hour, a prioritized crypto-risk map.
 
-### Фаза 2 — Cloud KMS + залежності (1.5 міс)
-- Конектори: AWS KMS/ACM, GCP KMS, Azure Key Vault; crypto-libs із SBOM.
-- Owner-mapping активів; кореляція «актив → які дані захищає».
-- Звіти під CNSA 2.0 / аудит.
+### Phase 2 — Cloud KMS + dependencies (1.5 months)
+- Connectors: AWS KMS/ACM, GCP KMS, Azure Key Vault; crypto libs from SBOM.
+- Owner-mapping of assets; correlation "asset → what data it protects".
+- Reports for CNSA 2.0 / audit.
 
-### Фаза 3 — Crypto-agility + ремедіація (1.5 міс)
-- Оцінка agility per актив; генерація плану міграції з пріоритетом за ризиком.
-- PR у код/Terraform: підняти key size, замінити алгоритм, додати hybrid-схему.
-- Пояснення кожної зміни (як least-privilege diff у idryx).
+### Phase 3 — Crypto-agility + remediation (1.5 months)
+- Per-asset agility assessment; generate a migration plan prioritized by risk.
+- PRs to code/Terraform: raise key size, replace algorithm, add a hybrid scheme.
+- Explanation for each change (like the least-privilege diff in idryx).
 
-### Фаза 4 — Governance / enforcement (платне)
-- Політики (заборонити нову RSA<3072, MD5 тощо) у режимі блокування в CI.
-- Безперервний моніторинг дрейфу крипто-постави.
-- Compliance-дашборди й експорт доказів.
+### Phase 4 — Governance / enforcement (paid)
+- Policies (forbid new RSA<3072, MD5, etc.) in blocking mode in CI.
+- Continuous monitoring of crypto-posture drift.
+- Compliance dashboards and evidence export.
 
-## Монетизація (open-core)
-OSS: сканер + CBOM-генератор + базовий ризик (adoption, довіра, self-host).
-Платне: cloud-конектори, crypto-agility/міграція, enforcement у CI, governance-
-дашборди, compliance-звіти, SaaS-хостинг. Чек росте з масштабом інвентарю й
-глибиною (discovery → migration → governance).
+## Monetization (open-core)
+OSS: scanner + CBOM generator + basic risk (adoption, trust, self-hosting).
+Paid: cloud connectors, crypto-agility/migration, CI enforcement, governance
+dashboards, compliance reports, SaaS hosting. The check grows with inventory
+scale and depth (discovery → migration → governance).
 
-## Моат
-- Накопичена база патернів крипто-використання (точність discovery — це дані).
-- Open-core спільнота + конектори (як в idryx).
-- Спільне ядро з idryx: два продукти, один рушій — швидша розробка обох.
+## Moat
+- Accumulated crypto-usage patterns (discovery accuracy is data).
+- Open-core community + connectors (like idryx).
+- Shared core with idryx: two products, one engine — faster development of both.
 
-## Ризики
-- Compliance-driven продаж довший за security-pain-driven → починати з dev-first
-  OSS-adoption, монетизувати governance згори.
-- Регуляторні дедлайни можуть зсуватись → не прив'язувати ціннісну пропозицію
-  лише до дати; harvest-now-decrypt-later лишається аргументом завжди.
-- Cloud-провайдери додадуть базовий CBOM → фокус на крос-платформну кореляцію й
-  ремедіацію, не на single-cloud інвентар (та сама теза, що в idryx).
-- Крипто-доменна складність → починати з вузького, добре визначеного скоупу
-  (TLS + код), розширювати інкрементально.
+## Risks
+- Compliance-driven sales are slower than security-pain-driven → start with
+  dev-first OSS adoption, monetize governance from the top.
+- Regulatory deadlines can shift → don't tie the value proposition to a single
+  date alone; harvest-now-decrypt-later remains an argument regardless.
+- Cloud providers may add basic CBOM → focus on cross-platform correlation and
+  remediation, not single-cloud inventory (same thesis as idryx).
+- Crypto-domain complexity → start with a narrow, well-defined scope (TLS + code),
+  expand incrementally.
 
-## Зв'язок з idryx
-Спільне ядро `X-BOM → граф → ризик → ремедіація`. Практично: інжест-рушій,
-граф-шар (Postgres-модель), risk-движок-каркас і PR-ремедіація можуть бути
-спільною бібліотекою. idryx-конектори дають Identity-граф, qryx-конектори —
-CryptoAsset-граф. Перетин майбутній: «хто володіє цим ключем / хто може ним
-скористатись» — qryx-актив × idryx-ідентичність.
+## Relationship to idryx
+Shared core `X-BOM → graph → risk → remediation`. Practically: the ingest engine,
+graph layer (Postgres model), risk-engine skeleton, and PR remediation can be a
+shared library. idryx connectors produce the Identity graph, qryx connectors the
+CryptoAsset graph. Future intersection: "who owns this key / who can use it" —
+qryx asset × idryx identity.
 
-## Найближчі кроки
-1. Скелет репо qryx (Go-проєкт, структура сканера).
-2. Фаза 0: статичний крипто-сканер одного репо + вивід CBOM (CycloneDX).
-3. Перевірити на 2-3 реальних кодобазах: чи знаходимо невідоме власнику.
+## Next steps
+1. Phase 1: replace regex with tree-sitter; introduce the Postgres CBOM graph.
+2. Add the TLS endpoint scanner and certificate connector.
+3. Validate on 2-3 real codebases: do we find what the owner didn't know?
