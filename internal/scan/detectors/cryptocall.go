@@ -16,32 +16,18 @@ type pattern struct {
 	primitive model.Primitive
 }
 
-// CryptoCall detects cryptographic algorithm usage in source via API patterns.
-// Phase 0 uses regex, not full AST: cheap, good enough to surface unknowns.
+// CryptoCall detects cryptographic algorithm usage in Python and JS/TS source
+// via API patterns. Go is handled by the AST-based GoAST detector instead, which
+// avoids the false positives regex produces on comments and string literals.
 type CryptoCall struct {
 	patterns map[string][]pattern // ext -> patterns
 }
 
-// NewCryptoCall builds the detector with built-in patterns for Go, Python and
-// JS/TS.
+// NewCryptoCall builds the detector with built-in patterns for Python and
+// JS/TS. Go is handled by the AST-based GoAST detector, which avoids the false
+// positives regex matching produces on comments, docs and string literals.
 func NewCryptoCall() *CryptoCall {
 	mk := func(expr string) *regexp.Regexp { return regexp.MustCompile(expr) }
-
-	goPatterns := []pattern{
-		{mk(`crypto/md5`), "MD5", model.PrimitiveHash},
-		{mk(`crypto/sha1`), "SHA-1", model.PrimitiveHash},
-		{mk(`crypto/sha256`), "SHA-256", model.PrimitiveHash},
-		{mk(`crypto/sha512`), "SHA-512", model.PrimitiveHash},
-		{mk(`crypto/des`), "DES", model.PrimitiveEncryption},
-		{mk(`crypto/rc4`), "RC4", model.PrimitiveEncryption},
-		{mk(`crypto/aes`), "AES", model.PrimitiveEncryption},
-		{mk(`crypto/rsa`), "RSA", model.PrimitiveSignature},
-		{mk(`crypto/ecdsa`), "ECDSA", model.PrimitiveSignature},
-		{mk(`crypto/ed25519`), "Ed25519", model.PrimitiveSignature},
-		{mk(`crypto/dsa`), "DSA", model.PrimitiveSignature},
-		{mk(`crypto/ecdh`), "ECDH", model.PrimitiveKeyExch},
-		{mk(`chacha20`), "ChaCha20", model.PrimitiveEncryption},
-	}
 
 	pyPatterns := []pattern{
 		{mk(`hashlib\.md5`), "MD5", model.PrimitiveHash},
@@ -72,7 +58,6 @@ func NewCryptoCall() *CryptoCall {
 	}
 
 	p := map[string][]pattern{
-		".go":  goPatterns,
 		".py":  pyPatterns,
 		".js":  jsPatterns,
 		".ts":  jsPatterns,

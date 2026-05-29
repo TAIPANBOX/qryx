@@ -11,6 +11,7 @@ import (
 func TestScanSample(t *testing.T) {
 	s := scan.New(
 		detectors.NewCertFile(),
+		detectors.NewGoAST(),
 		detectors.NewCryptoCall(),
 		detectors.NewTLSConfig(),
 		detectors.NewHardcoded(),
@@ -27,8 +28,10 @@ func TestScanSample(t *testing.T) {
 	}
 
 	want := map[string]model.RiskClass{
-		"MD5":         model.RiskWeak,
-		"RSA":         model.RiskQuantumVulnerable,
+		"MD5": model.RiskWeak,
+		// RSA-1024: the AST detector extracts the 1024-bit key size, so this is
+		// classified weak (below 2048) rather than generic quantum-vulnerable.
+		"RSA":         model.RiskWeak,
 		"SHA-1":       model.RiskWeak,
 		"SHA-256":     model.RiskNone,
 		"private-key": model.RiskHardcoded,

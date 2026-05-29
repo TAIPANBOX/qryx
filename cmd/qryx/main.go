@@ -52,6 +52,7 @@ func run(args []string) error {
 
 	scanner := scan.New(
 		detectors.NewCertFile(),
+		detectors.NewGoAST(),
 		detectors.NewCryptoCall(),
 		detectors.NewTLSConfig(),
 		detectors.NewHardcoded(),

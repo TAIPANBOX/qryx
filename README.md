@@ -37,8 +37,9 @@ make scan
 ```
 
 ## What works today (Phase 0)
-A single-tree CLI scanner with 5 detectors:
-- `cryptocall` — crypto API usage in source (Go / Python / JS / TS)
+A single-tree CLI scanner with 6 detectors:
+- `goast` — crypto usage in Go via AST import resolution (no regex false positives)
+- `cryptocall` — crypto API usage in Python / JS / TS source
 - `certfile` — PEM certificate parsing (algorithm, key size, expiry)
 - `tlsconfig` — legacy TLS/SSL in code and nginx/apache config
 - `hardcoded` — private keys embedded in source/config
