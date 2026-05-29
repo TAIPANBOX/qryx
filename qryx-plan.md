@@ -9,9 +9,8 @@ single **CBOM graph**, and answers a question few can answer quickly today:
 > "Where exactly are we using vulnerable cryptography, what is at risk if it is
 > compromised, and what is the minimal set of changes needed to migrate?"
 
-Sibling to idryx. Shared DNA: **X-BOM → normalize → graph → risk →
-remediation (PR)**. idryx is about identities, qryx about crypto. One core way of
-thinking, different BOM connectors.
+The product is built as a platform: one core (ingest, graph, risk, remediation)
+with many read-only connectors on the input side.
 
 ## Problem (with numbers)
 1. **A hard regulatory deadline exists.** NIST PQC standards (FIPS 203/204/205,
@@ -157,13 +156,6 @@ scale and depth (discovery → migration → governance).
   remediation, not single-cloud inventory (same thesis as idryx).
 - Crypto-domain complexity → start with a narrow, well-defined scope (TLS + code),
   expand incrementally.
-
-## Relationship to idryx
-Shared core `X-BOM → graph → risk → remediation`. Practically: the ingest engine,
-graph layer (Postgres model), risk-engine skeleton, and PR remediation can be a
-shared library. idryx connectors produce the Identity graph, qryx connectors the
-CryptoAsset graph. Future intersection: "who owns this key / who can use it" —
-qryx asset × idryx identity.
 
 ## Next steps
 1. Phase 1: replace regex with tree-sitter; introduce the Postgres CBOM graph.

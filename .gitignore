@@ -38,3 +38,7 @@ node_modules/
 # Editor
 .idea/
 .vscode/
+
+# Session / tooling (not part of the project)
+.remember/
+.claude/

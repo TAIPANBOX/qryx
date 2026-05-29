@@ -4,10 +4,6 @@ Organization-wide cryptography inventory and management: what is encrypted,
 where, and with which algorithm; which of those assets are quantum-vulnerable;
 and how to migrate them. Open-core, dev-first, built for mid-market.
 
-> Sibling product to [idryx](https://github.com/TAIPANBOX/idryx) (Identity
-> Security Graph). Shared architectural DNA: **X-BOM → graph → risk →
-> remediation**. idryx does this for identities, qryx for cryptography.
-
 ## Why
 NIST standardized post-quantum algorithms (2024); CNSA 2.0 sets the deadlines
 (new systems 2027, legacy 2030, full migration 2035). "Harvest now, decrypt
