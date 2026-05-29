@@ -42,7 +42,7 @@ with many read-only connectors on the input side.
 | Venafi (CyberArk) | machine identity/certs | enterprise | about certificates, not crypto in code |
 | IBM Quantum Safe Explorer | crypto discovery | enterprise | tied to the IBM ecosystem |
 
-**qryx's gap (same as idryx):**
+**qryx's gap:**
 1. **Open-core** — OSS scanner + CBOM generator for adoption and self-hosting in
    regulated environments; paid: enforcement, governance, SaaS, reports.
 2. **Mid-market / dev-first** — CLI + CI integration that installs in an hour;
@@ -82,7 +82,7 @@ Sources (read-only connectors):
                        (CycloneDX, SIEM, GRC)         (PR to code/config, migration plan)
 ```
 
-Same core as idryx: many connectors in → one normalized model → graph → risk →
+Platform core: many connectors in → one normalized model → graph → risk →
 remediation. Connectors differ, the engine is shared.
 
 ## Data model (sketch)
@@ -100,7 +100,7 @@ remediation. Connectors differ, the engine is shared.
 - Scanners/core: **Go** (CLI, orchestration, connectors, TLS scans).
 - Hot parsers (binaries, ASN.1/x509, protocols): **Rust** as needed.
 - Analysis/reports/risk classification: **Python** if needed.
-- Graph: Postgres first → graph DB if needed (like idryx).
+- Graph: Postgres first → graph DB if needed.
 - Output: CycloneDX CBOM, OTLP/SIEM, GRC reports.
 - UI: **TypeScript** (React) — later.
 - License: open-core (OSS scanner+CBOM, paid enforcement/governance/SaaS).
@@ -129,7 +129,7 @@ remediation. Connectors differ, the engine is shared.
 ### Phase 3 — Crypto-agility + remediation (1.5 months)
 - Per-asset agility assessment; generate a migration plan prioritized by risk.
 - PRs to code/Terraform: raise key size, replace algorithm, add a hybrid scheme.
-- Explanation for each change (like the least-privilege diff in idryx).
+- An explanation for each change.
 
 ### Phase 4 — Governance / enforcement (paid)
 - Policies (forbid new RSA<3072, MD5, etc.) in blocking mode in CI.
@@ -144,8 +144,8 @@ scale and depth (discovery → migration → governance).
 
 ## Moat
 - Accumulated crypto-usage patterns (discovery accuracy is data).
-- Open-core community + connectors (like idryx).
-- Shared core with idryx: two products, one engine — faster development of both.
+- Open-core community + connectors.
+- Each new connector raises the barrier to entry.
 
 ## Risks
 - Compliance-driven sales are slower than security-pain-driven → start with
@@ -153,7 +153,7 @@ scale and depth (discovery → migration → governance).
 - Regulatory deadlines can shift → don't tie the value proposition to a single
   date alone; harvest-now-decrypt-later remains an argument regardless.
 - Cloud providers may add basic CBOM → focus on cross-platform correlation and
-  remediation, not single-cloud inventory (same thesis as idryx).
+  remediation, not single-cloud inventory.
 - Crypto-domain complexity → start with a narrow, well-defined scope (TLS + code),
   expand incrementally.
 
