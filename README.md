@@ -28,6 +28,7 @@ See [`qryx-plan.md`](./qryx-plan.md) for the full design and roadmap.
 make build
 ./bin/qryx scan <path>                 # static scan of a code tree
 ./bin/qryx scan --format cbom <path>   # CycloneDX 1.6 CBOM (JSON)
+./bin/qryx scan --format html <path> > report.html   # self-contained web report
 ./bin/qryx scan --fail-on high <path>  # exit 2 if any finding >= high (for CI)
 
 ./bin/qryx tls example.com:443         # probe a live endpoint's TLS posture
@@ -66,7 +67,9 @@ Findings from every source are aggregated into a **cryptographic asset graph**:
 one node per logical asset (algorithm + key size) carrying all of its
 occurrences, deduplicated across files and sources. The CBOM emits one CycloneDX
 component per asset with every occurrence listed, and the human report shows
-asset-level counts (e.g. one `RSA` row with 112 occurrences, not 112 rows).
+asset-level counts (e.g. one `RSA` row with 112 occurrences, not 112 rows). The
+same graph also renders as a self-contained HTML report (`--format html`): risk
+chips plus a per-asset table with collapsible occurrence lists.
 
 The graph can be saved as a snapshot (`--save`) and a later scan compared
 against it (`--baseline`) to surface **drift** — assets newly introduced or

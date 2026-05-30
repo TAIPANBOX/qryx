@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>qryx — cryptography report</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 14px/1.5 -apple-system, system-ui, sans-serif; margin: 2rem; max-width: 1100px; }
+  h1 { font-size: 1.4rem; margin: 0 0 .25rem; }
+  .meta { color: #777; margin-bottom: 1rem; }
+  .chips { display: flex; gap: .5rem; flex-wrap: wrap; margin: 1rem 0; }
+  .chip { padding: .35rem .7rem; border-radius: 999px; font-weight: 600; color: #fff; }
+  table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
+  th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid #8883; vertical-align: top; }
+  th { font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; color: #888; }
+  .badge { display: inline-block; padding: .1rem .5rem; border-radius: .4rem; color: #fff; font-size: .8rem; font-weight: 600; }
+  .sev-critical { background: #b00020; }
+  .sev-high     { background: #d9480f; }
+  .sev-medium   { background: #b08900; }
+  .sev-low      { background: #2b6cb0; }
+  .sev-info,
+  .sev-none     { background: #6c757d; }
+  .algo { font-family: ui-monospace, monospace; font-weight: 600; }
+  details summary { cursor: pointer; color: #2b6cb0; }
+  .loc { font-family: ui-monospace, monospace; font-size: .85rem; color: #666; }
+</style>
+</head>
+<body>
+  <h1>qryx cryptography report</h1>
+  <div class="meta">{{.Root}} — {{.Sources}} sources scanned, {{.Findings}} findings, {{.Assets}} unique assets</div>
+
+  {{if .Chips}}
+  <div class="chips">
+    {{range .Chips}}<span class="chip sev-{{.Sev}}">{{.Count}} {{.Class}}</span>{{end}}
+  </div>
+  {{end}}
+
+  {{if .Rows}}
+  <table>
+    <thead>
+      <tr><th>Severity</th><th>Risk</th><th>Algorithm</th><th>Occurrences</th><th>Detail</th><th>Where</th></tr>
+    </thead>
+    <tbody>
+      {{range .Rows}}
+      <tr>
+        <td><span class="badge sev-{{.Sev}}">{{.Sev}}</span></td>
+        <td>{{.Class}}</td>
+        <td class="algo">{{.Algo}}</td>
+        <td>{{.Count}}</td>
+        <td>{{.Reason}}</td>
+        <td>
+          <details>
+            <summary>{{.First}}{{if .More}} (+{{.More}} more){{end}}</summary>
+            {{range .Locations}}<div class="loc">{{.}}</div>{{end}}
+          </details>
+        </td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <p>No cryptographic assets detected.</p>
+  {{end}}
+</body>
+</html>
