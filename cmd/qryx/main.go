@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TAIPANBOX/qryx/internal/binscan"
 	"github.com/TAIPANBOX/qryx/internal/model"
 	"github.com/TAIPANBOX/qryx/internal/probe"
 	"github.com/TAIPANBOX/qryx/internal/report"
@@ -39,7 +40,7 @@ func run(args []string) error {
 		baseline  = fs.String("baseline", "", "compare the asset graph against this snapshot and report drift")
 	)
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage:\n  qryx scan [flags] <path>\n  qryx tls [flags] <host:port>...\n\nflags:\n")
+		fmt.Fprintf(os.Stderr, "usage:\n  qryx scan [flags] <path>\n  qryx tls [flags] <host:port>...\n  qryx bin [flags] <file|dir>...\n\nflags:\n")
 		fs.PrintDefaults()
 	}
 
@@ -48,7 +49,7 @@ func run(args []string) error {
 		return fmt.Errorf("no command given")
 	}
 	cmd := args[0]
-	if cmd != "scan" && cmd != "tls" {
+	if cmd != "scan" && cmd != "tls" && cmd != "bin" {
 		fs.Usage()
 		return fmt.Errorf("unknown command %q", cmd)
 	}
@@ -73,6 +74,12 @@ func run(args []string) error {
 			return fmt.Errorf("tls requires at least one host:port target")
 		}
 		res, err = runTLS(fs.Args(), *timeout)
+	case "bin":
+		if fs.NArg() == 0 {
+			fs.Usage()
+			return fmt.Errorf("bin requires at least one file or directory")
+		}
+		res, err = runBin(fs.Args())
 	}
 	if err != nil {
 		return err
@@ -139,6 +146,17 @@ func run(args []string) error {
 		}
 	}
 	return nil
+}
+
+// runBin scans each path for ELF binaries and aggregates their crypto findings.
+func runBin(paths []string) (*scan.Result, error) {
+	findings, err := binscan.Scan(paths)
+	if err != nil {
+		return nil, err
+	}
+	res := &scan.Result{Root: "bin://" + strings.Join(paths, ","), FilesWalked: len(paths)}
+	res.Findings = risk.Apply(findings)
+	return res, nil
 }
 
 // openStore selects a snapshot backend by target: a postgres:// or postgresql://
