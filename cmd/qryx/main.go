@@ -2,6 +2,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"github.com/TAIPANBOX/qryx/internal/risk"
 	"github.com/TAIPANBOX/qryx/internal/scan"
 	"github.com/TAIPANBOX/qryx/internal/scan/detectors"
+	"github.com/TAIPANBOX/qryx/internal/store"
 )
 
 // version is overridden at build time via -ldflags.
@@ -29,9 +31,12 @@ func main() {
 func run(args []string) error {
 	fs := flag.NewFlagSet("qryx", flag.ContinueOnError)
 	var (
-		format  = fs.String("format", "human", "output format: human|cbom")
-		failOn  = fs.String("fail-on", "", "exit non-zero if a finding at or above this severity exists: low|medium|high|critical")
-		timeout = fs.Duration("timeout", 5*time.Second, "per-endpoint connect timeout (tls)")
+		format    = fs.String("format", "human", "output format: human|cbom")
+		failOn    = fs.String("fail-on", "", "exit 2 if any finding is at or above this severity: low|medium|high|critical")
+		failOnNew = fs.String("fail-on-new", "", "exit 2 if a NEW asset (vs --baseline) is at or above this severity")
+		timeout   = fs.Duration("timeout", 5*time.Second, "per-endpoint connect timeout (tls)")
+		save      = fs.String("save", "", "write the asset graph as a snapshot to this file")
+		baseline  = fs.String("baseline", "", "compare the asset graph against this snapshot and report drift")
 	)
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage:\n  qryx scan [flags] <path>\n  qryx tls [flags] <host:port>...\n\nflags:\n")
@@ -73,9 +78,32 @@ func run(args []string) error {
 		return err
 	}
 
+	if *save != "" {
+		if err := (store.JSONStore{Path: *save}).Save(store.Snap(res)); err != nil {
+			return fmt.Errorf("save snapshot: %w", err)
+		}
+	}
+
+	// Compute drift against the baseline, if one is given and exists.
+	var delta store.Delta
+	if *baseline != "" {
+		base, err := (store.JSONStore{Path: *baseline}).Load()
+		switch {
+		case errors.Is(err, store.ErrNotFound):
+			fmt.Fprintf(os.Stderr, "qryx: baseline %s not found; skipping drift\n", *baseline)
+		case err != nil:
+			return fmt.Errorf("load baseline: %w", err)
+		default:
+			delta = store.Diff(base, store.Snap(res))
+		}
+	}
+
 	switch *format {
 	case "human":
 		report.Human(os.Stdout, res)
+		if *baseline != "" {
+			report.Drift(os.Stdout, delta)
+		}
 	case "cbom":
 		if err := report.CBOM(os.Stdout, res, version); err != nil {
 			return err
@@ -91,6 +119,17 @@ func run(args []string) error {
 		}
 		for _, f := range res.Findings {
 			if f.Risk.Severity >= threshold && f.Risk.Class != model.RiskNone {
+				os.Exit(2)
+			}
+		}
+	}
+	if *failOnNew != "" {
+		threshold, ok := parseSeverity(*failOnNew)
+		if !ok {
+			return fmt.Errorf("invalid --fail-on-new value %q", *failOnNew)
+		}
+		for _, n := range delta.Added {
+			if n.Risk.Severity >= threshold && n.Risk.Class != model.RiskNone {
 				os.Exit(2)
 			}
 		}

@@ -5,6 +5,7 @@
 package graph
 
 import (
+	"fmt"
 	"sort"
 
 	"github.com/TAIPANBOX/qryx/internal/model"
@@ -37,6 +38,13 @@ type key struct {
 
 func keyOf(a model.Asset) key {
 	return key{typ: a.Type, algo: risk.NormalizeAlgorithm(a.Algorithm), keySize: a.KeySize}
+}
+
+// AssetKey returns the canonical string identity of an asset — its type,
+// normalized algorithm, and key size — used to match the same logical asset
+// across runs and sources.
+func AssetKey(a model.Asset) string {
+	return fmt.Sprintf("%s|%s|%d", a.Type, risk.NormalizeAlgorithm(a.Algorithm), a.KeySize)
 }
 
 // Build groups findings into asset nodes, deduplicating identical occurrences
@@ -73,7 +81,15 @@ func Build(findings []model.Finding) []AssetNode {
 
 	out := make([]AssetNode, 0, len(order))
 	for _, k := range order {
-		out = append(out, *nodes[k])
+		n := nodes[k]
+		// Deterministic occurrence order so snapshots are stable across runs.
+		sort.SliceStable(n.Occurrences, func(i, j int) bool {
+			if n.Occurrences[i].Location.File != n.Occurrences[j].Location.File {
+				return n.Occurrences[i].Location.File < n.Occurrences[j].Location.File
+			}
+			return n.Occurrences[i].Location.Line < n.Occurrences[j].Location.Line
+		})
+		out = append(out, *n)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Risk.Severity != out[j].Risk.Severity {

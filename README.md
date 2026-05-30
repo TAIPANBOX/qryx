@@ -32,7 +32,13 @@ make build
 
 ./bin/qryx tls example.com:443         # probe a live endpoint's TLS posture
 ./bin/qryx tls --timeout 3s host:443   # version, cipher suite, certificate key
+
+./bin/qryx scan --save base.json <path>              # snapshot the asset graph
+./bin/qryx scan --baseline base.json <path>          # report drift vs baseline
+./bin/qryx scan --baseline base.json --fail-on-new high <path>  # CI: block new crypto
 ```
+
+> Flags must precede the positional path/targets (`qryx scan [flags] <path>`).
 
 > `qryx tls` actively connects to the targets you pass — only the exact
 > `host:port` arguments, no port ranges or host discovery. Probe only endpoints
@@ -61,6 +67,12 @@ one node per logical asset (algorithm + key size) carrying all of its
 occurrences, deduplicated across files and sources. The CBOM emits one CycloneDX
 component per asset with every occurrence listed, and the human report shows
 asset-level counts (e.g. one `RSA` row with 112 occurrences, not 112 rows).
+
+The graph can be saved as a JSON snapshot (`--save`) and a later scan compared
+against it (`--baseline`) to surface **drift** — assets newly introduced or
+removed. `--fail-on-new <severity>` exits non-zero when a scan introduces a new
+asset at or above that severity, the CI hook for "don't add new weak crypto".
+Persistence is behind a `Store` interface; a Postgres backend is the next step.
 
 Risk classification: `quantum-vulnerable` (RSA/ECC/DSA — Shor), `weak`
 (MD5/SHA-1/DES/RC4, RSA<2048), `misconfig`, `expired`, `hardcoded`. Post-quantum
