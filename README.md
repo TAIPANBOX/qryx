@@ -104,6 +104,7 @@ qryx bin /usr/bin/openssl              # crypto in a binary (ELF/PE/Mach-O)
 docker save app:latest -o img.tar && qryx image img.tar   # scan a container image
 qryx aws --region us-east-1            # inventory AWS KMS keys + ACM certs
 qryx gcp --project my-project          # inventory GCP Cloud KMS key versions
+qryx azure --vault-url https://myvault.vault.azure.net/  # inventory Azure Key Vault
 
 qryx scan --save base.json <path>      # snapshot the asset graph
 qryx scan --baseline base.json <path>  # report drift vs the baseline
@@ -149,6 +150,11 @@ behind an interface seam so the connector logic is unit-tested without an accoun
 algorithm (RSA/EC/AES/HMAC, and PQC ML-DSA/ML-KEM/SLH-DSA as safe) via
 Application Default Credentials, behind the same lister seam.
 
+**Azure cloud** (`qryx azure --vault-url <url>`) — Key Vault keys mapped by JSON
+Web Key type (EC/EC-HSM → ECDSA, RSA/RSA-HSM → RSA with size from modulus,
+oct/oct-HSM → AES) via DefaultAzureCredential. Expired keys are flagged
+separately.
+
 **Asset graph** — findings from every source collapse into one node per logical
 asset, deduplicated across files and sources. The CBOM emits one CycloneDX
 component per asset with all occurrences; the human report shows asset-level
@@ -173,7 +179,7 @@ qryx scan --baseline 'postgres://user:pass@host:5432/db' --fail-on-new high <pat
 - [x] static code scan · TLS probing · binary scanning (ELF/PE/Mach-O) · container images
 - [x] cross-source CBOM asset graph · JSON/Postgres persistence · drift detection · CI gate
 - [x] human / CBOM (CycloneDX 1.6) / HTML reports — all CI-gated
-- [x] Phase 2 cloud KMS — AWS and GCP done; Azure Key Vault next
+- [x] Phase 2 cloud KMS — AWS, GCP and Azure done
 - [ ] Phase 3 — crypto-agility scoring and migration PRs
 
 Roadmap and rationale: [`qryx-plan.md`](./qryx-plan.md).

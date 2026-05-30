@@ -12,6 +12,7 @@ import (
 
 	"github.com/TAIPANBOX/qryx/internal/binscan"
 	awscloud "github.com/TAIPANBOX/qryx/internal/cloud/aws"
+	azurecloud "github.com/TAIPANBOX/qryx/internal/cloud/azure"
 	gcpcloud "github.com/TAIPANBOX/qryx/internal/cloud/gcp"
 	"github.com/TAIPANBOX/qryx/internal/imagescan"
 	"github.com/TAIPANBOX/qryx/internal/model"
@@ -46,9 +47,10 @@ func run(args []string) error {
 		profile   = fs.String("profile", "", "AWS shared-config profile (aws)")
 		project   = fs.String("project", "", "GCP project ID (gcp)")
 		location  = fs.String("location", "global", "GCP KMS location (gcp)")
+		vaultURL  = fs.String("vault-url", "", "Azure Key Vault URL, e.g. https://myvault.vault.azure.net/ (azure)")
 	)
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage:\n  qryx scan [flags] <path>\n  qryx tls [flags] <host:port>...\n  qryx bin [flags] <file|dir>...\n  qryx image [flags] <image.tar>...\n  qryx aws [flags]\n  qryx gcp --project <id> [flags]\n\nflags:\n")
+		fmt.Fprintf(os.Stderr, "usage:\n  qryx scan [flags] <path>\n  qryx tls [flags] <host:port>...\n  qryx bin [flags] <file|dir>...\n  qryx image [flags] <image.tar>...\n  qryx aws [flags]\n  qryx gcp --project <id> [flags]\n  qryx azure --vault-url <url> [flags]\n\nflags:\n")
 		fs.PrintDefaults()
 	}
 
@@ -57,7 +59,7 @@ func run(args []string) error {
 		return fmt.Errorf("no command given")
 	}
 	cmd := args[0]
-	if cmd != "scan" && cmd != "tls" && cmd != "bin" && cmd != "image" && cmd != "aws" && cmd != "gcp" {
+	if cmd != "scan" && cmd != "tls" && cmd != "bin" && cmd != "image" && cmd != "aws" && cmd != "gcp" && cmd != "azure" {
 		fs.Usage()
 		return fmt.Errorf("unknown command %q", cmd)
 	}
@@ -102,6 +104,12 @@ func run(args []string) error {
 			return fmt.Errorf("gcp requires --project")
 		}
 		res, err = runGCP(*project, *location)
+	case "azure":
+		if *vaultURL == "" {
+			fs.Usage()
+			return fmt.Errorf("azure requires --vault-url")
+		}
+		res, err = runAzure(*vaultURL)
 	}
 	if err != nil {
 		return err
@@ -205,6 +213,17 @@ func runAWS(region, profile string) (*scan.Result, error) {
 		root = "aws://default"
 	}
 	res := &scan.Result{Root: root, FilesWalked: 1}
+	res.Findings = risk.Apply(findings)
+	return res, nil
+}
+
+// runAzure inventories keys in an Azure Key Vault.
+func runAzure(vaultURL string) (*scan.Result, error) {
+	findings, err := azurecloud.Scan(context.Background(), vaultURL)
+	if err != nil {
+		return nil, err
+	}
+	res := &scan.Result{Root: "azure://" + vaultURL, FilesWalked: 1}
 	res.Findings = risk.Apply(findings)
 	return res, nil
 }
