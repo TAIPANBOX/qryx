@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>qryx — CNSA 2.0 Audit Report</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 14px/1.5 -apple-system, system-ui, sans-serif; margin: 2rem; max-width: 1100px; }
+  h1 { font-size: 1.4rem; margin: 0 0 .15rem; }
+  h2 { font-size: 1.05rem; margin: 1.6rem 0 .5rem; border-bottom: 1px solid #8882; padding-bottom: .3rem; }
+  .meta { color: #777; margin-bottom: 1rem; font-size: .88rem; }
+  .score { font-size: 2.4rem; font-weight: 700; }
+  .score-box { display:inline-block; background:#f4f4f4; border-radius:.6rem; padding:.6rem 1.2rem; margin-right:1rem; }
+  .score-label { font-size:.78rem; color:#888; display:block; }
+  .chips { display:flex; gap:.5rem; flex-wrap:wrap; margin:.8rem 0 1.2rem; }
+  .chip { padding:.3rem .8rem; border-radius:999px; font-size:.82rem; font-weight:600; color:#fff; }
+  .chip-red    { background:#b00020; }
+  .chip-orange { background:#d9480f; }
+  .chip-blue   { background:#2b6cb0; }
+  .chip-green  { background:#276749; }
+  table { border-collapse:collapse; width:100%; margin-top:.5rem; }
+  th, td { text-align:left; padding:.45rem .6rem; border-bottom:1px solid #8882; vertical-align:top; }
+  th { font-size:.78rem; text-transform:uppercase; letter-spacing:.03em; color:#888; }
+  .badge { display:inline-block; padding:.1rem .45rem; border-radius:.35rem; color:#fff; font-size:.78rem; font-weight:600; }
+  .b-nc  { background:#b00020; }
+  .b-iss { background:#d9480f; }
+  .b-ok  { background:#276749; }
+  .algo  { font-family:ui-monospace,monospace; font-weight:600; }
+  .dl-im { color:#b00020; font-weight:600; }
+  .dl-27 { color:#d9480f; font-weight:600; }
+  .dl-30 { color:#b08900; font-weight:600; }
+  details summary { cursor:pointer; color:#2b6cb0; font-size:.85rem; }
+  .loc { font-family:ui-monospace,monospace; font-size:.82rem; color:#666; }
+</style>
+</head>
+<body>
+  <h1>CNSA 2.0 Audit Report</h1>
+  <div class="meta">{{.Root}} &mdash; generated {{.GeneratedAt}}</div>
+
+  <div>
+    <span class="score-box">
+      <span class="score">{{.ScorePct}}%</span>
+      <span class="score-label">CNSA 2.0 compliant</span>
+    </span>
+    <span class="score-box">
+      <span class="score" style="color:#b00020">{{.Summary.NonCompliant}}</span>
+      <span class="score-label">non-compliant assets</span>
+    </span>
+    <span class="score-box">
+      <span class="score" style="color:#d9480f">{{.Summary.Issues}}</span>
+      <span class="score-label">operational issues</span>
+    </span>
+    <span class="score-box">
+      <span class="score" style="color:#276749">{{.Summary.Compliant}}</span>
+      <span class="score-label">compliant assets</span>
+    </span>
+  </div>
+
+  <div class="chips">
+    {{if .ImmediateCount}}<span class="chip chip-red">{{.ImmediateCount}} immediate action</span>{{end}}
+    {{if .Deadline2027Count}}<span class="chip chip-orange">{{.Deadline2027Count}} by 2027</span>{{end}}
+    {{if .Deadline2030Count}}<span class="chip chip-blue">{{.Deadline2030Count}} by 2030</span>{{end}}
+    {{if .Summary.Compliant}}<span class="chip chip-green">{{.Summary.Compliant}} compliant</span>{{end}}
+  </div>
+
+  {{if .NonCompliant}}
+  <h2>Non-compliant assets</h2>
+  <table>
+    <thead><tr><th>Deadline</th><th>Algorithm</th><th>Occurrences</th><th>Required action</th><th>Where</th></tr></thead>
+    <tbody>
+      {{range .NonCompliant}}
+      <tr>
+        <td class="{{deadlineClass .Deadline}}">{{.Deadline}}</td>
+        <td class="algo">{{assetNameFn .Node}}</td>
+        <td>{{len .Node.Occurrences}}</td>
+        <td>{{.Action}}</td>
+        <td>
+          {{if .Node.Occurrences}}
+          <details>
+            <summary>{{firstLoc .Node}} {{if gt (len .Node.Occurrences) 1}}(+{{extraCount .Node}} more){{end}}</summary>
+            {{range .Node.Occurrences}}<div class="loc">{{locStr .}}</div>{{end}}
+          </details>
+          {{end}}
+        </td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{end}}
+
+  {{if .Issues}}
+  <h2>Operational issues</h2>
+  <table>
+    <thead><tr><th>Issue</th><th>Algorithm</th><th>Required action</th><th>Where</th></tr></thead>
+    <tbody>
+      {{range .Issues}}
+      <tr>
+        <td><span class="badge b-iss">{{.Node.Risk.Class}}</span></td>
+        <td class="algo">{{assetNameFn .Node}}</td>
+        <td>{{.Action}}</td>
+        <td>
+          {{if .Node.Occurrences}}
+          <details>
+            <summary>{{firstLoc .Node}} {{if gt (len .Node.Occurrences) 1}}(+{{extraCount .Node}} more){{end}}</summary>
+            {{range .Node.Occurrences}}<div class="loc">{{locStr .}}</div>{{end}}
+          </details>
+          {{end}}
+        </td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{end}}
+
+  {{if .Compliant}}
+  <h2>Compliant assets</h2>
+  <table>
+    <thead><tr><th>Algorithm</th><th>Occurrences</th><th>Note</th></tr></thead>
+    <tbody>
+      {{range .Compliant}}
+      <tr>
+        <td class="algo">{{assetNameFn .Node}}</td>
+        <td>{{len .Node.Occurrences}}</td>
+        <td>{{.Action}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{end}}
+</body>
+</html>

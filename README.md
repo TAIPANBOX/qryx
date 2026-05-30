@@ -97,6 +97,8 @@ make build
 qryx scan <path>                       # static scan of a code tree
 qryx scan --format cbom <path>         # CycloneDX 1.6 CBOM (JSON)
 qryx scan --format html <path> > report.html   # self-contained web report
+qryx scan --format cnsa <path>               # CNSA 2.0 compliance audit (JSON)
+qryx scan --format cnsa-html <path> > cnsa.html  # CNSA 2.0 audit (HTML)
 qryx scan --fail-on high <path>        # exit 2 if any finding >= high (for CI)
 
 qryx tls example.com:443               # probe a live endpoint's TLS posture
@@ -179,7 +181,7 @@ qryx scan --baseline 'postgres://user:pass@host:5432/db' --fail-on-new high <pat
 - [x] static code scan · TLS probing · binary scanning (ELF/PE/Mach-O) · container images
 - [x] cross-source CBOM asset graph · JSON/Postgres persistence · drift detection · CI gate
 - [x] human / CBOM (CycloneDX 1.6) / HTML reports — all CI-gated
-- [x] Phase 2 cloud KMS — AWS, GCP and Azure done
+- [x] Phase 2 cloud KMS — AWS, GCP and Azure done; owner-mapping; CNSA 2.0 audit report
 - [ ] Phase 3 — crypto-agility scoring and migration PRs
 
 Roadmap and rationale: [`qryx-plan.md`](./qryx-plan.md).
