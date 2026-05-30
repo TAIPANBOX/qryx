@@ -10,8 +10,23 @@ images, live TLS, certs, dependencies, cloud KMS), normalizes it into one
 **cryptographic asset graph**, scores post-quantum + hygiene risk, and emits
 CycloneDX CBOM / human / HTML reports with JSON/Postgres persistence and CI
 drift gating. Pure-Go bias; stdlib first. Product plan and roadmap:
-[`qryx-plan.md`](./qryx-plan.md). Status: Phase 0–1 done; Phase 2 (cloud) in
-progress — AWS + GCP done, Azure Key Vault next.
+[`qryx-plan.md`](./qryx-plan.md).
+
+## Current status (as of 2026-05-30, commit fa60249)
+
+**Done:**
+- Phase 0: static code scan (goast/cryptocall/certfile/tlsconfig/hardcoded/deps)
+- Phase 1: TLS probing, ELF/PE/Mach-O binaries, container images, asset graph,
+  CycloneDX CBOM, HTML report, Postgres + JSON persistence, CI drift gate
+- Phase 2 cloud: `qryx aws`, `qryx gcp`, `qryx azure` — all three connectors
+  with interface seams, unit-tested without live credentials; CI green
+
+**Next (in priority order per qryx-plan.md):**
+1. Phase 2 remainder: owner-mapping of assets (tags/IAM/labels → who owns what)
+   and CNSA 2.0 / audit report export
+2. Phase 3: crypto-agility scoring + PR remediation
+
+**Ask the user which to tackle first at the start of a new session.**
 
 ## The working loop (follow every time)
 1. **Plan Mode first** for anything touching multiple files or making an
