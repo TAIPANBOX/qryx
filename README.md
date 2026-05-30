@@ -37,6 +37,8 @@ make build
 ./bin/qryx bin /usr/bin/openssl        # crypto in a binary (ELF/PE/Mach-O)
 ./bin/qryx bin ./build/                 # walk a dir, scan every binary
 
+docker save myapp:latest -o img.tar && ./bin/qryx image img.tar  # scan an image
+
 ./bin/qryx scan --save base.json <path>              # snapshot the asset graph
 ./bin/qryx scan --baseline base.json <path>          # report drift vs baseline
 ./bin/qryx scan --baseline base.json --fail-on-new high <path>  # CI: block new crypto
@@ -71,6 +73,11 @@ mapping needed crypto libraries (libcrypto/libssl/…) and imported symbols
 (`MD5_*`, `RSA_*`, `ECDSA_*`, …) to assets — no string scraping, low false
 positives. Format is chosen by magic bytes; non-binaries are skipped.
 
+Container image scanning (`qryx image`): extracts a local image tarball
+(`docker save` / OCI layout) with stdlib tar/gzip — guarded against path
+traversal and tar bombs — and runs the code and binary scanners over the layers.
+No registry pull, no extra dependencies.
+
 Findings from every source are aggregated into a **cryptographic asset graph**:
 one node per logical asset (algorithm + key size) carrying all of its
 occurrences, deduplicated across files and sources. The CBOM emits one CycloneDX
@@ -98,10 +105,12 @@ Risk classification: `quantum-vulnerable` (RSA/ECC/DSA — Shor), `weak`
 algorithms (ML-KEM/ML-DSA, FIPS 203/204/205) are recognized as safe.
 
 ## Status
-Phase 0 (static CLI scanner + CBOM) and the first Phase 1 connector (active TLS
-probing) — working. Next, per [`qryx-plan.md`](./qryx-plan.md): a CBOM graph in
-Postgres with cross-source dedup, binary/image scanning, cloud KMS connectors,
-and tree-sitter instead of regex for Python/JS.
+**Phase 0 and Phase 1 complete:** static code scan, active TLS probing, binary
+scanning (ELF/PE/Mach-O), container-image scanning, a cross-source CBOM asset
+graph, JSON/Postgres persistence with drift detection, and human/CBOM/HTML
+reports — all CI-gated. Next, per [`qryx-plan.md`](./qryx-plan.md): Phase 2
+(cloud KMS connectors — AWS/GCP/Azure) and Phase 3 (crypto-agility and migration
+PRs). Possible hardening: tree-sitter instead of regex for Python/JS.
 
 ## License
 Apache-2.0.

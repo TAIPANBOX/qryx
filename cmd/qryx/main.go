@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/TAIPANBOX/qryx/internal/binscan"
+	"github.com/TAIPANBOX/qryx/internal/imagescan"
 	"github.com/TAIPANBOX/qryx/internal/model"
 	"github.com/TAIPANBOX/qryx/internal/probe"
 	"github.com/TAIPANBOX/qryx/internal/report"
@@ -40,7 +41,7 @@ func run(args []string) error {
 		baseline  = fs.String("baseline", "", "compare the asset graph against this snapshot and report drift")
 	)
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage:\n  qryx scan [flags] <path>\n  qryx tls [flags] <host:port>...\n  qryx bin [flags] <file|dir>...\n\nflags:\n")
+		fmt.Fprintf(os.Stderr, "usage:\n  qryx scan [flags] <path>\n  qryx tls [flags] <host:port>...\n  qryx bin [flags] <file|dir>...\n  qryx image [flags] <image.tar>...\n\nflags:\n")
 		fs.PrintDefaults()
 	}
 
@@ -49,7 +50,7 @@ func run(args []string) error {
 		return fmt.Errorf("no command given")
 	}
 	cmd := args[0]
-	if cmd != "scan" && cmd != "tls" && cmd != "bin" {
+	if cmd != "scan" && cmd != "tls" && cmd != "bin" && cmd != "image" {
 		fs.Usage()
 		return fmt.Errorf("unknown command %q", cmd)
 	}
@@ -80,6 +81,12 @@ func run(args []string) error {
 			return fmt.Errorf("bin requires at least one file or directory")
 		}
 		res, err = runBin(fs.Args())
+	case "image":
+		if fs.NArg() == 0 {
+			fs.Usage()
+			return fmt.Errorf("image requires at least one image tarball")
+		}
+		res, err = runImage(fs.Args())
 	}
 	if err != nil {
 		return err
@@ -169,15 +176,18 @@ func openStore(target string) store.Store {
 }
 
 func runScan(root string) (*scan.Result, error) {
-	scanner := scan.New(
-		detectors.NewCertFile(),
-		detectors.NewGoAST(),
-		detectors.NewCryptoCall(),
-		detectors.NewTLSConfig(),
-		detectors.NewHardcoded(),
-		detectors.NewDeps(),
-	)
-	return scanner.Scan(root)
+	return scan.New(detectors.Default()...).Scan(root)
+}
+
+// runImage extracts each container image tarball and scans its layers.
+func runImage(tars []string) (*scan.Result, error) {
+	findings, err := imagescan.Scan(tars)
+	if err != nil {
+		return nil, err
+	}
+	res := &scan.Result{Root: "image://" + strings.Join(tars, ","), FilesWalked: len(tars)}
+	res.Findings = risk.Apply(findings)
+	return res, nil
 }
 
 // runTLS probes each target endpoint and aggregates the findings into a single
