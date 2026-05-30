@@ -68,11 +68,19 @@ occurrences, deduplicated across files and sources. The CBOM emits one CycloneDX
 component per asset with every occurrence listed, and the human report shows
 asset-level counts (e.g. one `RSA` row with 112 occurrences, not 112 rows).
 
-The graph can be saved as a JSON snapshot (`--save`) and a later scan compared
+The graph can be saved as a snapshot (`--save`) and a later scan compared
 against it (`--baseline`) to surface **drift** — assets newly introduced or
 removed. `--fail-on-new <severity>` exits non-zero when a scan introduces a new
 asset at or above that severity, the CI hook for "don't add new weak crypto".
-Persistence is behind a `Store` interface; a Postgres backend is the next step.
+
+Persistence is behind a `Store` interface with two backends: a JSON file (any
+plain path) and **Postgres** (a `postgres://` URL), which persists the graph in
+normalized `scans`/`assets`/`occurrences` tables.
+
+```bash
+./bin/qryx scan --save 'postgres://user:pass@host:5432/db' <path>
+./bin/qryx scan --baseline 'postgres://user:pass@host:5432/db' --fail-on-new high <path>
+```
 
 Risk classification: `quantum-vulnerable` (RSA/ECC/DSA — Shor), `weak`
 (MD5/SHA-1/DES/RC4, RSA<2048), `misconfig`, `expired`, `hardcoded`. Post-quantum

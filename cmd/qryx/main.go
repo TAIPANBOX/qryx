@@ -79,7 +79,7 @@ func run(args []string) error {
 	}
 
 	if *save != "" {
-		if err := (store.JSONStore{Path: *save}).Save(store.Snap(res)); err != nil {
+		if err := openStore(*save).Save(store.Snap(res)); err != nil {
 			return fmt.Errorf("save snapshot: %w", err)
 		}
 	}
@@ -87,7 +87,7 @@ func run(args []string) error {
 	// Compute drift against the baseline, if one is given and exists.
 	var delta store.Delta
 	if *baseline != "" {
-		base, err := (store.JSONStore{Path: *baseline}).Load()
+		base, err := openStore(*baseline).Load()
 		switch {
 		case errors.Is(err, store.ErrNotFound):
 			fmt.Fprintf(os.Stderr, "qryx: baseline %s not found; skipping drift\n", *baseline)
@@ -135,6 +135,15 @@ func run(args []string) error {
 		}
 	}
 	return nil
+}
+
+// openStore selects a snapshot backend by target: a postgres:// or postgresql://
+// URL uses Postgres, anything else is treated as a JSON file path.
+func openStore(target string) store.Store {
+	if strings.HasPrefix(target, "postgres://") || strings.HasPrefix(target, "postgresql://") {
+		return store.PostgresStore{ConnString: target}
+	}
+	return store.JSONStore{Path: target}
 }
 
 func runScan(root string) (*scan.Result, error) {
