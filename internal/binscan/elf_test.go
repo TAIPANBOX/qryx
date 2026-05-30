@@ -2,6 +2,7 @@ package binscan
 
 import (
 	"debug/elf"
+	"debug/macho"
 	"os"
 	"testing"
 
@@ -34,20 +35,33 @@ func TestCryptoFromSymbols(t *testing.T) {
 }
 
 func TestCryptoFromSymbolsNoFalsePositives(t *testing.T) {
-	if got := cryptoFromSymbols("bin", []string{"printf", "strlen", "main", "abort"}); len(got) != 0 {
+	if got := cryptoFromSymbols("bin", []string{"printf", "strlen", "main", "abort", "_main"}); len(got) != 0 {
 		t.Errorf("expected no findings, got %+v", algos(got))
 	}
 }
 
-func TestIsELFRejectsNonELF(t *testing.T) {
+func TestCryptoFromSymbolsStripsMachOUnderscore(t *testing.T) {
+	got := cryptoFromSymbols("bin", []string{"_RSA_new", "_MD5_Init"})
+	want := map[string]bool{"RSA": true, "MD5": true}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want RSA+MD5", algos(got))
+	}
+	for _, f := range got {
+		if !want[f.Asset.Algorithm] {
+			t.Errorf("unexpected %q", f.Asset.Algorithm)
+		}
+	}
+}
+
+func TestImportsRejectsNonBinary(t *testing.T) {
 	f, err := os.CreateTemp(t.TempDir(), "x")
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.WriteString("not an elf")
+	f.WriteString("not a binary")
 	f.Close()
-	if isELF(f.Name()) {
-		t.Error("plain text reported as ELF")
+	if _, _, ok := imports(f.Name()); ok {
+		t.Error("plain text reported as a binary")
 	}
 }
 
@@ -75,7 +89,39 @@ func TestScanRealELF(t *testing.T) {
 		t.Fatalf("expected crypto findings from %s", target)
 	}
 	for _, f := range findings {
-		if f.Location.File != target || f.Source != "elf" {
+		if f.Location.File != target || f.Source != "binary" {
+			t.Errorf("bad finding metadata: %+v", f)
+		}
+	}
+}
+
+// TestScanRealMachO parses a real Mach-O system binary when available (macOS).
+// Skips elsewhere (e.g. Linux CI).
+func TestScanRealMachO(t *testing.T) {
+	candidates := []string{"/usr/bin/openssl", "/usr/bin/ssh", "/usr/bin/curl", "/bin/cat"}
+	var target string
+	for _, c := range candidates {
+		if f, err := macho.Open(c); err == nil {
+			f.Close()
+			target = c
+			break
+		}
+		if f, err := macho.OpenFat(c); err == nil {
+			f.Close()
+			target = c
+			break
+		}
+	}
+	if target == "" {
+		t.Skip("no Mach-O binary available; skipping (non-macOS env)")
+	}
+
+	findings, err := Scan([]string{target})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if f.Location.File != target || f.Source != "binary" {
 			t.Errorf("bad finding metadata: %+v", f)
 		}
 	}

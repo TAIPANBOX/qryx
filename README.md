@@ -34,8 +34,8 @@ make build
 ./bin/qryx tls example.com:443         # probe a live endpoint's TLS posture
 ./bin/qryx tls --timeout 3s host:443   # version, cipher suite, certificate key
 
-./bin/qryx bin /usr/bin/openssl        # crypto in an ELF binary (libs + symbols)
-./bin/qryx bin ./build/                 # walk a dir, scan every ELF
+./bin/qryx bin /usr/bin/openssl        # crypto in a binary (ELF/PE/Mach-O)
+./bin/qryx bin ./build/                 # walk a dir, scan every binary
 
 ./bin/qryx scan --save base.json <path>              # snapshot the asset graph
 ./bin/qryx scan --baseline base.json <path>          # report drift vs baseline
@@ -66,9 +66,10 @@ Active TLS probing of live endpoints (`qryx tls`): negotiated TLS version,
 insecure cipher suites, and the leaf certificate's public-key algorithm, size,
 and expiry — fed into the same risk model and CBOM output.
 
-ELF binary scanning (`qryx bin`): parses Linux binaries via `debug/elf`, mapping
-needed crypto libraries (libcrypto/libssl/…) and imported symbols (`MD5_*`,
-`RSA_*`, `ECDSA_*`, …) to assets — no string scraping, low false positives.
+Binary scanning (`qryx bin`): parses ELF, PE and Mach-O via `debug/elf|pe|macho`,
+mapping needed crypto libraries (libcrypto/libssl/…) and imported symbols
+(`MD5_*`, `RSA_*`, `ECDSA_*`, …) to assets — no string scraping, low false
+positives. Format is chosen by magic bytes; non-binaries are skipped.
 
 Findings from every source are aggregated into a **cryptographic asset graph**:
 one node per logical asset (algorithm + key size) carrying all of its

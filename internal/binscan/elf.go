@@ -1,6 +1,6 @@
-// Package binscan discovers cryptography in compiled binaries. This increment
-// handles ELF (Linux); it is a connector like internal/probe, not a file
-// detector — binaries are identified by magic bytes, read from disk, and parsed
+// Package binscan discovers cryptography in compiled binaries (ELF, PE,
+// Mach-O). It is a connector like internal/probe, not a file detector —
+// binaries are identified by magic bytes, read from disk, and parsed
 // structurally rather than scanned as text.
 package binscan
 
@@ -17,14 +17,15 @@ import (
 // elfMagic is the leading byte sequence of every ELF file.
 var elfMagic = []byte{0x7f, 'E', 'L', 'F'}
 
-// cryptoLibs maps a needed-library name substring to the algorithm family it
-// implies, recorded as inventory.
-var cryptoLibs = []struct{ needle, algo string }{
-	{"libcrypto", "RSA"},
-	{"libssl", "TLS"},
-	{"libgnutls", "TLS"},
-	{"libmbedtls", "TLS"},
-	{"libsodium", "Ed25519"},
+// cryptoLibs maps a needed-library name substring to a canonical library name.
+// The asset is the library itself (inventory), not an algorithm — mapping it to
+// a representative algorithm would collide with real algorithm findings.
+var cryptoLibs = []struct{ needle, name string }{
+	{"libcrypto", "libcrypto"},
+	{"libssl", "libssl"},
+	{"libgnutls", "GnuTLS"},
+	{"libmbedtls", "mbedTLS"},
+	{"libsodium", "libsodium"},
 }
 
 // symRule maps a dynamic-symbol prefix to an algorithm and primitive.
@@ -52,7 +53,8 @@ var symRules = []symRule{
 }
 
 // Scan walks each path (file or directory) and returns crypto findings from
-// every ELF binary it contains. Non-ELF files are skipped silently.
+// every supported binary it contains. Unsupported/non-binary files are skipped
+// silently.
 func Scan(paths []string) ([]model.Finding, error) {
 	var out []model.Finding
 	for _, p := range paths {
@@ -78,42 +80,79 @@ func Scan(paths []string) ([]model.Finding, error) {
 	return out, nil
 }
 
-// scanFile parses one file if it is an ELF binary, returning its findings.
+// scanFile parses one file if it is a supported binary (ELF, PE, Mach-O),
+// returning its crypto findings. Format is chosen by magic bytes so text files
+// are skipped cheaply.
 func scanFile(path string) []model.Finding {
-	if !isELF(path) {
+	libs, syms, ok := imports(path)
+	if !ok {
 		return nil
 	}
-	f, err := elf.Open(path)
-	if err != nil {
-		return nil
-	}
-	defer f.Close()
-
-	var out []model.Finding
-	libs, _ := f.ImportedLibraries()
-	out = append(out, librariesToFindings(path, libs)...)
-
-	syms, _ := f.ImportedSymbols()
-	names := make([]string, len(syms))
-	for i, s := range syms {
-		names[i] = s.Name
-	}
-	out = append(out, cryptoFromSymbols(path, names)...)
+	out := librariesToFindings(path, libs)
+	out = append(out, cryptoFromSymbols(path, syms)...)
 	return out
 }
 
-// isELF reports whether the file begins with the ELF magic.
-func isELF(path string) bool {
+// imports dispatches on magic bytes to the right parser and returns the
+// binary's needed libraries and imported symbols. ok is false for unsupported
+// or unparseable files.
+func imports(path string) (libs, syms []string, ok bool) {
+	magic := readMagic(path)
+	switch {
+	case len(magic) >= 4 && string(magic[:4]) == string(elfMagic):
+		return elfImports(path)
+	case len(magic) >= 2 && magic[0] == 'M' && magic[1] == 'Z':
+		return peImports(path)
+	case isMachOMagic(magic):
+		return machoImports(path)
+	default:
+		return nil, nil, false
+	}
+}
+
+// readMagic returns the first 4 bytes of a file (fewer if shorter).
+func readMagic(path string) []byte {
 	f, err := os.Open(path)
 	if err != nil {
-		return false
+		return nil
 	}
 	defer f.Close()
-	var hdr [4]byte
-	if _, err := f.Read(hdr[:]); err != nil {
+	hdr := make([]byte, 4)
+	n, _ := f.Read(hdr)
+	return hdr[:n]
+}
+
+// isMachOMagic reports whether the bytes start with a Mach-O (thin or fat)
+// magic, in either endianness.
+func isMachOMagic(b []byte) bool {
+	if len(b) < 4 {
 		return false
 	}
-	return string(hdr[:]) == string(elfMagic)
+	switch [4]byte{b[0], b[1], b[2], b[3]} {
+	case [4]byte{0xfe, 0xed, 0xfa, 0xce}, // 32-bit BE
+		[4]byte{0xfe, 0xed, 0xfa, 0xcf}, // 64-bit BE
+		[4]byte{0xce, 0xfa, 0xed, 0xfe}, // 32-bit LE
+		[4]byte{0xcf, 0xfa, 0xed, 0xfe}, // 64-bit LE
+		[4]byte{0xca, 0xfe, 0xba, 0xbe}: // fat
+		return true
+	}
+	return false
+}
+
+// elfImports extracts needed libraries and imported symbol names from an ELF.
+func elfImports(path string) (libs, syms []string, ok bool) {
+	f, err := elf.Open(path)
+	if err != nil {
+		return nil, nil, false
+	}
+	defer f.Close()
+	libs, _ = f.ImportedLibraries()
+	imported, _ := f.ImportedSymbols()
+	syms = make([]string, len(imported))
+	for i, s := range imported {
+		syms[i] = s.Name
+	}
+	return libs, syms, true
 }
 
 func librariesToFindings(path string, libs []string) []model.Finding {
@@ -122,10 +161,10 @@ func librariesToFindings(path string, libs []string) []model.Finding {
 		for _, cl := range cryptoLibs {
 			if strings.Contains(lib, cl.needle) {
 				out = append(out, model.Finding{
-					Asset:    model.Asset{Type: model.TypeLibrary, Algorithm: cl.algo, Primitive: model.PrimitiveUnknown},
+					Asset:    model.Asset{Type: model.TypeLibrary, Algorithm: cl.name, Primitive: model.PrimitiveUnknown},
 					Location: model.Location{File: path},
 					Evidence: "links " + lib,
-					Source:   "elf",
+					Source:   "binary",
 				})
 				break
 			}
@@ -140,15 +179,18 @@ func cryptoFromSymbols(path string, symbols []string) []model.Finding {
 	seen := map[string]bool{}
 	var out []model.Finding
 	for _, name := range symbols {
+		// Mach-O prefixes C symbols with an underscore (_MD5_Init); strip it so
+		// one rule set serves all formats.
+		bare := strings.TrimPrefix(name, "_")
 		for _, r := range symRules {
-			if strings.HasPrefix(name, r.prefix) {
+			if strings.HasPrefix(bare, r.prefix) {
 				if !seen[r.algo] {
 					seen[r.algo] = true
 					out = append(out, model.Finding{
 						Asset:    model.Asset{Type: model.TypeAlgorithm, Algorithm: r.algo, Primitive: r.prim},
 						Location: model.Location{File: path},
 						Evidence: "imports " + name,
-						Source:   "elf",
+						Source:   "binary",
 					})
 				}
 				break
