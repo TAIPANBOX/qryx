@@ -21,6 +21,7 @@ type keyItem struct {
 	Name    string
 	Version string
 	Attrs   *azkeys.KeyAttributes
+	Tags    map[string]*string // raw SDK tags; converted to map[string]string on emit
 }
 
 // keyLister is the test seam: the real implementation pages the SDK, fakes
@@ -74,11 +75,13 @@ func scanWith(ctx context.Context, l keyLister) ([]model.Finding, error) {
 		if !ok {
 			continue
 		}
+		tags := derefTags(item.Tags)
 		out = append(out, model.Finding{
 			Asset:    asset,
 			Location: model.Location{File: item.ID},
 			Evidence: fmt.Sprintf("Key Vault key %s type %s", item.Name, kty),
 			Source:   "azure-keyvault",
+			Tags:     tags,
 		})
 
 		// Expired key is an additional context-risk finding.
@@ -93,6 +96,7 @@ func scanWith(ctx context.Context, l keyLister) ([]model.Finding, error) {
 					Severity: model.SeverityHigh,
 					Reason:   "key is past its expiry date",
 				},
+				Tags: tags,
 			})
 		}
 	}
@@ -121,6 +125,7 @@ func (a azureLister) list(ctx context.Context) ([]keyItem, error) {
 				Name:    kp.KID.Name(),
 				Version: kp.KID.Version(),
 				Attrs:   kp.Attributes,
+				Tags:    kp.Tags,
 			})
 		}
 	}
@@ -136,6 +141,21 @@ func (a azureLister) getKey(ctx context.Context, name, version string) (*azkeys.
 		return nil, nil
 	}
 	return resp.Key, nil
+}
+
+// derefTags converts the SDK's map[string]*string to map[string]string, skipping
+// nil values. Returns nil when the input is empty.
+func derefTags(in map[string]*string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		if v != nil {
+			out[k] = *v
+		}
+	}
+	return out
 }
 
 // keyTypeToAsset maps an Azure JSON Web Key type to a qryx asset. n is the RSA

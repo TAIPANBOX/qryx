@@ -51,6 +51,22 @@ func TestScanWithMapsAlgorithms(t *testing.T) {
 	}
 }
 
+func TestScanWithLabelsPopulated(t *testing.T) {
+	l := fakeLister{versions: []keyVersion{
+		{Name: "projects/p/.../v1", Algorithm: "GOOGLE_SYMMETRIC_ENCRYPTION", Labels: map[string]string{"team": "platform"}},
+	}}
+	got, err := scanWith(context.Background(), l, "p", "global")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("want 1 finding, got %d", len(got))
+	}
+	if got[0].Tags["team"] != "platform" {
+		t.Errorf("Labels not propagated as Tags: %v", got[0].Tags)
+	}
+}
+
 func TestAlgoToAsset(t *testing.T) {
 	tests := []struct {
 		algo string

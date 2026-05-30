@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS occurrences (
     location_file TEXT   NOT NULL,
     location_line INT    NOT NULL,
     source        TEXT   NOT NULL,
-    evidence      TEXT   NOT NULL
+    evidence      TEXT   NOT NULL,
+    tags          JSONB  NOT NULL DEFAULT '{}'
 );
 
 CREATE INDEX IF NOT EXISTS scans_created_at_idx ON scans (created_at DESC);

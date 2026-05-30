@@ -18,6 +18,7 @@ type Occurrence struct {
 	Primitive model.Primitive
 	Source    string
 	Evidence  string
+	Tags      map[string]string // provider tags/labels; nil for non-cloud sources
 }
 
 // AssetNode is a unique cryptographic asset with all of its occurrences and the
@@ -26,6 +27,7 @@ type AssetNode struct {
 	Asset       model.Asset
 	Risk        model.Risk
 	Occurrences []Occurrence
+	Tags        map[string]string // union of tags across all occurrences
 }
 
 // key identifies a logical asset: an algorithm of a given size and kind,
@@ -47,12 +49,33 @@ func AssetKey(a model.Asset) string {
 	return fmt.Sprintf("%s|%s|%d", a.Type, risk.NormalizeAlgorithm(a.Algorithm), a.KeySize)
 }
 
+// occKey is the comparable identity of an occurrence used for deduplication.
+// Tags are not part of the identity: the same location+source observed twice
+// with different tags is still one occurrence (tags from the first win).
+type occKey struct {
+	file      string
+	line      int
+	primitive model.Primitive
+	source    string
+	evidence  string
+}
+
+func occKeyOf(f model.Finding) occKey {
+	return occKey{
+		file:      f.Location.File,
+		line:      f.Location.Line,
+		primitive: f.Asset.Primitive,
+		source:    f.Source,
+		evidence:  f.Evidence,
+	}
+}
+
 // Build groups findings into asset nodes, deduplicating identical occurrences
 // and keeping the highest-severity risk per asset. The result is sorted by
 // severity (desc), then algorithm, then key size for stable output.
 func Build(findings []model.Finding) []AssetNode {
 	nodes := map[key]*AssetNode{}
-	seen := map[key]map[Occurrence]bool{}
+	seen := map[key]map[occKey]bool{}
 	var order []key
 
 	for _, f := range findings {
@@ -61,7 +84,7 @@ func Build(findings []model.Finding) []AssetNode {
 		if !ok {
 			node = &AssetNode{Asset: f.Asset, Risk: f.Risk}
 			nodes[k] = node
-			seen[k] = map[Occurrence]bool{}
+			seen[k] = map[occKey]bool{}
 			order = append(order, k)
 		} else if f.Risk.Severity > node.Risk.Severity {
 			node.Risk = f.Risk
@@ -72,10 +95,19 @@ func Build(findings []model.Finding) []AssetNode {
 			Primitive: f.Asset.Primitive,
 			Source:    f.Source,
 			Evidence:  f.Evidence,
+			Tags:      f.Tags,
 		}
-		if !seen[k][occ] {
-			seen[k][occ] = true
+		ok2 := seen[k][occKeyOf(f)]
+		if !ok2 {
+			seen[k][occKeyOf(f)] = true
 			node.Occurrences = append(node.Occurrences, occ)
+			// Merge tags into the node-level union map.
+			for tk, tv := range f.Tags {
+				if node.Tags == nil {
+					node.Tags = make(map[string]string)
+				}
+				node.Tags[tk] = tv
+			}
 		}
 	}
 

@@ -95,4 +95,5 @@ type Finding struct {
 	Evidence string
 	Source   string // detector name
 	Risk     Risk
+	Tags     map[string]string // provider tags/labels; nil for non-cloud sources
 }

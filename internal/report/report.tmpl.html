@@ -39,9 +39,10 @@
   {{if .Rows}}
   <table>
     <thead>
-      <tr><th>Severity</th><th>Risk</th><th>Algorithm</th><th>Occurrences</th><th>Detail</th><th>Where</th></tr>
+      <tr><th>Severity</th><th>Risk</th><th>Algorithm</th><th>Occurrences</th><th>Detail</th><th>Where</th>{{if .HasOwner}}<th>Owner</th>{{end}}</tr>
     </thead>
     <tbody>
+      {{$hasOwner := .HasOwner}}
       {{range .Rows}}
       <tr>
         <td><span class="badge sev-{{.Sev}}">{{.Sev}}</span></td>
@@ -55,6 +56,7 @@
             {{range .Locations}}<div class="loc">{{.}}</div>{{end}}
           </details>
         </td>
+        {{if $hasOwner}}<td>{{.Owner}}</td>{{end}}
       </tr>
       {{end}}
     </tbody>

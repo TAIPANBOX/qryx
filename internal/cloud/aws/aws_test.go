@@ -18,7 +18,8 @@ func ptr[T any](v T) *T { return &v }
 
 // fakeKMS serves canned keys across two pages to exercise pagination.
 type fakeKMS struct {
-	keys map[string]kmstypes.KeySpec // keyId -> spec
+	keys map[string]kmstypes.KeySpec  // keyId -> spec
+	tags map[string]map[string]string // keyId -> tag map (optional)
 }
 
 func (f fakeKMS) ListKeys(_ context.Context, in *kms.ListKeysInput, _ ...func(*kms.Options)) (*kms.ListKeysOutput, error) {
@@ -56,8 +57,21 @@ func (f fakeKMS) DescribeKey(_ context.Context, in *kms.DescribeKeyInput, _ ...f
 	}}, nil
 }
 
+func (f fakeKMS) ListResourceTags(_ context.Context, in *kms.ListResourceTagsInput, _ ...func(*kms.Options)) (*kms.ListResourceTagsOutput, error) {
+	if f.tags == nil {
+		return &kms.ListResourceTagsOutput{}, nil
+	}
+	var out []kmstypes.Tag
+	for k, v := range f.tags[*in.KeyId] {
+		k, v := k, v
+		out = append(out, kmstypes.Tag{TagKey: &k, TagValue: &v})
+	}
+	return &kms.ListResourceTagsOutput{Tags: out}, nil
+}
+
 type fakeACM struct {
 	certs []acmtypes.CertificateDetail
+	tags  map[string]map[string]string // arn -> tag map (optional)
 }
 
 func (f fakeACM) ListCertificates(_ context.Context, _ *acm.ListCertificatesInput, _ ...func(*acm.Options)) (*acm.ListCertificatesOutput, error) {
@@ -75,6 +89,18 @@ func (f fakeACM) DescribeCertificate(_ context.Context, in *acm.DescribeCertific
 		}
 	}
 	return &acm.DescribeCertificateOutput{}, nil
+}
+
+func (f fakeACM) ListTagsForCertificate(_ context.Context, in *acm.ListTagsForCertificateInput, _ ...func(*acm.Options)) (*acm.ListTagsForCertificateOutput, error) {
+	if f.tags == nil {
+		return &acm.ListTagsForCertificateOutput{}, nil
+	}
+	var out []acmtypes.Tag
+	for k, v := range f.tags[*in.CertificateArn] {
+		k, v := k, v
+		out = append(out, acmtypes.Tag{Key: &k, Value: &v})
+	}
+	return &acm.ListTagsForCertificateOutput{Tags: out}, nil
 }
 
 func TestScanKMSMapsSpecsAcrossPages(t *testing.T) {
@@ -136,6 +162,45 @@ func TestScanACMMapsAlgoAndExpiry(t *testing.T) {
 	}
 	if !sawExpired {
 		t.Error("expired certificate not flagged")
+	}
+}
+
+func TestScanKMSTagsPopulated(t *testing.T) {
+	api := fakeKMS{
+		keys: map[string]kmstypes.KeySpec{"k1": kmstypes.KeySpecRsa2048},
+		tags: map[string]map[string]string{"k1": {"Owner": "security-team", "env": "prod"}},
+	}
+	got, err := scanKMS(context.Background(), api)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("want 1 finding, got %d", len(got))
+	}
+	if got[0].Tags["Owner"] != "security-team" {
+		t.Errorf("Owner tag not propagated: %v", got[0].Tags)
+	}
+}
+
+func TestScanACMTagsPopulated(t *testing.T) {
+	api := fakeACM{
+		certs: []acmtypes.CertificateDetail{{
+			CertificateArn: ptr("arn:cert/t1"),
+			DomainName:     ptr("t.example"),
+			KeyAlgorithm:   acmtypes.KeyAlgorithmRsa2048,
+			NotAfter:       ptr(time.Now().Add(24 * time.Hour)),
+		}},
+		tags: map[string]map[string]string{"arn:cert/t1": {"team": "infra"}},
+	}
+	got, err := scanACM(context.Background(), api)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) == 0 {
+		t.Fatal("no findings")
+	}
+	if got[0].Tags["team"] != "infra" {
+		t.Errorf("team tag not propagated: %v", got[0].Tags)
 	}
 }
 

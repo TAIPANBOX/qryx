@@ -24,6 +24,7 @@ type htmlView struct {
 	Sources  int
 	Findings int
 	Assets   int
+	HasOwner bool // true when at least one row has a non-empty Owner
 	Chips    []htmlChip
 	Rows     []htmlRow
 }
@@ -43,6 +44,7 @@ type htmlRow struct {
 	First     string
 	More      int
 	Locations []string
+	Owner     string // best-guess owner tag value; empty for non-cloud assets
 }
 
 // HTML renders the asset graph as a self-contained HTML page.
@@ -74,10 +76,25 @@ func HTML(w io.Writer, res *scan.Result) error {
 		}
 	}
 	for _, n := range nodes {
-		view.Rows = append(view.Rows, rowOf(n))
+		row := rowOf(n)
+		if row.Owner != "" {
+			view.HasOwner = true
+		}
+		view.Rows = append(view.Rows, row)
 	}
 
 	return htmlTemplate.Execute(w, view)
+}
+
+// ownerHint picks the best owner string from a tag map using a priority list of
+// common tag key conventions. Returns empty string when none match.
+func ownerHint(tags map[string]string) string {
+	for _, k := range []string{"Owner", "owner", "team", "Team", "service", "Service"} {
+		if v, ok := tags[k]; ok && v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func rowOf(n graph.AssetNode) htmlRow {
@@ -109,5 +126,6 @@ func rowOf(n graph.AssetNode) htmlRow {
 		First:     first,
 		More:      len(locs) - 1,
 		Locations: locs,
+		Owner:     ownerHint(n.Tags),
 	}
 }

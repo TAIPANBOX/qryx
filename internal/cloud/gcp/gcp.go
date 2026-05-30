@@ -19,11 +19,12 @@ import (
 	"github.com/TAIPANBOX/qryx/internal/model"
 )
 
-// keyVersion is a single enabled crypto-key version: its resource name and the
-// algorithm enum as a string. Returning slices (not iterators) is the test seam.
+// keyVersion is a single enabled crypto-key version: its resource name, the
+// algorithm enum as a string, and any labels inherited from the parent key.
 type keyVersion struct {
 	Name      string
 	Algorithm string
+	Labels    map[string]string // inherited from CryptoKey.Labels
 }
 
 // keyLister enumerates enabled KMS key versions in a project/location.
@@ -61,6 +62,7 @@ func scanWith(ctx context.Context, l keyLister, project, location string) ([]mod
 			Location: model.Location{File: v.Name},
 			Evidence: "KMS key version algorithm " + v.Algorithm,
 			Source:   "gcp-kms",
+			Tags:     v.Labels,
 		})
 	}
 	return out, nil
@@ -104,7 +106,7 @@ func (g gcpLister) list(ctx context.Context, project, location string) ([]keyVer
 				if v.State != kmspb.CryptoKeyVersion_ENABLED {
 					continue
 				}
-				out = append(out, keyVersion{Name: v.Name, Algorithm: v.Algorithm.String()})
+				out = append(out, keyVersion{Name: v.Name, Algorithm: v.Algorithm.String(), Labels: key.Labels})
 			}
 		}
 	}

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	_ "embed"
+	"encoding/json"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -68,10 +69,14 @@ func (s PostgresStore) Save(snap Snapshot) error {
 			return err
 		}
 		for _, o := range a.Occurrences {
+			tagsJSON, err := json.Marshal(o.Tags)
+			if err != nil {
+				return fmt.Errorf("marshal tags: %w", err)
+			}
 			if _, err := tx.Exec(ctx,
-				`INSERT INTO occurrences (asset_id, location_file, location_line, source, evidence)
-				 VALUES ($1,$2,$3,$4,$5)`,
-				assetID, o.Location.File, o.Location.Line, o.Source, o.Evidence,
+				`INSERT INTO occurrences (asset_id, location_file, location_line, source, evidence, tags)
+				 VALUES ($1,$2,$3,$4,$5,$6)`,
+				assetID, o.Location.File, o.Location.Line, o.Source, o.Evidence, tagsJSON,
 			); err != nil {
 				return err
 			}
@@ -144,7 +149,7 @@ func loadAssets(ctx context.Context, conn *pgx.Conn, scanID int64) ([]graph.Asse
 // loadOccurrences attaches occurrences to their asset nodes.
 func loadOccurrences(ctx context.Context, conn *pgx.Conn, scanID int64, assets []graph.AssetNode, byID map[int64]int) error {
 	rows, err := conn.Query(ctx,
-		`SELECT o.asset_id, o.location_file, o.location_line, o.source, o.evidence
+		`SELECT o.asset_id, o.location_file, o.location_line, o.source, o.evidence, o.tags
 		 FROM occurrences o JOIN assets a ON a.id=o.asset_id
 		 WHERE a.scan_id=$1 ORDER BY o.id`, scanID)
 	if err != nil {
@@ -155,8 +160,14 @@ func loadOccurrences(ctx context.Context, conn *pgx.Conn, scanID int64, assets [
 	for rows.Next() {
 		var assetID int64
 		var o graph.Occurrence
-		if err := rows.Scan(&assetID, &o.Location.File, &o.Location.Line, &o.Source, &o.Evidence); err != nil {
+		var tagsJSON []byte
+		if err := rows.Scan(&assetID, &o.Location.File, &o.Location.Line, &o.Source, &o.Evidence, &tagsJSON); err != nil {
 			return err
+		}
+		if len(tagsJSON) > 0 && string(tagsJSON) != "null" {
+			if err := json.Unmarshal(tagsJSON, &o.Tags); err != nil {
+				return fmt.Errorf("unmarshal tags: %w", err)
+			}
 		}
 		if idx, ok := byID[assetID]; ok {
 			o.Primitive = assets[idx].Asset.Primitive

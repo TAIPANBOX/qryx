@@ -91,6 +91,28 @@ func TestScanWithMapsKeyTypes(t *testing.T) {
 	}
 }
 
+func strPtr(s string) *string { return &s }
+
+func TestScanWithTagsPopulated(t *testing.T) {
+	items := []keyItem{{
+		ID:      "https://v.azure.net/keys/tagged/1",
+		Name:    "tagged",
+		Version: "1",
+		Tags:    map[string]*string{"Owner": strPtr("infra-team")},
+	}}
+	keys := map[string]*azkeys.JSONWebKey{"tagged": {Kty: keyTypePtr(azkeys.KeyTypeEC)}}
+	got, err := scanWith(context.Background(), fakeLister{items, keys})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("want 1 finding, got %d", len(got))
+	}
+	if got[0].Tags["Owner"] != "infra-team" {
+		t.Errorf("Tags not propagated: %v", got[0].Tags)
+	}
+}
+
 func TestKeyTypeToAsset(t *testing.T) {
 	tests := []struct {
 		kty      azkeys.KeyType

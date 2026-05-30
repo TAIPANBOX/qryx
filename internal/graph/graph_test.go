@@ -60,3 +60,47 @@ func TestBuildDedupsIdenticalOccurrence(t *testing.T) {
 		t.Fatalf("identical occurrences not deduped: nodes=%d occ=%d", len(nodes), len(nodes[0].Occurrences))
 	}
 }
+
+func TestBuildMergesTagsAcrossOccurrences(t *testing.T) {
+	// Same RSA key found from two cloud sources with different tags — node-level
+	// Tags must be the union.
+	findings := []model.Finding{
+		{
+			Asset:    model.Asset{Type: model.TypeKey, Algorithm: "RSA", KeySize: 2048},
+			Location: model.Location{File: "arn:kms:key/1"},
+			Source:   "aws-kms",
+			Tags:     map[string]string{"Owner": "security", "env": "prod"},
+		},
+		{
+			Asset:    model.Asset{Type: model.TypeKey, Algorithm: "RSA", KeySize: 2048},
+			Location: model.Location{File: "arn:acm:cert/1"},
+			Source:   "aws-acm",
+			Tags:     map[string]string{"team": "infra"},
+		},
+	}
+	nodes := Build(findings)
+	if len(nodes) != 1 {
+		t.Fatalf("got %d nodes, want 1", len(nodes))
+	}
+	n := nodes[0]
+	if n.Tags["Owner"] != "security" {
+		t.Errorf("Owner tag missing or wrong: %v", n.Tags)
+	}
+	if n.Tags["team"] != "infra" {
+		t.Errorf("team tag missing: %v", n.Tags)
+	}
+	if len(n.Occurrences) != 2 {
+		t.Errorf("want 2 occurrences, got %d", len(n.Occurrences))
+	}
+	// Each occurrence carries its own tags — find by source, not by index.
+	var kmsOcc *Occurrence
+	for i := range n.Occurrences {
+		if n.Occurrences[i].Source == "aws-kms" {
+			kmsOcc = &n.Occurrences[i]
+			break
+		}
+	}
+	if kmsOcc == nil || kmsOcc.Tags["Owner"] != "security" {
+		t.Errorf("aws-kms occurrence Owner tag wrong: %v", kmsOcc)
+	}
+}
