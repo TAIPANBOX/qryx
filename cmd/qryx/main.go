@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/TAIPANBOX/qryx/internal/binscan"
+	awscloud "github.com/TAIPANBOX/qryx/internal/cloud/aws"
 	"github.com/TAIPANBOX/qryx/internal/imagescan"
 	"github.com/TAIPANBOX/qryx/internal/model"
 	"github.com/TAIPANBOX/qryx/internal/probe"
@@ -39,9 +41,11 @@ func run(args []string) error {
 		timeout   = fs.Duration("timeout", 5*time.Second, "per-endpoint connect timeout (tls)")
 		save      = fs.String("save", "", "write the asset graph as a snapshot to this file")
 		baseline  = fs.String("baseline", "", "compare the asset graph against this snapshot and report drift")
+		region    = fs.String("region", "", "AWS region (aws)")
+		profile   = fs.String("profile", "", "AWS shared-config profile (aws)")
 	)
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage:\n  qryx scan [flags] <path>\n  qryx tls [flags] <host:port>...\n  qryx bin [flags] <file|dir>...\n  qryx image [flags] <image.tar>...\n\nflags:\n")
+		fmt.Fprintf(os.Stderr, "usage:\n  qryx scan [flags] <path>\n  qryx tls [flags] <host:port>...\n  qryx bin [flags] <file|dir>...\n  qryx image [flags] <image.tar>...\n  qryx aws [flags]\n\nflags:\n")
 		fs.PrintDefaults()
 	}
 
@@ -50,7 +54,7 @@ func run(args []string) error {
 		return fmt.Errorf("no command given")
 	}
 	cmd := args[0]
-	if cmd != "scan" && cmd != "tls" && cmd != "bin" && cmd != "image" {
+	if cmd != "scan" && cmd != "tls" && cmd != "bin" && cmd != "image" && cmd != "aws" {
 		fs.Usage()
 		return fmt.Errorf("unknown command %q", cmd)
 	}
@@ -87,6 +91,8 @@ func run(args []string) error {
 			return fmt.Errorf("image requires at least one image tarball")
 		}
 		res, err = runImage(fs.Args())
+	case "aws":
+		res, err = runAWS(*region, *profile)
 	}
 	if err != nil {
 		return err
@@ -177,6 +183,21 @@ func openStore(target string) store.Store {
 
 func runScan(root string) (*scan.Result, error) {
 	return scan.New(detectors.Default()...).Scan(root)
+}
+
+// runAWS inventories KMS keys and ACM certificates in an AWS account.
+func runAWS(region, profile string) (*scan.Result, error) {
+	findings, err := awscloud.Scan(context.Background(), region, profile)
+	if err != nil {
+		return nil, err
+	}
+	root := "aws://" + region
+	if region == "" {
+		root = "aws://default"
+	}
+	res := &scan.Result{Root: root, FilesWalked: 1}
+	res.Findings = risk.Apply(findings)
+	return res, nil
 }
 
 // runImage extracts each container image tarball and scans its layers.

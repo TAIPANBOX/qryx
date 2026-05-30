@@ -39,6 +39,8 @@ make build
 
 docker save myapp:latest -o img.tar && ./bin/qryx image img.tar  # scan an image
 
+./bin/qryx aws --region us-east-1       # inventory AWS KMS keys + ACM certs
+
 ./bin/qryx scan --save base.json <path>              # snapshot the asset graph
 ./bin/qryx scan --baseline base.json <path>          # report drift vs baseline
 ./bin/qryx scan --baseline base.json --fail-on-new high <path>  # CI: block new crypto
@@ -77,6 +79,11 @@ Container image scanning (`qryx image`): extracts a local image tarball
 (`docker save` / OCI layout) with stdlib tar/gzip — guarded against path
 traversal and tar bombs — and runs the code and binary scanners over the layers.
 No registry pull, no extra dependencies.
+
+AWS cloud inventory (`qryx aws --region <r>`): enumerates KMS keys (by key spec)
+and ACM certificates (algorithm + expiry) via the default credential chain, into
+the same graph. The SDK sits behind an interface seam so the connector logic is
+unit-tested without an account.
 
 Findings from every source are aggregated into a **cryptographic asset graph**:
 one node per logical asset (algorithm + key size) carrying all of its
