@@ -74,68 +74,65 @@ func (g *GoAST) Detect(f scan.File) []model.Finding {
 		return nil
 	}
 
+	// Single walk. A selector on a crypto package (md5.New, rsa.PublicKey) is
+	// real usage whether called, passed as a value (hmac.New(md5.New, ...)), or
+	// referenced as a type. When the selector IS a call's function, we record
+	// its position so the selector visit does not double-emit, and we extract
+	// the RSA key size from rsa.GenerateKey(rand, bits) onto that one finding.
 	var out []model.Finding
+	handled := map[token.Pos]bool{}
 	ast.Inspect(file, func(n ast.Node) bool {
-		// A selector on a crypto package (md5.New, rsa.PublicKey) is real usage
-		// whether it is called, passed as a value (hmac.New(md5.New, ...)), or
-		// referenced as a type. Matching the selector, not only a CallExpr,
-		// catches the function-value pattern regex would also catch.
-		sel, ok := n.(*ast.SelectorExpr)
-		if !ok {
-			return true
+		switch node := n.(type) {
+		case *ast.CallExpr:
+			sel, meta, ok := cryptoSelector(node.Fun, aliases)
+			if !ok {
+				return true
+			}
+			handled[sel.Pos()] = true
+			asset := model.Asset{Type: model.TypeAlgorithm, Algorithm: meta.algo, Primitive: meta.prim}
+			if meta.algo == "RSA" {
+				asset.KeySize = rsaKeyBits(sel.Sel.Name, node)
+			}
+			out = append(out, finding(f.Path, fset, sel, asset, g.Name(), "(...)"))
+		case *ast.SelectorExpr:
+			if handled[node.Pos()] {
+				return true
+			}
+			_, meta, ok := cryptoSelector(node, aliases)
+			if !ok {
+				return true
+			}
+			asset := model.Asset{Type: model.TypeAlgorithm, Algorithm: meta.algo, Primitive: meta.prim}
+			out = append(out, finding(f.Path, fset, node, asset, g.Name(), ""))
 		}
-		pkgIdent, ok := sel.X.(*ast.Ident)
-		if !ok {
-			return true
-		}
-		meta, ok := aliases[pkgIdent.Name]
-		if !ok {
-			return true
-		}
-		pos := fset.Position(sel.Pos())
-		out = append(out, model.Finding{
-			Asset:    model.Asset{Type: model.TypeAlgorithm, Algorithm: meta.algo, Primitive: meta.prim},
-			Location: model.Location{File: f.Path, Line: pos.Line},
-			Evidence: pkgIdent.Name + "." + sel.Sel.Name,
-			Source:   g.Name(),
-		})
-		return true
-	})
-
-	// Second pass: attach the RSA key size from rsa.GenerateKey(rand, bits).
-	// This emits a finding at the same line as the selector above; the scanner's
-	// dedup collapses them, keeping the higher severity (e.g. RSA-1024 weak).
-	ast.Inspect(file, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok {
-			return true
-		}
-		pkgIdent, ok := sel.X.(*ast.Ident)
-		if !ok {
-			return true
-		}
-		meta, ok := aliases[pkgIdent.Name]
-		if !ok || meta.algo != "RSA" {
-			return true
-		}
-		bits := rsaKeyBits(sel.Sel.Name, call)
-		if bits == 0 {
-			return true
-		}
-		pos := fset.Position(sel.Pos())
-		out = append(out, model.Finding{
-			Asset:    model.Asset{Type: model.TypeAlgorithm, Algorithm: "RSA", KeySize: bits, Primitive: meta.prim},
-			Location: model.Location{File: f.Path, Line: pos.Line},
-			Evidence: pkgIdent.Name + "." + sel.Sel.Name + "(...)",
-			Source:   g.Name(),
-		})
 		return true
 	})
 	return out
+}
+
+// cryptoSelector reports whether expr is a selector on an imported crypto
+// package, returning the selector and its package metadata.
+func cryptoSelector(expr ast.Expr, aliases map[string]goPkg) (*ast.SelectorExpr, goPkg, bool) {
+	sel, ok := expr.(*ast.SelectorExpr)
+	if !ok {
+		return nil, goPkg{}, false
+	}
+	pkgIdent, ok := sel.X.(*ast.Ident)
+	if !ok {
+		return nil, goPkg{}, false
+	}
+	meta, ok := aliases[pkgIdent.Name]
+	return sel, meta, ok
+}
+
+func finding(path string, fset *token.FileSet, sel *ast.SelectorExpr, asset model.Asset, source, suffix string) model.Finding {
+	pkgIdent := sel.X.(*ast.Ident)
+	return model.Finding{
+		Asset:    asset,
+		Location: model.Location{File: path, Line: fset.Position(sel.Pos()).Line},
+		Evidence: pkgIdent.Name + "." + sel.Sel.Name + suffix,
+		Source:   source,
+	}
 }
 
 // rsaKeyBits extracts the bit size from rsa.GenerateKey(rand, bits); 0 when the

@@ -56,6 +56,12 @@ Active TLS probing of live endpoints (`qryx tls`): negotiated TLS version,
 insecure cipher suites, and the leaf certificate's public-key algorithm, size,
 and expiry — fed into the same risk model and CBOM output.
 
+Findings from every source are aggregated into a **cryptographic asset graph**:
+one node per logical asset (algorithm + key size) carrying all of its
+occurrences, deduplicated across files and sources. The CBOM emits one CycloneDX
+component per asset with every occurrence listed, and the human report shows
+asset-level counts (e.g. one `RSA` row with 112 occurrences, not 112 rows).
+
 Risk classification: `quantum-vulnerable` (RSA/ECC/DSA — Shor), `weak`
 (MD5/SHA-1/DES/RC4, RSA<2048), `misconfig`, `expired`, `hardcoded`. Post-quantum
 algorithms (ML-KEM/ML-DSA, FIPS 203/204/205) are recognized as safe.

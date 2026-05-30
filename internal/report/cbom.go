@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
+	"strings"
 	"time"
 
-	"github.com/TAIPANBOX/qryx/internal/model"
+	"github.com/TAIPANBOX/qryx/internal/graph"
 	"github.com/TAIPANBOX/qryx/internal/scan"
 )
 
@@ -86,8 +88,8 @@ func CBOM(w io.Writer, res *scan.Result, version string) error {
 		},
 	}
 
-	for _, f := range res.Findings {
-		doc.Components = append(doc.Components, toComponent(f))
+	for _, node := range graph.Build(res.Findings) {
+		doc.Components = append(doc.Components, toComponent(node))
 	}
 
 	enc := json.NewEncoder(w)
@@ -95,46 +97,65 @@ func CBOM(w io.Writer, res *scan.Result, version string) error {
 	return enc.Encode(doc)
 }
 
-func toComponent(f model.Finding) cbomComp {
-	name := f.Asset.Algorithm
-	if f.Asset.KeySize > 0 {
-		name = fmt.Sprintf("%s-%d", name, f.Asset.KeySize)
+// toComponent renders one asset node as a single CycloneDX component carrying
+// every occurrence of that asset — the graph, not a flat per-finding dump.
+func toComponent(n graph.AssetNode) cbomComp {
+	name := n.Asset.Algorithm
+	if n.Asset.KeySize > 0 {
+		name = fmt.Sprintf("%s-%d", name, n.Asset.KeySize)
+	}
+
+	occ := make([]cbomOccurrence, 0, len(n.Occurrences))
+	sources := map[string]bool{}
+	for _, o := range n.Occurrences {
+		occ = append(occ, cbomOccurrence{Location: o.Location.File, Line: o.Location.Line})
+		if o.Source != "" {
+			sources[o.Source] = true
+		}
 	}
 
 	comp := cbomComp{
 		Type:   "cryptographic-asset",
-		BOMRef: bomRef(f),
+		BOMRef: bomRef(n),
 		Name:   name,
 		CryptoProperties: &cryptoProps{
-			AssetType: string(f.Asset.Type),
+			AssetType: string(n.Asset.Type),
 			AlgorithmProps: &algorithmProps{
-				Primitive: string(f.Asset.Primitive),
+				Primitive: string(n.Asset.Primitive),
 			},
 		},
-		Evidence: &cbomEvidence{
-			Occurrences: []cbomOccurrence{
-				{Location: f.Location.File, Line: f.Location.Line},
-			},
-		},
+		Evidence: &cbomEvidence{Occurrences: occ},
 		Properties: []cbomProperty{
-			{Name: "qryx:detector", Value: f.Source},
-			{Name: "qryx:risk", Value: string(f.Risk.Class)},
-			{Name: "qryx:severity", Value: f.Risk.Severity.String()},
+			{Name: "qryx:detectors", Value: joinSorted(sources)},
+			{Name: "qryx:risk", Value: string(n.Risk.Class)},
+			{Name: "qryx:severity", Value: n.Risk.Severity.String()},
+			{Name: "qryx:occurrences", Value: fmt.Sprintf("%d", len(n.Occurrences))},
 		},
 	}
-	if f.Risk.Reason != "" {
+	if n.Risk.Reason != "" {
 		comp.Properties = append(comp.Properties,
-			cbomProperty{Name: "qryx:reason", Value: f.Risk.Reason})
+			cbomProperty{Name: "qryx:reason", Value: n.Risk.Reason})
 	}
-	if f.Asset.KeySize > 0 {
-		comp.CryptoProperties.AlgorithmProps.ParameterSetID = fmt.Sprintf("%d", f.Asset.KeySize)
+	if n.Asset.KeySize > 0 {
+		comp.CryptoProperties.AlgorithmProps.ParameterSetID = fmt.Sprintf("%d", n.Asset.KeySize)
 	}
 	return comp
 }
 
-// bomRef is a stable identifier derived from algorithm and location.
-func bomRef(f model.Finding) string {
-	h := sha256.Sum256([]byte(fmt.Sprintf("%s|%s|%d|%s",
-		f.Asset.Algorithm, f.Location.File, f.Location.Line, f.Source)))
+// bomRef is a stable identifier for an asset node, derived from its canonical
+// identity (type, algorithm, key size) so it is reproducible across runs.
+func bomRef(n graph.AssetNode) string {
+	h := sha256.Sum256([]byte(fmt.Sprintf("%s|%s|%d",
+		n.Asset.Type, n.Asset.Algorithm, n.Asset.KeySize)))
 	return "crypto:" + hex.EncodeToString(h[:8])
+}
+
+// joinSorted renders a set of strings as a sorted, comma-separated list.
+func joinSorted(set map[string]bool) string {
+	keys := make([]string, 0, len(set))
+	for k := range set {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return strings.Join(keys, ",")
 }

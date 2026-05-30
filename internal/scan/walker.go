@@ -4,7 +4,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/TAIPANBOX/qryx/internal/model"
 	"github.com/TAIPANBOX/qryx/internal/risk"
@@ -99,41 +98,8 @@ func (s *Scanner) Scan(root string) (*Result, error) {
 		return nil, err
 	}
 
-	res.Findings = dedup(risk.Apply(res.Findings))
+	// Asset-level dedup happens in package graph, which the reporters build
+	// from the raw findings; the walker keeps findings flat.
+	res.Findings = risk.Apply(res.Findings)
 	return res, nil
-}
-
-// dedup collapses findings that describe the same asset at the same location,
-// keeping the one with the highest severity.
-func dedup(findings []model.Finding) []model.Finding {
-	type key struct {
-		algo string
-		file string
-		line int
-	}
-	best := make(map[key]model.Finding)
-	order := []key{}
-
-	for _, f := range findings {
-		k := key{
-			algo: strings.ToUpper(f.Asset.Algorithm),
-			file: f.Location.File,
-			line: f.Location.Line,
-		}
-		cur, ok := best[k]
-		if !ok {
-			best[k] = f
-			order = append(order, k)
-			continue
-		}
-		if f.Risk.Severity > cur.Risk.Severity {
-			best[k] = f
-		}
-	}
-
-	out := make([]model.Finding, 0, len(order))
-	for _, k := range order {
-		out = append(out, best[k])
-	}
-	return out
 }
