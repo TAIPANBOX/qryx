@@ -12,6 +12,7 @@ import (
 
 	"github.com/TAIPANBOX/qryx/internal/binscan"
 	awscloud "github.com/TAIPANBOX/qryx/internal/cloud/aws"
+	gcpcloud "github.com/TAIPANBOX/qryx/internal/cloud/gcp"
 	"github.com/TAIPANBOX/qryx/internal/imagescan"
 	"github.com/TAIPANBOX/qryx/internal/model"
 	"github.com/TAIPANBOX/qryx/internal/probe"
@@ -43,9 +44,11 @@ func run(args []string) error {
 		baseline  = fs.String("baseline", "", "compare the asset graph against this snapshot and report drift")
 		region    = fs.String("region", "", "AWS region (aws)")
 		profile   = fs.String("profile", "", "AWS shared-config profile (aws)")
+		project   = fs.String("project", "", "GCP project ID (gcp)")
+		location  = fs.String("location", "global", "GCP KMS location (gcp)")
 	)
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage:\n  qryx scan [flags] <path>\n  qryx tls [flags] <host:port>...\n  qryx bin [flags] <file|dir>...\n  qryx image [flags] <image.tar>...\n  qryx aws [flags]\n\nflags:\n")
+		fmt.Fprintf(os.Stderr, "usage:\n  qryx scan [flags] <path>\n  qryx tls [flags] <host:port>...\n  qryx bin [flags] <file|dir>...\n  qryx image [flags] <image.tar>...\n  qryx aws [flags]\n  qryx gcp --project <id> [flags]\n\nflags:\n")
 		fs.PrintDefaults()
 	}
 
@@ -54,7 +57,7 @@ func run(args []string) error {
 		return fmt.Errorf("no command given")
 	}
 	cmd := args[0]
-	if cmd != "scan" && cmd != "tls" && cmd != "bin" && cmd != "image" && cmd != "aws" {
+	if cmd != "scan" && cmd != "tls" && cmd != "bin" && cmd != "image" && cmd != "aws" && cmd != "gcp" {
 		fs.Usage()
 		return fmt.Errorf("unknown command %q", cmd)
 	}
@@ -93,6 +96,12 @@ func run(args []string) error {
 		res, err = runImage(fs.Args())
 	case "aws":
 		res, err = runAWS(*region, *profile)
+	case "gcp":
+		if *project == "" {
+			fs.Usage()
+			return fmt.Errorf("gcp requires --project")
+		}
+		res, err = runGCP(*project, *location)
 	}
 	if err != nil {
 		return err
@@ -196,6 +205,17 @@ func runAWS(region, profile string) (*scan.Result, error) {
 		root = "aws://default"
 	}
 	res := &scan.Result{Root: root, FilesWalked: 1}
+	res.Findings = risk.Apply(findings)
+	return res, nil
+}
+
+// runGCP inventories Cloud KMS key versions in a GCP project/location.
+func runGCP(project, location string) (*scan.Result, error) {
+	findings, err := gcpcloud.Scan(context.Background(), project, location)
+	if err != nil {
+		return nil, err
+	}
+	res := &scan.Result{Root: fmt.Sprintf("gcp://%s/%s", project, location), FilesWalked: 1}
 	res.Findings = risk.Apply(findings)
 	return res, nil
 }
