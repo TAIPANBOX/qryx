@@ -5,9 +5,13 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/TAIPANBOX/qryx/internal/model"
+	"github.com/TAIPANBOX/qryx/internal/probe"
 	"github.com/TAIPANBOX/qryx/internal/report"
+	"github.com/TAIPANBOX/qryx/internal/risk"
 	"github.com/TAIPANBOX/qryx/internal/scan"
 	"github.com/TAIPANBOX/qryx/internal/scan/detectors"
 )
@@ -25,11 +29,12 @@ func main() {
 func run(args []string) error {
 	fs := flag.NewFlagSet("qryx", flag.ContinueOnError)
 	var (
-		format = fs.String("format", "human", "output format: human|cbom")
-		failOn = fs.String("fail-on", "", "exit non-zero if a finding at or above this severity exists: low|medium|high|critical")
+		format  = fs.String("format", "human", "output format: human|cbom")
+		failOn  = fs.String("fail-on", "", "exit non-zero if a finding at or above this severity exists: low|medium|high|critical")
+		timeout = fs.Duration("timeout", 5*time.Second, "per-endpoint connect timeout (tls)")
 	)
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: qryx scan [flags] <path>\n\nflags:\n")
+		fmt.Fprintf(os.Stderr, "usage:\n  qryx scan [flags] <path>\n  qryx tls [flags] <host:port>...\n\nflags:\n")
 		fs.PrintDefaults()
 	}
 
@@ -37,28 +42,33 @@ func run(args []string) error {
 		fs.Usage()
 		return fmt.Errorf("no command given")
 	}
-	if args[0] != "scan" {
+	cmd := args[0]
+	if cmd != "scan" && cmd != "tls" {
 		fs.Usage()
-		return fmt.Errorf("unknown command %q", args[0])
+		return fmt.Errorf("unknown command %q", cmd)
 	}
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
-	if fs.NArg() != 1 {
-		fs.Usage()
-		return fmt.Errorf("scan requires exactly one path")
-	}
-	root := fs.Arg(0)
 
-	scanner := scan.New(
-		detectors.NewCertFile(),
-		detectors.NewGoAST(),
-		detectors.NewCryptoCall(),
-		detectors.NewTLSConfig(),
-		detectors.NewHardcoded(),
-		detectors.NewDeps(),
+	var (
+		res *scan.Result
+		err error
 	)
-	res, err := scanner.Scan(root)
+	switch cmd {
+	case "scan":
+		if fs.NArg() != 1 {
+			fs.Usage()
+			return fmt.Errorf("scan requires exactly one path")
+		}
+		res, err = runScan(fs.Arg(0))
+	case "tls":
+		if fs.NArg() == 0 {
+			fs.Usage()
+			return fmt.Errorf("tls requires at least one host:port target")
+		}
+		res, err = runTLS(fs.Args(), *timeout)
+	}
 	if err != nil {
 		return err
 	}
@@ -86,6 +96,36 @@ func run(args []string) error {
 		}
 	}
 	return nil
+}
+
+func runScan(root string) (*scan.Result, error) {
+	scanner := scan.New(
+		detectors.NewCertFile(),
+		detectors.NewGoAST(),
+		detectors.NewCryptoCall(),
+		detectors.NewTLSConfig(),
+		detectors.NewHardcoded(),
+		detectors.NewDeps(),
+	)
+	return scanner.Scan(root)
+}
+
+// runTLS probes each target endpoint and aggregates the findings into a single
+// Result. A failed dial to one target is reported to stderr but does not abort
+// the others.
+func runTLS(targets []string, timeout time.Duration) (*scan.Result, error) {
+	res := &scan.Result{Root: "tls://" + strings.Join(targets, ",")}
+	for _, t := range targets {
+		findings, err := probe.Endpoint(t, timeout)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "qryx: %s: %v\n", t, err)
+			continue
+		}
+		res.FilesWalked++
+		res.Findings = append(res.Findings, findings...)
+	}
+	res.Findings = risk.Apply(res.Findings)
+	return res, nil
 }
 
 func parseSeverity(s string) (model.Severity, bool) {

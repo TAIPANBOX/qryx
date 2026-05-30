@@ -1,9 +1,6 @@
 package detectors
 
 import (
-	"crypto/ecdsa"
-	"crypto/ed25519"
-	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
@@ -12,6 +9,7 @@ import (
 
 	"github.com/TAIPANBOX/qryx/internal/model"
 	"github.com/TAIPANBOX/qryx/internal/scan"
+	"github.com/TAIPANBOX/qryx/internal/x509util"
 )
 
 // CertFile parses PEM certificates and reports the signature algorithm, public
@@ -55,7 +53,7 @@ func (c *CertFile) Detect(f scan.File) []model.Finding {
 func (c *CertFile) findingsForCert(path string, cert *x509.Certificate) []model.Finding {
 	var out []model.Finding
 
-	algo, size, prim := publicKeyInfo(cert)
+	algo, size, prim := x509util.PublicKeyInfo(cert)
 	if algo != "" {
 		out = append(out, model.Finding{
 			Asset: model.Asset{
@@ -91,19 +89,4 @@ func (c *CertFile) findingsForCert(path string, cert *x509.Certificate) []model.
 	}
 
 	return out
-}
-
-// publicKeyInfo returns a normalized algorithm name, key size in bits, and
-// primitive for a certificate's public key.
-func publicKeyInfo(cert *x509.Certificate) (string, int, model.Primitive) {
-	switch pub := cert.PublicKey.(type) {
-	case *rsa.PublicKey:
-		return "RSA", pub.N.BitLen(), model.PrimitiveSignature
-	case *ecdsa.PublicKey:
-		return "ECDSA", pub.Curve.Params().BitSize, model.PrimitiveSignature
-	case ed25519.PublicKey:
-		return "Ed25519", 256, model.PrimitiveSignature
-	default:
-		return "", 0, model.PrimitiveUnknown
-	}
 }

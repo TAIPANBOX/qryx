@@ -91,15 +91,7 @@ func (s *Scanner) Scan(root string) (*Result, error) {
 			if !det.Wants(rel) {
 				continue
 			}
-			for _, f := range det.Detect(file) {
-				// Algorithm-based findings leave Risk unset and are classified
-				// uniformly here; context-based detectors (TLS misconfig,
-				// hardcoded keys) assert their own Risk and are left intact.
-				if f.Risk.Class == "" {
-					f.Risk = risk.Classify(f.Asset)
-				}
-				res.Findings = append(res.Findings, f)
-			}
+			res.Findings = append(res.Findings, det.Detect(file)...)
 		}
 		return nil
 	})
@@ -107,7 +99,7 @@ func (s *Scanner) Scan(root string) (*Result, error) {
 		return nil, err
 	}
 
-	res.Findings = dedup(res.Findings)
+	res.Findings = dedup(risk.Apply(res.Findings))
 	return res, nil
 }
 

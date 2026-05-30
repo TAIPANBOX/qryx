@@ -26,18 +26,25 @@ See [`qryx-plan.md`](./qryx-plan.md) for the full design and roadmap.
 ## Quick start
 ```bash
 make build
-./bin/qryx scan <path>                 # human-readable report
+./bin/qryx scan <path>                 # static scan of a code tree
 ./bin/qryx scan --format cbom <path>   # CycloneDX 1.6 CBOM (JSON)
 ./bin/qryx scan --fail-on high <path>  # exit 2 if any finding >= high (for CI)
+
+./bin/qryx tls example.com:443         # probe a live endpoint's TLS posture
+./bin/qryx tls --timeout 3s host:443   # version, cipher suite, certificate key
 ```
+
+> `qryx tls` actively connects to the targets you pass — only the exact
+> `host:port` arguments, no port ranges or host discovery. Probe only endpoints
+> you are authorized to test.
 
 Run against the bundled fixtures:
 ```bash
 make scan
 ```
 
-## What works today (Phase 0)
-A single-tree CLI scanner with 6 detectors:
+## What works today
+Static scan of a code tree (`qryx scan`) with 6 detectors:
 - `goast` — crypto usage in Go via AST import resolution (no regex false positives)
 - `cryptocall` — crypto API usage in Python / JS / TS source
 - `certfile` — PEM certificate parsing (algorithm, key size, expiry)
@@ -45,14 +52,19 @@ A single-tree CLI scanner with 6 detectors:
 - `hardcoded` — private keys embedded in source/config
 - `deps` — crypto libraries in dependency manifests
 
+Active TLS probing of live endpoints (`qryx tls`): negotiated TLS version,
+insecure cipher suites, and the leaf certificate's public-key algorithm, size,
+and expiry — fed into the same risk model and CBOM output.
+
 Risk classification: `quantum-vulnerable` (RSA/ECC/DSA — Shor), `weak`
 (MD5/SHA-1/DES/RC4, RSA<2048), `misconfig`, `expired`, `hardcoded`. Post-quantum
 algorithms (ML-KEM/ML-DSA, FIPS 203/204/205) are recognized as safe.
 
 ## Status
-Phase 0 (MVP CLI scanner) — working. Next, per [`qryx-plan.md`](./qryx-plan.md):
-tree-sitter instead of regex, a CBOM graph in Postgres, active TLS scanning,
-cloud KMS connectors.
+Phase 0 (static CLI scanner + CBOM) and the first Phase 1 connector (active TLS
+probing) — working. Next, per [`qryx-plan.md`](./qryx-plan.md): a CBOM graph in
+Postgres with cross-source dedup, binary/image scanning, cloud KMS connectors,
+and tree-sitter instead of regex for Python/JS.
 
 ## License
 Apache-2.0.
