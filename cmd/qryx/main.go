@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/TAIPANBOX/qryx/internal/imagescan"
 	"github.com/TAIPANBOX/qryx/internal/model"
 	"github.com/TAIPANBOX/qryx/internal/probe"
+	"github.com/TAIPANBOX/qryx/internal/remediate"
 	"github.com/TAIPANBOX/qryx/internal/report"
 	"github.com/TAIPANBOX/qryx/internal/risk"
 	"github.com/TAIPANBOX/qryx/internal/scan"
@@ -48,9 +50,11 @@ func run(args []string) error {
 		project   = fs.String("project", "", "GCP project ID (gcp)")
 		location  = fs.String("location", "global", "GCP KMS location (gcp)")
 		vaultURL  = fs.String("vault-url", "", "Azure Key Vault URL, e.g. https://myvault.vault.azure.net/ (azure)")
+		write     = fs.Bool("write", false, "apply fixes in place (fix); default prints a unified diff")
+		minRSA    = fs.Int("min-rsa-bits", 3072, "raise RSA keys below this size when fixing (fix)")
 	)
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage:\n  qryx scan [flags] <path>\n  qryx tls [flags] <host:port>...\n  qryx bin [flags] <file|dir>...\n  qryx image [flags] <image.tar>...\n  qryx aws [flags]\n  qryx gcp --project <id> [flags]\n  qryx azure --vault-url <url> [flags]\n\nflags:\n")
+		fmt.Fprintf(os.Stderr, "usage:\n  qryx scan [flags] <path>\n  qryx fix [--write] [--min-rsa-bits N] <path>\n  qryx tls [flags] <host:port>...\n  qryx bin [flags] <file|dir>...\n  qryx image [flags] <image.tar>...\n  qryx aws [flags]\n  qryx gcp --project <id> [flags]\n  qryx azure --vault-url <url> [flags]\n\nflags:\n")
 		fs.PrintDefaults()
 	}
 
@@ -59,7 +63,7 @@ func run(args []string) error {
 		return fmt.Errorf("no command given")
 	}
 	cmd := args[0]
-	if cmd != "scan" && cmd != "tls" && cmd != "bin" && cmd != "image" && cmd != "aws" && cmd != "gcp" && cmd != "azure" {
+	if cmd != "scan" && cmd != "fix" && cmd != "tls" && cmd != "bin" && cmd != "image" && cmd != "aws" && cmd != "gcp" && cmd != "azure" {
 		fs.Usage()
 		return fmt.Errorf("unknown command %q", cmd)
 	}
@@ -76,6 +80,12 @@ func run(args []string) error {
 		if fs.NArg() != 1 {
 			fs.Usage()
 			return fmt.Errorf("scan requires exactly one path")
+		}
+		res, err = runScan(fs.Arg(0))
+	case "fix":
+		if fs.NArg() != 1 {
+			fs.Usage()
+			return fmt.Errorf("fix requires exactly one path")
 		}
 		res, err = runScan(fs.Arg(0))
 	case "tls":
@@ -113,6 +123,10 @@ func run(args []string) error {
 	}
 	if err != nil {
 		return err
+	}
+
+	if cmd == "fix" {
+		return runFix(res, *minRSA, *write)
 	}
 
 	if *save != "" {
@@ -187,6 +201,38 @@ func run(args []string) error {
 			}
 		}
 	}
+	return nil
+}
+
+// runFix derives safe source patches from a scan and either prints them as
+// unified diffs (default) or applies them in place (--write).
+func runFix(res *scan.Result, minRSABits int, write bool) error {
+	if minRSABits < 2048 {
+		return fmt.Errorf("--min-rsa-bits must be >= 2048")
+	}
+	patches, err := remediate.Plan(res, minRSABits)
+	if err != nil {
+		return err
+	}
+	if len(patches) == 0 {
+		fmt.Fprintln(os.Stderr, "qryx: no safe automatic fixes found")
+		return nil
+	}
+	for _, p := range patches {
+		if !write {
+			fmt.Print(p.Diff)
+			continue
+		}
+		if err := os.WriteFile(filepath.Join(res.Root, p.File), []byte(p.NewContent), 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", p.File, err)
+		}
+		fmt.Fprintf(os.Stderr, "fixed %s (%s)\n", p.File, p.Rule)
+	}
+	verb := "would change"
+	if write {
+		verb = "changed"
+	}
+	fmt.Fprintf(os.Stderr, "qryx: %s %d file(s)\n", verb, len(patches))
 	return nil
 }
 

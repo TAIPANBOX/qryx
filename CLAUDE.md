@@ -12,19 +12,25 @@ CycloneDX CBOM / human / HTML reports with JSON/Postgres persistence and CI
 drift gating. Pure-Go bias; stdlib first. Product plan and roadmap:
 [`qryx-plan.md`](./qryx-plan.md).
 
-## Current status (as of 2026-05-30, commit fa60249)
+## Current status (as of 2026-05-31)
 
 **Done:**
 - Phase 0: static code scan (goast/cryptocall/certfile/tlsconfig/hardcoded/deps)
 - Phase 1: TLS probing, ELF/PE/Mach-O binaries, container images, asset graph,
   CycloneDX CBOM, HTML report, Postgres + JSON persistence, CI drift gate
-- Phase 2 cloud: `qryx aws`, `qryx gcp`, `qryx azure` — all three connectors
-  with interface seams, unit-tested without live credentials; CI green
+- Phase 2: `qryx aws`/`gcp`/`azure` connectors (interface seams, unit-tested
+  without creds); owner-mapping via tags/labels; CNSA 2.0 audit (`--format cnsa`)
+- Phase 3 increment 1: crypto-agility scoring (`internal/agility`) + risk-ranked
+  migration plan (`--format migration`)
+- Phase 3 increment 2: safe code remediation (`internal/remediate`, `qryx fix`) —
+  raises sub-floor RSA key sizes via AST literal rewrite; dry-run diff by default,
+  `--write` to apply. Only provably-safe transforms; algorithm swaps stay guidance.
 
 **Next (in priority order per qryx-plan.md):**
-1. Phase 2 remainder: owner-mapping of assets (tags/IAM/labels → who owns what)
-   and CNSA 2.0 / audit report export
-2. Phase 3: crypto-agility scoring + PR remediation
+1. Phase 3 remainder: open the `qryx fix` patch as a GitHub PR (branch + commit +
+   `gh pr create`) — outward-facing, needs its own Plan Mode + safety review;
+   Terraform remediation rule (needs a `.tf` detector first — registry is ready).
+2. Phase 4: governance/enforcement (CI policy gates, drift monitoring, dashboards).
 
 **Ask the user which to tackle first at the start of a new session.**
 
