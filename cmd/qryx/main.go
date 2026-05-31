@@ -52,9 +52,11 @@ func run(args []string) error {
 		vaultURL  = fs.String("vault-url", "", "Azure Key Vault URL, e.g. https://myvault.vault.azure.net/ (azure)")
 		write     = fs.Bool("write", false, "apply fixes in place (fix); default prints a unified diff")
 		minRSA    = fs.Int("min-rsa-bits", 3072, "raise RSA keys below this size when fixing (fix)")
+		openPR    = fs.Bool("open-pr", false, "apply fixes and open a GitHub PR via git+gh (fix)")
+		branch    = fs.String("branch", "", "branch name for --open-pr (default qryx/fix-<rule>-<timestamp>)")
 	)
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage:\n  qryx scan [flags] <path>\n  qryx fix [--write] [--min-rsa-bits N] <path>\n  qryx tls [flags] <host:port>...\n  qryx bin [flags] <file|dir>...\n  qryx image [flags] <image.tar>...\n  qryx aws [flags]\n  qryx gcp --project <id> [flags]\n  qryx azure --vault-url <url> [flags]\n\nflags:\n")
+		fmt.Fprintf(os.Stderr, "usage:\n  qryx scan [flags] <path>\n  qryx fix [--write] [--open-pr [--branch NAME]] [--min-rsa-bits N] <path>\n  qryx tls [flags] <host:port>...\n  qryx bin [flags] <file|dir>...\n  qryx image [flags] <image.tar>...\n  qryx aws [flags]\n  qryx gcp --project <id> [flags]\n  qryx azure --vault-url <url> [flags]\n\nflags:\n")
 		fs.PrintDefaults()
 	}
 
@@ -126,7 +128,7 @@ func run(args []string) error {
 	}
 
 	if cmd == "fix" {
-		return runFix(res, *minRSA, *write)
+		return runFix(res, fixOptions{minRSABits: *minRSA, write: *write, openPR: *openPR, branch: *branch})
 	}
 
 	if *save != "" {
@@ -204,13 +206,21 @@ func run(args []string) error {
 	return nil
 }
 
-// runFix derives safe source patches from a scan and either prints them as
-// unified diffs (default) or applies them in place (--write).
-func runFix(res *scan.Result, minRSABits int, write bool) error {
-	if minRSABits < 2048 {
+type fixOptions struct {
+	minRSABits int
+	write      bool
+	openPR     bool
+	branch     string
+}
+
+// runFix derives safe source patches from a scan. By default it prints unified
+// diffs; --write applies them in place; --open-pr applies them and opens a
+// GitHub PR via git+gh.
+func runFix(res *scan.Result, opts fixOptions) error {
+	if opts.minRSABits < 2048 {
 		return fmt.Errorf("--min-rsa-bits must be >= 2048")
 	}
-	patches, err := remediate.Plan(res, minRSABits)
+	patches, err := remediate.Plan(res, opts.minRSABits)
 	if err != nil {
 		return err
 	}
@@ -218,21 +228,32 @@ func runFix(res *scan.Result, minRSABits int, write bool) error {
 		fmt.Fprintln(os.Stderr, "qryx: no safe automatic fixes found")
 		return nil
 	}
-	for _, p := range patches {
-		if !write {
-			fmt.Print(p.Diff)
-			continue
+
+	// --open-pr writes via OpenPR (on a fresh branch, after a clean-tree check),
+	// so it must not pre-write here.
+	if opts.openPR {
+		url, err := remediate.OpenPR(res.Root, patches, remediate.PROptions{Branch: opts.branch}, remediate.GitCLI{})
+		if err != nil {
+			return err
 		}
+		fmt.Fprintf(os.Stderr, "qryx: changed %d file(s); opened PR %s\n", len(patches), url)
+		return nil
+	}
+
+	if !opts.write {
+		for _, p := range patches {
+			fmt.Print(p.Diff)
+		}
+		fmt.Fprintf(os.Stderr, "qryx: would change %d file(s)\n", len(patches))
+		return nil
+	}
+	for _, p := range patches {
 		if err := os.WriteFile(filepath.Join(res.Root, p.File), []byte(p.NewContent), 0o644); err != nil {
 			return fmt.Errorf("write %s: %w", p.File, err)
 		}
 		fmt.Fprintf(os.Stderr, "fixed %s (%s)\n", p.File, p.Rule)
 	}
-	verb := "would change"
-	if write {
-		verb = "changed"
-	}
-	fmt.Fprintf(os.Stderr, "qryx: %s %d file(s)\n", verb, len(patches))
+	fmt.Fprintf(os.Stderr, "qryx: changed %d file(s)\n", len(patches))
 	return nil
 }
 

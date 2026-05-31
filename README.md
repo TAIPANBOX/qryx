@@ -104,6 +104,7 @@ qryx scan --fail-on high <path>        # exit 2 if any finding >= high (for CI)
 
 qryx fix <path>                        # show safe code patches as a unified diff
 qryx fix --write <path>                # apply them in place (e.g. raise RSA key size)
+qryx fix --open-pr <path>              # apply, branch, commit and open a GitHub PR (git+gh)
 
 qryx tls example.com:443               # probe a live endpoint's TLS posture
 qryx bin /usr/bin/openssl              # crypto in a binary (ELF/PE/Mach-O)
@@ -192,19 +193,22 @@ sub-floor RSA key size (`rsa.GenerateKey(rand, 1024)` → `3072`, configurable v
 default it prints a unified diff; `--write` applies it in place. Algorithm swaps
 (MD5→SHA-256) and hybrid schemes change semantics and break downstream
 consumers, so they stay as migration *guidance* and are never auto-applied.
+With `--open-pr` the fix is applied on a fresh branch and opened as a GitHub
+pull request (via `git` + `gh`), with the rationale and diff in the PR body —
+guarded by a clean-working-tree check so it never mixes in unrelated edits.
 
 ---
 
 ## Status
 
-**Phase 0 and Phase 1 complete**, **Phase 2 in progress:**
+**Phases 0-3 complete**, **Phase 4 (governance) next:**
 
 - [x] static code scan · TLS probing · binary scanning (ELF/PE/Mach-O) · container images
 - [x] cross-source CBOM asset graph · JSON/Postgres persistence · drift detection · CI gate
 - [x] human / CBOM (CycloneDX 1.6) / HTML reports — all CI-gated
 - [x] Phase 2 cloud KMS — AWS, GCP and Azure done; owner-mapping; CNSA 2.0 audit report
-- [x] Phase 3 — crypto-agility scoring (`--format migration`) and safe code remediation (`qryx fix`)
-- [ ] Phase 3 remainder — open the fix as a GitHub PR; Terraform remediation rule
+- [x] Phase 3 — crypto-agility scoring (`--format migration`), safe code remediation (`qryx fix`), and PR opening (`qryx fix --open-pr`)
+- [ ] Next — Terraform remediation rule; Phase 4 governance/enforcement
 
 Roadmap and rationale: [`qryx-plan.md`](./qryx-plan.md).
 

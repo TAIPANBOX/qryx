@@ -25,11 +25,14 @@ drift gating. Pure-Go bias; stdlib first. Product plan and roadmap:
 - Phase 3 increment 2: safe code remediation (`internal/remediate`, `qryx fix`) —
   raises sub-floor RSA key sizes via AST literal rewrite; dry-run diff by default,
   `--write` to apply. Only provably-safe transforms; algorithm swaps stay guidance.
+- Phase 3 increment 3: `qryx fix --open-pr` — applies on a fresh branch and opens
+  a GitHub PR via git+gh, guarded by a clean-tree check. git/gh behind a `Runner`
+  interface seam, orchestration table-tested with a fake; the live git/gh path is
+  unverified by design (don't run `--open-pr` against this repo — it makes a real PR).
 
 **Next (in priority order per qryx-plan.md):**
-1. Phase 3 remainder: open the `qryx fix` patch as a GitHub PR (branch + commit +
-   `gh pr create`) — outward-facing, needs its own Plan Mode + safety review;
-   Terraform remediation rule (needs a `.tf` detector first — registry is ready).
+1. Terraform remediation rule (`rsa_bits`/`customer_master_key_spec`) — needs a
+   `.tf` detector first; the `remediate` rule registry is ready for it.
 2. Phase 4: governance/enforcement (CI policy gates, drift monitoring, dashboards).
 
 **Ask the user which to tackle first at the start of a new session.**
