@@ -29,6 +29,20 @@ CREATE TABLE IF NOT EXISTS occurrences (
     tags          JSONB  NOT NULL DEFAULT '{}'
 );
 
+CREATE TABLE IF NOT EXISTS evidence (
+    id            BIGSERIAL PRIMARY KEY,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    root          TEXT NOT NULL,
+    version       TEXT NOT NULL,
+    score_pct     INT  NOT NULL,
+    compliant     INT  NOT NULL,
+    non_compliant INT  NOT NULL,
+    issues        INT  NOT NULL,
+    total         INT  NOT NULL,
+    digest        TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS scans_created_at_idx ON scans (created_at DESC);
 CREATE INDEX IF NOT EXISTS assets_scan_id_idx   ON assets (scan_id);
 CREATE INDEX IF NOT EXISTS occurrences_asset_id_idx ON occurrences (asset_id);
+CREATE INDEX IF NOT EXISTS evidence_created_at_idx ON evidence (created_at);

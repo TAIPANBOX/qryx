@@ -84,7 +84,7 @@ func run(args []string) error {
 			fs.Usage()
 			return fmt.Errorf("trend requires exactly one evidence-trail file")
 		}
-		records, err := store.JSONLTrail{Path: fs.Arg(0)}.History()
+		records, err := openTrail(fs.Arg(0)).History()
 		if err != nil {
 			return err
 		}
@@ -209,9 +209,6 @@ func run(args []string) error {
 	}
 
 	if *saveEvid != "" {
-		if strings.HasPrefix(*saveEvid, "postgres://") || strings.HasPrefix(*saveEvid, "postgresql://") {
-			return fmt.Errorf("--save-evidence supports a file path (Postgres trail: TODO)")
-		}
 		att, err := report.Attest(res, version)
 		if err != nil {
 			return err
@@ -227,7 +224,7 @@ func run(args []string) error {
 			Total:        att.Total,
 			Digest:       att.Digest,
 		}
-		if err := (store.JSONLTrail{Path: *saveEvid}).Append(rec); err != nil {
+		if err := openTrail(*saveEvid).Append(rec); err != nil {
 			return fmt.Errorf("save evidence: %w", err)
 		}
 	}
@@ -349,6 +346,15 @@ func openStore(target string) store.Store {
 		return store.PostgresStore{ConnString: target}
 	}
 	return store.JSONStore{Path: target}
+}
+
+// openTrail selects an evidence-trail backend by target: a postgres:// URL uses
+// Postgres, anything else is a JSON Lines file path.
+func openTrail(target string) store.Trail {
+	if strings.HasPrefix(target, "postgres://") || strings.HasPrefix(target, "postgresql://") {
+		return store.PostgresTrail{ConnString: target}
+	}
+	return store.JSONLTrail{Path: target}
 }
 
 func runScan(root string) (*scan.Result, error) {

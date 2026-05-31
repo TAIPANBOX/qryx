@@ -23,7 +23,13 @@ type PostgresStore struct {
 }
 
 func (s PostgresStore) connect(ctx context.Context) (*pgx.Conn, error) {
-	conn, err := pgx.Connect(ctx, s.ConnString)
+	return pgConnect(ctx, s.ConnString)
+}
+
+// pgConnect opens a connection and applies the schema idempotently. Shared by
+// the snapshot store and the evidence trail.
+func pgConnect(ctx context.Context, connString string) (*pgx.Conn, error) {
+	conn, err := pgx.Connect(ctx, connString)
 	if err != nil {
 		return nil, err
 	}
@@ -116,6 +122,59 @@ func (s PostgresStore) Load() (Snapshot, error) {
 	}
 	snap.Assets = assets
 	return snap, nil
+}
+
+// PostgresTrail is the Postgres-backed evidence trail. It implements Trail,
+// reusing the same connect/ensure-schema bootstrap as PostgresStore.
+type PostgresTrail struct {
+	ConnString string
+}
+
+// Append inserts one evidence record, preserving its CreatedAt.
+func (t PostgresTrail) Append(r EvidenceRecord) error {
+	ctx := context.Background()
+	conn, err := pgConnect(ctx, t.ConnString)
+	if err != nil {
+		return err
+	}
+	defer conn.Close(ctx)
+
+	_, err = conn.Exec(ctx,
+		`INSERT INTO evidence (created_at, root, version, score_pct, compliant, non_compliant, issues, total, digest)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+		r.CreatedAt, r.Root, r.Version, r.ScorePct, r.Compliant, r.NonCompliant, r.Issues, r.Total, r.Digest,
+	)
+	return err
+}
+
+// History returns all evidence records in append order. An empty table yields
+// an empty slice, matching the file backend.
+func (t PostgresTrail) History() ([]EvidenceRecord, error) {
+	ctx := context.Background()
+	conn, err := pgConnect(ctx, t.ConnString)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close(ctx)
+
+	rows, err := conn.Query(ctx,
+		`SELECT created_at, root, version, score_pct, compliant, non_compliant, issues, total, digest
+		 FROM evidence ORDER BY created_at, id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []EvidenceRecord
+	for rows.Next() {
+		var r EvidenceRecord
+		if err := rows.Scan(&r.CreatedAt, &r.Root, &r.Version, &r.ScorePct,
+			&r.Compliant, &r.NonCompliant, &r.Issues, &r.Total, &r.Digest); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
 // loadAssets returns the scan's asset nodes (without occurrences) and a map from

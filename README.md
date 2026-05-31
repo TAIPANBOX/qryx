@@ -256,7 +256,13 @@ digest-stamped record per run to a JSON-Lines trail (date, score, non-compliant
 count, integrity digest). `qryx trend <trail>` renders the history and the
 latest score delta (improved / regressed / unchanged), so a team can prove
 posture over time and catch regressions. Records share the same numbers and
-digest as `--format evidence`.
+digest as `--format evidence`. The trail works with a file path or a
+`postgres://` URL (same backends as `--save`/`--baseline`):
+
+```bash
+qryx scan --save-evidence 'postgres://user:pass@host:5432/db' <path>
+qryx trend 'postgres://user:pass@host:5432/db'
+```
 
 ---
 
@@ -270,7 +276,7 @@ digest as `--format evidence`.
 - [x] Phase 2 cloud KMS — AWS, GCP and Azure done; owner-mapping; CNSA 2.0 audit report
 - [x] Phase 3 — crypto-agility scoring (`--format migration`), safe code remediation (`qryx fix` / `--open-pr`), Terraform detector + rule
 - [x] Phase 4 (in progress) — policy engine (`--policy`, exit 3), drift-gated (`--policy-new-only`), evidence export (`--format evidence`), governance dashboard (`--format dashboard`), evidence trail + trend (`--save-evidence` / `qryx trend`)
-- [ ] Next — Postgres evidence trail; evidence signing (x509/cosign); continuous monitoring
+- [ ] Next — evidence signing (x509/cosign); HTML trend chart; continuous monitoring/alerting
 
 Roadmap and rationale: [`qryx-plan.md`](./qryx-plan.md).
 

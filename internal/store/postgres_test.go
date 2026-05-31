@@ -5,6 +5,7 @@ package store
 import (
 	"os"
 	"testing"
+	"time"
 
 	"github.com/TAIPANBOX/qryx/internal/graph"
 	"github.com/TAIPANBOX/qryx/internal/model"
@@ -58,6 +59,49 @@ func TestPostgresLoadEmptyIsNotFound(t *testing.T) {
 	s := pgStore(t)
 	if _, err := s.Load(); err != nil && err != ErrNotFound {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func pgTrail(t *testing.T) PostgresTrail {
+	t.Helper()
+	url := os.Getenv("DATABASE_URL")
+	if url == "" {
+		t.Skip("DATABASE_URL not set; skipping Postgres integration test")
+	}
+	return PostgresTrail{ConnString: url}
+}
+
+func TestPostgresTrail(t *testing.T) {
+	tr := pgTrail(t)
+
+	before, err := tr.History()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	r1 := EvidenceRecord{CreatedAt: time.Now().UTC().Add(-time.Hour), Root: "pgtrail", Version: "v1", ScorePct: 40, NonCompliant: 3, Digest: "sha256:one"}
+	r2 := EvidenceRecord{CreatedAt: time.Now().UTC(), Root: "pgtrail", Version: "v2", ScorePct: 60, NonCompliant: 1, Digest: "sha256:two"}
+	if err := tr.Append(r1); err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.Append(r2); err != nil {
+		t.Fatal(err)
+	}
+
+	after, err := tr.History()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before)+2 {
+		t.Fatalf("history grew by %d, want 2", len(after)-len(before))
+	}
+	// The two newest records (ordered by created_at) are r1 then r2.
+	last2 := after[len(after)-2:]
+	if last2[0].ScorePct != 40 || last2[1].ScorePct != 60 {
+		t.Errorf("append order wrong: %d then %d", last2[0].ScorePct, last2[1].ScorePct)
+	}
+	if last2[1].Digest != "sha256:two" || last2[1].Version != "v2" {
+		t.Errorf("round-trip mismatch: %+v", last2[1])
 	}
 }
 

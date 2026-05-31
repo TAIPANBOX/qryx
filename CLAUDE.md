@@ -52,12 +52,16 @@ drift gating. Pure-Go bias; stdlib first. Product plan and roadmap:
 - Phase 4 increment 5: evidence trail — `--save-evidence <file.jsonl>` appends a
   compact digest-stamped record (via `report.Attest` + `store.JSONLTrail`,
   append-only `Trail` interface); `qryx trend <file>` renders history + score
-  delta. Postgres trail deferred (guarded with a clear error). report->store
-  already exists, so the record is built in main to avoid an import cycle.
+  delta. report->store already exists, so the record is built in main to avoid
+  an import cycle.
+- Phase 4 increment 6: Postgres evidence trail — `store.PostgresTrail` (evidence
+  table, shared `pgConnect`) behind the same `Trail` interface; `openTrail`
+  picks JSONL vs Postgres by `postgres://`. Integration-tested under the
+  `integration` build tag (CI postgres:16). Local run needs DATABASE_URL/docker.
 
 **Next (in priority order per qryx-plan.md):**
-1. Phase 4 cont.: Postgres evidence trail (same `Trail` interface) + integration
-   test; evidence signing (x509/cosign); continuous monitoring.
+1. Phase 4 cont.: evidence signing (x509/cosign); HTML trend chart; continuous
+   monitoring / regression alerting.
 2. Detector depth: HCL-accurate parsing (heredocs/interpolation), `google_kms_*`
    template algorithms.
 
