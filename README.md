@@ -7,7 +7,7 @@
 [![CI](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.26-00ADD8.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
-![Status](https://img.shields.io/badge/phase-2%20(cloud)-success.svg)
+![Status](https://img.shields.io/badge/phase-4%20(governance)-success.svg)
 
 <img src="docs/architecture.png" alt="qryx architecture: sources flow through the scan engine into a cryptographic asset graph and out to CBOM, reports and drift gates" width="960">
 
@@ -47,10 +47,10 @@ deduplicated into a graph of unique assets, each carrying every place it occurs.
 
 | Stage | What it covers |
 |---|---|
-| **Sources** | source code (Go · Python · JS · TS), binaries (ELF · PE · Mach-O), container images (`docker save` / OCI), live TLS endpoints, PEM/x509 certificates, dependency manifests, cloud KMS (AWS KMS + ACM) |
-| **Scan engine** | AST + parser detectors (`goast`, `cryptocall`, `certfile`, `tlsconfig`, `hardcoded`, `deps`), the binary/image/TLS/cloud connectors, and the risk classifier |
+| **Sources** | source code (Go · Python · JS · TS), Terraform/HCL, binaries (ELF · PE · Mach-O), container images (`docker save` / OCI), live TLS endpoints, PEM/x509 certificates, dependency manifests, cloud KMS (AWS KMS + ACM · GCP KMS · Azure Key Vault) |
+| **Scan engine** | AST + parser detectors (`goast`, `cryptocall`, `certfile`, `tlsconfig`, `hardcoded`, `deps`, `terraform`), the binary/image/TLS/cloud connectors, and the risk classifier |
 | **Asset graph** | one node per logical asset (algorithm + key size), deduplicated across all sources, with every occurrence attached |
-| **Outputs** | CycloneDX 1.6 CBOM · human report · self-contained HTML · JSON/Postgres snapshots · CI drift gate |
+| **Outputs** | CycloneDX 1.6 CBOM · human · HTML · CNSA 2.0 audit · migration plan · signed evidence attestation · governance dashboard · JSON/Postgres snapshots · CI drift, severity & policy gates |
 
 ---
 
@@ -290,14 +290,14 @@ qryx trend 'postgres://user:pass@host:5432/db'
 
 ## Status
 
-**Phases 0-3 complete, Phase 4 (governance) in progress:**
+**Phases 0-4 complete** (only ML-DSA signing pends Go stdlib support):
 
 - [x] static code scan · TLS probing · binary scanning (ELF/PE/Mach-O) · container images
 - [x] cross-source CBOM asset graph · JSON/Postgres persistence · drift detection · CI gate
 - [x] human / CBOM (CycloneDX 1.6) / HTML reports — all CI-gated
 - [x] Phase 2 cloud KMS — AWS, GCP and Azure done; owner-mapping; CNSA 2.0 audit report
 - [x] Phase 3 — crypto-agility scoring (`--format migration`), safe code remediation (`qryx fix` / `--open-pr`), Terraform detector + rule
-- [x] Phase 4 (in progress) — policy engine (`--policy`, exit 3), drift-gated (`--policy-new-only`), evidence export (`--format evidence`), governance dashboard (`--format dashboard`), evidence trail + trend (`--save-evidence` / `qryx trend`)
+- [x] Phase 4 — policy engine (`--policy`, exit 3), drift-gated (`--policy-new-only`), evidence export (`--format evidence`), governance dashboard (`--format dashboard`), evidence trail + trend (`--save-evidence` / `qryx trend`)
 - [x] Phase 4 — evidence signing + verification (`--sign-key` / `qryx verify-evidence`, ed25519/ECDSA)
 - [x] Phase 4 — trend monitoring: HTML chart (`trend --html`) + regression CI gate (`trend --fail-on-regression`)
 - [x] Terraform — HCL-accurate detection via hashicorp/hcl (heredoc/interpolation-safe) + `google_kms_crypto_key`
