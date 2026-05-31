@@ -36,6 +36,34 @@ type evidenceSummary struct {
 	BySeverity   map[string]int `json:"bySeverity"`
 }
 
+// Attestation is the summary subset of an evidence document, surfaced for the
+// audit trail without exposing the full per-asset records.
+type Attestation struct {
+	ScorePct     int
+	Compliant    int
+	NonCompliant int
+	Issues       int
+	Total        int
+	Digest       string
+}
+
+// Attest returns the compliance attestation summary for a scan: the same counts
+// and integrity digest as the evidence document and dashboard.
+func Attest(res *scan.Result, version string) (Attestation, error) {
+	rep, err := buildEvidence(res, version)
+	if err != nil {
+		return Attestation{}, err
+	}
+	return Attestation{
+		ScorePct:     rep.Summary.ScorePct,
+		Compliant:    rep.Summary.Compliant,
+		NonCompliant: rep.Summary.NonCompliant,
+		Issues:       rep.Summary.Issues,
+		Total:        rep.Summary.Total,
+		Digest:       rep.Digest,
+	}, nil
+}
+
 // Evidence writes a compliance evidence document with an integrity digest.
 func Evidence(w io.Writer, res *scan.Result, version string) error {
 	rep, err := buildEvidence(res, version)

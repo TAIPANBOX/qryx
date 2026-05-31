@@ -58,9 +58,10 @@ func run(args []string) error {
 		branch    = fs.String("branch", "", "branch name for --open-pr (default qryx/fix-<rule>-<timestamp>)")
 		policyArg = fs.String("policy", "", "evaluate against a policy (builtin name e.g. cnsa, or a JSON file); exit 3 on violation")
 		policyNew = fs.Bool("policy-new-only", false, "with --policy and --baseline, fail only on NEW violations vs the baseline")
+		saveEvid  = fs.String("save-evidence", "", "append a compliance evidence record to this trail file (JSON Lines)")
 	)
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage:\n  qryx scan [flags] <path>\n  qryx fix [--write] [--open-pr [--branch NAME]] [--min-rsa-bits N] <path>\n  qryx tls [flags] <host:port>...\n  qryx bin [flags] <file|dir>...\n  qryx image [flags] <image.tar>...\n  qryx aws [flags]\n  qryx gcp --project <id> [flags]\n  qryx azure --vault-url <url> [flags]\n\nflags:\n")
+		fmt.Fprintf(os.Stderr, "usage:\n  qryx scan [flags] <path>\n  qryx fix [--write] [--open-pr [--branch NAME]] [--min-rsa-bits N] <path>\n  qryx trend <evidence-trail.jsonl>\n  qryx tls [flags] <host:port>...\n  qryx bin [flags] <file|dir>...\n  qryx image [flags] <image.tar>...\n  qryx aws [flags]\n  qryx gcp --project <id> [flags]\n  qryx azure --vault-url <url> [flags]\n\nflags:\n")
 		fs.PrintDefaults()
 	}
 
@@ -69,12 +70,26 @@ func run(args []string) error {
 		return fmt.Errorf("no command given")
 	}
 	cmd := args[0]
-	if cmd != "scan" && cmd != "fix" && cmd != "tls" && cmd != "bin" && cmd != "image" && cmd != "aws" && cmd != "gcp" && cmd != "azure" {
+	if cmd != "scan" && cmd != "fix" && cmd != "trend" && cmd != "tls" && cmd != "bin" && cmd != "image" && cmd != "aws" && cmd != "gcp" && cmd != "azure" {
 		fs.Usage()
 		return fmt.Errorf("unknown command %q", cmd)
 	}
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
+	}
+
+	// trend reads an evidence trail instead of scanning a target.
+	if cmd == "trend" {
+		if fs.NArg() != 1 {
+			fs.Usage()
+			return fmt.Errorf("trend requires exactly one evidence-trail file")
+		}
+		records, err := store.JSONLTrail{Path: fs.Arg(0)}.History()
+		if err != nil {
+			return err
+		}
+		report.Trend(os.Stdout, records)
+		return nil
 	}
 
 	var (
@@ -191,6 +206,30 @@ func run(args []string) error {
 		}
 	default:
 		return fmt.Errorf("unknown format %q", *format)
+	}
+
+	if *saveEvid != "" {
+		if strings.HasPrefix(*saveEvid, "postgres://") || strings.HasPrefix(*saveEvid, "postgresql://") {
+			return fmt.Errorf("--save-evidence supports a file path (Postgres trail: TODO)")
+		}
+		att, err := report.Attest(res, version)
+		if err != nil {
+			return err
+		}
+		rec := store.EvidenceRecord{
+			CreatedAt:    time.Now().UTC(),
+			Root:         res.Root,
+			Version:      version,
+			ScorePct:     att.ScorePct,
+			Compliant:    att.Compliant,
+			NonCompliant: att.NonCompliant,
+			Issues:       att.Issues,
+			Total:        att.Total,
+			Digest:       att.Digest,
+		}
+		if err := (store.JSONLTrail{Path: *saveEvid}).Append(rec); err != nil {
+			return fmt.Errorf("save evidence: %w", err)
+		}
 	}
 
 	if *policyArg != "" {

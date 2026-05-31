@@ -49,10 +49,15 @@ drift gating. Pure-Go bias; stdlib first. Product plan and roadmap:
   HTML) aggregates compliance score + severity profile + evidence digest + top
   remediation priorities. Reuses extracted `buildEvidence` (evidence.go) and
   `rankedSteps` (migration.go) so it can't disagree with cnsa/migration/evidence.
+- Phase 4 increment 5: evidence trail — `--save-evidence <file.jsonl>` appends a
+  compact digest-stamped record (via `report.Attest` + `store.JSONLTrail`,
+  append-only `Trail` interface); `qryx trend <file>` renders history + score
+  delta. Postgres trail deferred (guarded with a clear error). report->store
+  already exists, so the record is built in main to avoid an import cycle.
 
 **Next (in priority order per qryx-plan.md):**
-1. Phase 4 cont.: evidence signing (x509/cosign) + persistence to Postgres as a
-   dated trail; trend/history across runs; continuous monitoring.
+1. Phase 4 cont.: Postgres evidence trail (same `Trail` interface) + integration
+   test; evidence signing (x509/cosign); continuous monitoring.
 2. Detector depth: HCL-accurate parsing (heredocs/interpolation), `google_kms_*`
    template algorithms.
 

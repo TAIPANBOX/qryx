@@ -101,6 +101,8 @@ qryx scan --format cnsa <path>               # CNSA 2.0 compliance audit (JSON)
 qryx scan --format cnsa-html <path> > cnsa.html  # CNSA 2.0 audit (HTML)
 qryx scan --format evidence <path> > evidence.json  # tamper-evident compliance attestation
 qryx scan --format dashboard <path> > dashboard.html # one-page governance dashboard
+qryx scan --save-evidence trail.jsonl <path>   # append a dated compliance record
+qryx trend trail.jsonl                 # show the compliance-score history
 qryx scan --format migration <path>          # risk-prioritized migration plan (JSON)
 qryx scan --fail-on high <path>        # exit 2 if any finding >= high (for CI)
 qryx scan --policy cnsa <path>         # enforce a crypto policy; exit 3 on violation
@@ -249,6 +251,13 @@ them to). It aggregates the CNSA, migration and evidence views that are
 otherwise separate; numbers come from the same computations, so it can't
 disagree with them.
 
+**Evidence trail** (`--save-evidence` + `qryx trend`) — append one compact,
+digest-stamped record per run to a JSON-Lines trail (date, score, non-compliant
+count, integrity digest). `qryx trend <trail>` renders the history and the
+latest score delta (improved / regressed / unchanged), so a team can prove
+posture over time and catch regressions. Records share the same numbers and
+digest as `--format evidence`.
+
 ---
 
 ## Status
@@ -260,8 +269,8 @@ disagree with them.
 - [x] human / CBOM (CycloneDX 1.6) / HTML reports — all CI-gated
 - [x] Phase 2 cloud KMS — AWS, GCP and Azure done; owner-mapping; CNSA 2.0 audit report
 - [x] Phase 3 — crypto-agility scoring (`--format migration`), safe code remediation (`qryx fix` / `--open-pr`), Terraform detector + rule
-- [x] Phase 4 (in progress) — policy engine (`--policy`, exit 3), drift-gated (`--policy-new-only`), evidence export (`--format evidence`), governance dashboard (`--format dashboard`)
-- [ ] Next — evidence signing/persistence (dated audit trail); trend/history; continuous monitoring
+- [x] Phase 4 (in progress) — policy engine (`--policy`, exit 3), drift-gated (`--policy-new-only`), evidence export (`--format evidence`), governance dashboard (`--format dashboard`), evidence trail + trend (`--save-evidence` / `qryx trend`)
+- [ ] Next — Postgres evidence trail; evidence signing (x509/cosign); continuous monitoring
 
 Roadmap and rationale: [`qryx-plan.md`](./qryx-plan.md).
 
