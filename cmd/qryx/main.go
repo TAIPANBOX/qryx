@@ -61,6 +61,8 @@ func run(args []string) error {
 		policyNew = fs.Bool("policy-new-only", false, "with --policy and --baseline, fail only on NEW violations vs the baseline")
 		saveEvid  = fs.String("save-evidence", "", "append a compliance evidence record to this trail file (JSON Lines)")
 		signKey   = fs.String("sign-key", "", "sign --format evidence with this PKCS#8 PEM key (ed25519 or ECDSA P-256)")
+		failRegr  = fs.Bool("fail-on-regression", false, "with trend: exit 3 if the latest compliance score is below the previous (CI)")
+		htmlOut   = fs.Bool("html", false, "with trend: render a self-contained HTML chart instead of a text table")
 	)
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage:\n  qryx scan [flags] <path>\n  qryx fix [--write] [--open-pr [--branch NAME]] [--min-rsa-bits N] <path>\n  qryx trend <evidence-trail.jsonl>\n  qryx verify-evidence <evidence.json>\n  qryx tls [flags] <host:port>...\n  qryx bin [flags] <file|dir>...\n  qryx image [flags] <image.tar>...\n  qryx aws [flags]\n  qryx gcp --project <id> [flags]\n  qryx azure --vault-url <url> [flags]\n\nflags:\n")
@@ -90,7 +92,17 @@ func run(args []string) error {
 		if err != nil {
 			return err
 		}
-		report.Trend(os.Stdout, records)
+		if *htmlOut {
+			if err := report.TrendHTML(os.Stdout, records); err != nil {
+				return err
+			}
+		} else {
+			report.Trend(os.Stdout, records)
+		}
+		if *failRegr && len(records) >= 2 &&
+			records[len(records)-1].ScorePct < records[len(records)-2].ScorePct {
+			os.Exit(3)
+		}
 		return nil
 	}
 

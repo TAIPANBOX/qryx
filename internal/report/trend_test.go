@@ -46,6 +46,31 @@ func TestTrendDelta(t *testing.T) {
 	}
 }
 
+func TestTrendHTML(t *testing.T) {
+	var buf bytes.Buffer
+	if err := TrendHTML(&buf, []store.EvidenceRecord{recAt(1, 40), recAt(2, 60)}); err != nil {
+		t.Fatal(err)
+	}
+	html := buf.String()
+	// html/template escapes "+" (e.g. "+20" -> "&#43;20"), so assert on the
+	// unescaped parts only.
+	for _, want := range []string{"<!DOCTYPE html>", "Compliance Trend", "<svg", "<polyline", "60%", "improved"} {
+		if !strings.Contains(html, want) {
+			t.Errorf("trend HTML missing %q", want)
+		}
+	}
+}
+
+func TestTrendHTMLEmpty(t *testing.T) {
+	var buf bytes.Buffer
+	if err := TrendHTML(&buf, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "No records") {
+		t.Error("empty trend HTML should say no records")
+	}
+}
+
 func TestTrendSingleRecordNoDelta(t *testing.T) {
 	out := renderTrend(t, []store.EvidenceRecord{recAt(1, 40)})
 	if strings.Contains(out, "improved") || strings.Contains(out, "regressed") || strings.Contains(out, "unchanged") {

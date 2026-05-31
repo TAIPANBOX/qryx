@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>qryx — Compliance Trend</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 14px/1.5 -apple-system, system-ui, sans-serif; margin: 2rem; max-width: 820px; }
+  h1 { font-size: 1.4rem; margin: 0 0 .4rem; }
+  .latest { font-size: 2rem; font-weight: 700; }
+  .up { color: #276749; } .down { color: #b00020; } .flat { color: #888; }
+  svg { border: 1px solid #8882; border-radius: .4rem; margin: 1rem 0; max-width: 100%; }
+  .axis { stroke: #8884; stroke-width: 1; }
+  .line { fill: none; stroke: #2b6cb0; stroke-width: 2; }
+  .dot { fill: #2b6cb0; }
+  .lbl { font: 11px ui-monospace, monospace; fill: #888; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: .4rem .6rem; border-bottom: 1px solid #8882; }
+  th { font-size: .78rem; text-transform: uppercase; color: #888; }
+</style>
+</head>
+<body>
+  <h1>Compliance Trend</h1>
+  <div><span class="latest">{{.Latest}}%</span> CNSA 2.0 compliant
+    {{if .DeltaText}}&mdash; <span class="{{.DeltaClass}}">{{.DeltaText}}</span>{{end}}
+  </div>
+
+  {{if .Points}}
+  <svg viewBox="0 0 720 240" role="img" aria-label="compliance score over time">
+    <line class="axis" x1="40" y1="20" x2="40" y2="200"></line>
+    <line class="axis" x1="40" y1="200" x2="680" y2="200"></line>
+    <text class="lbl" x="8" y="24">100</text>
+    <text class="lbl" x="14" y="204">0</text>
+    {{if gt .Count 1}}<polyline class="line" points="{{.Polyline}}"></polyline>{{end}}
+    {{range .Points}}
+    <circle class="dot" cx="{{.X}}" cy="{{.Y}}" r="3"></circle>
+    <text class="lbl" x="{{.X}}" y="{{.Y}}" dy="-8" text-anchor="middle">{{.Score}}</text>
+    {{end}}
+  </svg>
+  {{else}}
+  <p>No records in the evidence trail.</p>
+  {{end}}
+
+  {{if .Points}}
+  <table>
+    <thead><tr><th>Date</th><th>Score</th></tr></thead>
+    <tbody>
+      {{range .Points}}<tr><td>{{.Date}}</td><td>{{.Score}}%</td></tr>{{end}}
+    </tbody>
+  </table>
+  {{end}}
+</body>
+</html>

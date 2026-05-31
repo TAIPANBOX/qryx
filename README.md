@@ -105,6 +105,8 @@ qryx verify-evidence evidence.json     # verify a signed attestation
 qryx scan --format dashboard <path> > dashboard.html # one-page governance dashboard
 qryx scan --save-evidence trail.jsonl <path>   # append a dated compliance record
 qryx trend trail.jsonl                 # show the compliance-score history
+qryx trend --html trail.jsonl > trend.html     # ...as an SVG chart
+qryx trend --fail-on-regression trail.jsonl    # exit 3 if the score dropped (CI)
 qryx scan --format migration <path>          # risk-prioritized migration plan (JSON)
 qryx scan --fail-on high <path>        # exit 2 if any finding >= high (for CI)
 qryx scan --policy cnsa <path>         # enforce a crypto policy; exit 3 on violation
@@ -273,9 +275,11 @@ disagree with them.
 digest-stamped record per run to a JSON-Lines trail (date, score, non-compliant
 count, integrity digest). `qryx trend <trail>` renders the history and the
 latest score delta (improved / regressed / unchanged), so a team can prove
-posture over time and catch regressions. Records share the same numbers and
-digest as `--format evidence`. The trail works with a file path or a
-`postgres://` URL (same backends as `--save`/`--baseline`):
+posture over time and catch regressions. `--html` renders the history as a
+self-contained SVG line chart; `--fail-on-regression` exits 3 when the latest
+score is below the previous run, turning the trail into a CI monitor. Records
+share the same numbers and digest as `--format evidence`. The trail works with a
+file path or a `postgres://` URL (same backends as `--save`/`--baseline`):
 
 ```bash
 qryx scan --save-evidence 'postgres://user:pass@host:5432/db' <path>
@@ -295,7 +299,8 @@ qryx trend 'postgres://user:pass@host:5432/db'
 - [x] Phase 3 — crypto-agility scoring (`--format migration`), safe code remediation (`qryx fix` / `--open-pr`), Terraform detector + rule
 - [x] Phase 4 (in progress) — policy engine (`--policy`, exit 3), drift-gated (`--policy-new-only`), evidence export (`--format evidence`), governance dashboard (`--format dashboard`), evidence trail + trend (`--save-evidence` / `qryx trend`)
 - [x] Phase 4 — evidence signing + verification (`--sign-key` / `qryx verify-evidence`, ed25519/ECDSA)
-- [ ] Next — HTML trend chart; regression-alert CI gate; ML-DSA signing (pending stdlib)
+- [x] Phase 4 — trend monitoring: HTML chart (`trend --html`) + regression CI gate (`trend --fail-on-regression`)
+- [ ] Later — ML-DSA signing (pending Go stdlib); HCL-accurate Terraform parsing (only if recall becomes a goal)
 
 Roadmap and rationale: [`qryx-plan.md`](./qryx-plan.md).
 

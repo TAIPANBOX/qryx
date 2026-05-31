@@ -64,12 +64,21 @@ drift gating. Pure-Go bias; stdlib first. Product plan and roadmap:
   recomputes the digest and verifies. Pure attest pkg table-tested; live
   openssl keys verified end-to-end.
 
-**Next (in priority order per qryx-plan.md):**
-1. Phase 4 cont.: HTML trend chart; regression-alert CI gate (exit non-zero when
-   the latest score drops); ML-DSA signing once Go stdlib ships it.
-2. Detector depth (deliberate non-debt): HCL-accurate parsing would need the
-   `hashicorp/hcl` dep, against the zero-dep + precision-over-recall design —
-   revisit only if recall becomes a goal, not as cleanup.
+- Phase 4 increment 8: trend monitoring — `qryx trend --html` renders a
+  self-contained SVG score chart (`report.TrendHTML`); `qryx trend
+  --fail-on-regression` exits 3 when the latest score is below the previous run
+  (CI monitor). html/template escapes `+` to `&#43;` — assert on unescaped text.
+
+**Status: Phases 0-4 complete.** Governance is end-to-end: discover -> graph ->
+CBOM/CNSA -> policy gate (+drift) -> remediation (fix/PR) -> evidence
+(export/sign/verify/dashboard/trail/trend).
+
+**Remaining (deliberate deferrals, not tech debt):**
+1. ML-DSA (FIPS 204) signing — once Go stdlib ships it (attest pkg is ready for
+   a new alg).
+2. HCL-accurate Terraform parsing (heredocs/interpolation), `google_kms_*`
+   templates — would need the `hashicorp/hcl` dep, against the zero-dep +
+   precision-over-recall design. Revisit only if recall becomes a goal.
 
 **Ask the user which to tackle first at the start of a new session.**
 
