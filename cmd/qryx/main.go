@@ -57,6 +57,7 @@ func run(args []string) error {
 		openPR    = fs.Bool("open-pr", false, "apply fixes and open a GitHub PR via git+gh (fix)")
 		branch    = fs.String("branch", "", "branch name for --open-pr (default qryx/fix-<rule>-<timestamp>)")
 		policyArg = fs.String("policy", "", "evaluate against a policy (builtin name e.g. cnsa, or a JSON file); exit 3 on violation")
+		policyNew = fs.Bool("policy-new-only", false, "with --policy and --baseline, fail only on NEW violations vs the baseline")
 	)
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage:\n  qryx scan [flags] <path>\n  qryx fix [--write] [--open-pr [--branch NAME]] [--min-rsa-bits N] <path>\n  qryx tls [flags] <host:port>...\n  qryx bin [flags] <file|dir>...\n  qryx image [flags] <image.tar>...\n  qryx aws [flags]\n  qryx gcp --project <id> [flags]\n  qryx azure --vault-url <url> [flags]\n\nflags:\n")
@@ -189,8 +190,19 @@ func run(args []string) error {
 		if err != nil {
 			return err
 		}
-		violations := policy.Evaluate(pol, graph.Build(res.Findings))
-		report.Violations(os.Stderr, policyName(*policyArg, pol), violations)
+		nodes := graph.Build(res.Findings)
+		label := policyName(*policyArg, pol)
+		if *policyNew {
+			if *baseline == "" {
+				return fmt.Errorf("--policy-new-only requires --baseline")
+			}
+			// delta.Added is empty when the baseline is missing or unchanged, so
+			// only genuinely new assets are gated.
+			nodes = delta.Added
+			label += " (new vs baseline)"
+		}
+		violations := policy.Evaluate(pol, nodes)
+		report.Violations(os.Stderr, label, violations)
 		if len(violations) > 0 {
 			os.Exit(3)
 		}

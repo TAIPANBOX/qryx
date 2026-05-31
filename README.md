@@ -103,6 +103,7 @@ qryx scan --format migration <path>          # risk-prioritized migration plan (
 qryx scan --fail-on high <path>        # exit 2 if any finding >= high (for CI)
 qryx scan --policy cnsa <path>         # enforce a crypto policy; exit 3 on violation
 qryx scan --policy .qryx-policy.json <path>   # ...or a custom JSON policy
+qryx scan --policy cnsa --baseline base.json --policy-new-only <path>  # fail only on NEW violations
 
 qryx fix <path>                        # show safe code patches as a unified diff
 qryx fix --write <path>                # apply them in place (e.g. raise RSA key size)
@@ -224,7 +225,10 @@ CNSA deadline is 2030. A custom policy is plain JSON:
 ```
 
 `--policy` writes only to stderr, so `--format cbom`/`html` output on stdout
-stays valid.
+stays valid. Add `--baseline <snapshot> --policy-new-only` to gate on *drift* —
+only assets new since the baseline are evaluated, so a clean policy can be
+adopted on a legacy codebase without blocking on pre-existing debt while still
+failing any newly introduced weak crypto.
 
 ---
 
@@ -237,8 +241,8 @@ stays valid.
 - [x] human / CBOM (CycloneDX 1.6) / HTML reports — all CI-gated
 - [x] Phase 2 cloud KMS — AWS, GCP and Azure done; owner-mapping; CNSA 2.0 audit report
 - [x] Phase 3 — crypto-agility scoring (`--format migration`), safe code remediation (`qryx fix` / `--open-pr`), Terraform detector + rule
-- [x] Phase 4 (in progress) — policy engine + CI enforcement (`--policy`, exit 3)
-- [ ] Next — drift-gated policy (fail only on new violations); compliance dashboards
+- [x] Phase 4 (in progress) — policy engine + CI enforcement (`--policy`, exit 3), drift-gated (`--policy-new-only`)
+- [ ] Next — compliance dashboards / evidence export; continuous monitoring
 
 Roadmap and rationale: [`qryx-plan.md`](./qryx-plan.md).
 

@@ -38,10 +38,12 @@ drift gating. Pure-Go bias; stdlib first. Product plan and roadmap:
   CI gate. Builtin `cnsa` + JSON files; evaluates the deduped graph, prints
   violations to stderr, exits 3 (distinct from `--fail-on`'s 2). stdout format
   output stays clean. Pure `Evaluate`, table-tested.
+- Phase 4 increment 2: drift-gated policy — `--policy ... --baseline X
+  --policy-new-only` evaluates only `delta.Added` (new assets vs the baseline),
+  so existing debt is grandfathered while new weak crypto still fails CI.
 
 **Next (in priority order per qryx-plan.md):**
-1. Phase 4 cont.: drift-gated policy (fail only on NEW violations vs `--baseline`,
-   reuse `store.Diff`); compliance dashboards / evidence export; continuous monitoring.
+1. Phase 4 cont.: compliance dashboards / evidence export; continuous monitoring.
 2. Detector depth: HCL-accurate parsing (heredocs/interpolation), `google_kms_*`
    template algorithms.
 
