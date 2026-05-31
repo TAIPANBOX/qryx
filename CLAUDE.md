@@ -41,9 +41,14 @@ drift gating. Pure-Go bias; stdlib first. Product plan and roadmap:
 - Phase 4 increment 2: drift-gated policy — `--policy ... --baseline X
   --policy-new-only` evaluates only `delta.Added` (new assets vs the baseline),
   so existing debt is grandfathered while new weak crypto still fails CI.
+- Phase 4 increment 3: evidence export — `--format evidence` emits a CNSA 2.0
+  compliance attestation (metadata + summary + per-asset + sha256 content digest
+  with the digest field blanked, verifiable without keys). Reuses cnsa.go's
+  `buildEntries`; counts match `--format cnsa`.
 
 **Next (in priority order per qryx-plan.md):**
-1. Phase 4 cont.: compliance dashboards / evidence export; continuous monitoring.
+1. Phase 4 cont.: HTML compliance dashboard; evidence signing (x509/cosign) +
+   persistence to Postgres as a dated trail; continuous monitoring.
 2. Detector depth: HCL-accurate parsing (heredocs/interpolation), `google_kms_*`
    template algorithms.
 
