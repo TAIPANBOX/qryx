@@ -38,8 +38,19 @@ type evidenceSummary struct {
 
 // Evidence writes a compliance evidence document with an integrity digest.
 func Evidence(w io.Writer, res *scan.Result, version string) error {
-	entries := buildEntries(res)
+	rep, err := buildEvidence(res, version)
+	if err != nil {
+		return err
+	}
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(rep)
+}
 
+// buildEvidence assembles the evidence report (summary, per-asset records and
+// integrity digest) from a scan. Shared by Evidence (JSON) and the dashboard so
+// they report identical numbers and the same digest.
+func buildEvidence(res *scan.Result, version string) (evidenceReport, error) {
 	rep := evidenceReport{
 		Tool:        "qryx",
 		Version:     version,
@@ -49,7 +60,7 @@ func Evidence(w io.Writer, res *scan.Result, version string) error {
 		Summary:     evidenceSummary{BySeverity: map[string]int{}},
 	}
 
-	for _, e := range entries {
+	for _, e := range buildEntries(res) {
 		switch e.Status {
 		case "compliant":
 			rep.Summary.Compliant++
@@ -73,13 +84,10 @@ func Evidence(w io.Writer, res *scan.Result, version string) error {
 
 	digest, err := evidenceDigest(rep)
 	if err != nil {
-		return err
+		return evidenceReport{}, err
 	}
 	rep.Digest = "sha256:" + digest
-
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	return enc.Encode(rep)
+	return rep, nil
 }
 
 // assetJSON renders one CNSA entry as the shared per-asset record.

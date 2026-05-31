@@ -42,24 +42,25 @@ type migrationStep struct {
 // agilityRank orders agility so more-agile sorts first (quick wins).
 var agilityRank = map[agility.Level]int{agility.High: 0, agility.Medium: 1, agility.Low: 2}
 
-// Migration writes a risk-prioritized migration plan as JSON.
-func Migration(w io.Writer, res *scan.Result) error {
-	nodes := graph.Build(res.Findings)
+// rankedStep is one asset that needs migration, with its agility assessment,
+// ordered by remediation priority.
+type rankedStep struct {
+	node graph.AssetNode
+	a    agility.Assessment
+}
 
-	type step struct {
-		node graph.AssetNode
-		a    agility.Assessment
-	}
-	var steps []step
-	for _, n := range nodes {
+// rankedSteps returns every asset needing migration, sorted quick-wins-first:
+// highest severity, then most agile, then most occurrences. Shared by the
+// migration plan (JSON) and the dashboard.
+func rankedSteps(res *scan.Result) []rankedStep {
+	var steps []rankedStep
+	for _, n := range graph.Build(res.Findings) {
 		a, ok := agility.Assess(n)
 		if !ok {
 			continue
 		}
-		steps = append(steps, step{n, a})
+		steps = append(steps, rankedStep{n, a})
 	}
-
-	// Quick wins first: highest severity, then most agile, then most occurrences.
 	sort.SliceStable(steps, func(i, j int) bool {
 		si, sj := steps[i].node.Risk.Severity, steps[j].node.Risk.Severity
 		if si != sj {
@@ -71,6 +72,12 @@ func Migration(w io.Writer, res *scan.Result) error {
 		}
 		return len(steps[i].node.Occurrences) > len(steps[j].node.Occurrences)
 	})
+	return steps
+}
+
+// Migration writes a risk-prioritized migration plan as JSON.
+func Migration(w io.Writer, res *scan.Result) error {
+	steps := rankedSteps(res)
 
 	rep := migrationReport{
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),

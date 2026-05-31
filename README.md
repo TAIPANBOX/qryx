@@ -100,6 +100,7 @@ qryx scan --format html <path> > report.html   # self-contained web report
 qryx scan --format cnsa <path>               # CNSA 2.0 compliance audit (JSON)
 qryx scan --format cnsa-html <path> > cnsa.html  # CNSA 2.0 audit (HTML)
 qryx scan --format evidence <path> > evidence.json  # tamper-evident compliance attestation
+qryx scan --format dashboard <path> > dashboard.html # one-page governance dashboard
 qryx scan --format migration <path>          # risk-prioritized migration plan (JSON)
 qryx scan --fail-on high <path>        # exit 2 if any finding >= high (for CI)
 qryx scan --policy cnsa <path>         # enforce a crypto policy; exit 3 on violation
@@ -240,6 +241,14 @@ the same way to confirm the artifact is unmodified — integrity without key
 management. Reuses the same CNSA classification as `--format cnsa`, so the two
 never disagree. Commit `evidence.json` as a CI artifact for a dated audit trail.
 
+**Governance dashboard** (`--format dashboard`) — one self-contained HTML page
+for a security lead: the CNSA compliance score, the risk profile by severity,
+the evidence integrity digest, and the **top remediation priorities** (the
+compliance × agility ranking — which assets to fix first and what to migrate
+them to). It aggregates the CNSA, migration and evidence views that are
+otherwise separate; numbers come from the same computations, so it can't
+disagree with them.
+
 ---
 
 ## Status
@@ -251,8 +260,8 @@ never disagree. Commit `evidence.json` as a CI artifact for a dated audit trail.
 - [x] human / CBOM (CycloneDX 1.6) / HTML reports — all CI-gated
 - [x] Phase 2 cloud KMS — AWS, GCP and Azure done; owner-mapping; CNSA 2.0 audit report
 - [x] Phase 3 — crypto-agility scoring (`--format migration`), safe code remediation (`qryx fix` / `--open-pr`), Terraform detector + rule
-- [x] Phase 4 (in progress) — policy engine + CI enforcement (`--policy`, exit 3), drift-gated (`--policy-new-only`), evidence export (`--format evidence`)
-- [ ] Next — HTML compliance dashboard; evidence signing/persistence; continuous monitoring
+- [x] Phase 4 (in progress) — policy engine (`--policy`, exit 3), drift-gated (`--policy-new-only`), evidence export (`--format evidence`), governance dashboard (`--format dashboard`)
+- [ ] Next — evidence signing/persistence (dated audit trail); trend/history; continuous monitoring
 
 Roadmap and rationale: [`qryx-plan.md`](./qryx-plan.md).
 

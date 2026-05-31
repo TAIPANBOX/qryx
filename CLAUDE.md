@@ -45,10 +45,14 @@ drift gating. Pure-Go bias; stdlib first. Product plan and roadmap:
   compliance attestation (metadata + summary + per-asset + sha256 content digest
   with the digest field blanked, verifiable without keys). Reuses cnsa.go's
   `buildEntries`; counts match `--format cnsa`.
+- Phase 4 increment 4: governance dashboard — `--format dashboard` (self-contained
+  HTML) aggregates compliance score + severity profile + evidence digest + top
+  remediation priorities. Reuses extracted `buildEvidence` (evidence.go) and
+  `rankedSteps` (migration.go) so it can't disagree with cnsa/migration/evidence.
 
 **Next (in priority order per qryx-plan.md):**
-1. Phase 4 cont.: HTML compliance dashboard; evidence signing (x509/cosign) +
-   persistence to Postgres as a dated trail; continuous monitoring.
+1. Phase 4 cont.: evidence signing (x509/cosign) + persistence to Postgres as a
+   dated trail; trend/history across runs; continuous monitoring.
 2. Detector depth: HCL-accurate parsing (heredocs/interpolation), `google_kms_*`
    template algorithms.
 
