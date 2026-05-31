@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TAIPANBOX/qryx/internal/attest"
 	"github.com/TAIPANBOX/qryx/internal/binscan"
 	awscloud "github.com/TAIPANBOX/qryx/internal/cloud/aws"
 	azurecloud "github.com/TAIPANBOX/qryx/internal/cloud/azure"
@@ -59,9 +60,10 @@ func run(args []string) error {
 		policyArg = fs.String("policy", "", "evaluate against a policy (builtin name e.g. cnsa, or a JSON file); exit 3 on violation")
 		policyNew = fs.Bool("policy-new-only", false, "with --policy and --baseline, fail only on NEW violations vs the baseline")
 		saveEvid  = fs.String("save-evidence", "", "append a compliance evidence record to this trail file (JSON Lines)")
+		signKey   = fs.String("sign-key", "", "sign --format evidence with this PKCS#8 PEM key (ed25519 or ECDSA P-256)")
 	)
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage:\n  qryx scan [flags] <path>\n  qryx fix [--write] [--open-pr [--branch NAME]] [--min-rsa-bits N] <path>\n  qryx trend <evidence-trail.jsonl>\n  qryx tls [flags] <host:port>...\n  qryx bin [flags] <file|dir>...\n  qryx image [flags] <image.tar>...\n  qryx aws [flags]\n  qryx gcp --project <id> [flags]\n  qryx azure --vault-url <url> [flags]\n\nflags:\n")
+		fmt.Fprintf(os.Stderr, "usage:\n  qryx scan [flags] <path>\n  qryx fix [--write] [--open-pr [--branch NAME]] [--min-rsa-bits N] <path>\n  qryx trend <evidence-trail.jsonl>\n  qryx verify-evidence <evidence.json>\n  qryx tls [flags] <host:port>...\n  qryx bin [flags] <file|dir>...\n  qryx image [flags] <image.tar>...\n  qryx aws [flags]\n  qryx gcp --project <id> [flags]\n  qryx azure --vault-url <url> [flags]\n\nflags:\n")
 		fs.PrintDefaults()
 	}
 
@@ -70,7 +72,7 @@ func run(args []string) error {
 		return fmt.Errorf("no command given")
 	}
 	cmd := args[0]
-	if cmd != "scan" && cmd != "fix" && cmd != "trend" && cmd != "tls" && cmd != "bin" && cmd != "image" && cmd != "aws" && cmd != "gcp" && cmd != "azure" {
+	if cmd != "scan" && cmd != "fix" && cmd != "trend" && cmd != "verify-evidence" && cmd != "tls" && cmd != "bin" && cmd != "image" && cmd != "aws" && cmd != "gcp" && cmd != "azure" {
 		fs.Usage()
 		return fmt.Errorf("unknown command %q", cmd)
 	}
@@ -89,6 +91,24 @@ func run(args []string) error {
 			return err
 		}
 		report.Trend(os.Stdout, records)
+		return nil
+	}
+
+	// verify-evidence checks a signed evidence document instead of scanning.
+	if cmd == "verify-evidence" {
+		if fs.NArg() != 1 {
+			fs.Usage()
+			return fmt.Errorf("verify-evidence requires exactly one evidence file")
+		}
+		data, err := os.ReadFile(fs.Arg(0))
+		if err != nil {
+			return err
+		}
+		alg, fp, err := report.VerifyEvidence(data)
+		if err != nil {
+			return fmt.Errorf("verify-evidence: %w", err)
+		}
+		fmt.Fprintf(os.Stdout, "evidence: VERIFIED (%s, key %s)\n", alg, fp)
 		return nil
 	}
 
@@ -197,7 +217,14 @@ func run(args []string) error {
 			return err
 		}
 	case "evidence":
-		if err := report.Evidence(os.Stdout, res, version); err != nil {
+		var signer *attest.Signer
+		if *signKey != "" {
+			signer, err = attest.LoadSigner(*signKey)
+			if err != nil {
+				return fmt.Errorf("load sign key: %w", err)
+			}
+		}
+		if err := report.Evidence(os.Stdout, res, version, signer); err != nil {
 			return err
 		}
 	case "dashboard":

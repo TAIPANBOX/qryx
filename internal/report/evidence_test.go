@@ -2,12 +2,19 @@ package report
 
 import (
 	"bytes"
+	"crypto/ed25519"
+	crand "crypto/rand"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/TAIPANBOX/qryx/internal/attest"
 	"github.com/TAIPANBOX/qryx/internal/model"
 	"github.com/TAIPANBOX/qryx/internal/scan"
 )
@@ -23,7 +30,7 @@ func evidenceFixture() *scan.Result {
 func decodeEvidence(t *testing.T, res *scan.Result) (evidenceReport, []byte) {
 	t.Helper()
 	var buf bytes.Buffer
-	if err := Evidence(&buf, res, "test-1.0"); err != nil {
+	if err := Evidence(&buf, res, "test-1.0", nil); err != nil {
 		t.Fatal(err)
 	}
 	var rep evidenceReport
@@ -74,6 +81,54 @@ func TestEvidenceDigestVerifies(t *testing.T) {
 	sum := sha256.Sum256(raw)
 	if got := hex.EncodeToString(sum[:]); got != embedded {
 		t.Errorf("digest mismatch: embedded %s, recomputed %s", embedded, got)
+	}
+}
+
+func TestEvidenceSignAndVerify(t *testing.T) {
+	_, priv, err := ed25519.GenerateKey(crand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.MarshalPKCS8PrivateKey(priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyPath := filepath.Join(t.TempDir(), "k.pem")
+	if err := os.WriteFile(keyPath, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	signer, err := attest.LoadSigner(keyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := Evidence(&buf, evidenceFixture(), "v", signer); err != nil {
+		t.Fatal(err)
+	}
+	signed := buf.Bytes()
+
+	alg, fp, err := VerifyEvidence(signed)
+	if err != nil {
+		t.Fatalf("signed evidence should verify: %v", err)
+	}
+	if alg != "ed25519" || fp == "" {
+		t.Errorf("alg=%q fp=%q", alg, fp)
+	}
+
+	// Mutating the document breaks verification.
+	mutated := bytes.Replace(signed, []byte(`"version": "v"`), []byte(`"version": "x"`), 1)
+	if _, _, err := VerifyEvidence(mutated); err == nil {
+		t.Error("mutated evidence must not verify")
+	}
+
+	// Unsigned evidence is reported as such.
+	var unsigned bytes.Buffer
+	if err := Evidence(&unsigned, evidenceFixture(), "v", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := VerifyEvidence(unsigned.Bytes()); err == nil {
+		t.Error("unsigned evidence should report not signed")
 	}
 }
 

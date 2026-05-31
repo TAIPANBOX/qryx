@@ -100,6 +100,8 @@ qryx scan --format html <path> > report.html   # self-contained web report
 qryx scan --format cnsa <path>               # CNSA 2.0 compliance audit (JSON)
 qryx scan --format cnsa-html <path> > cnsa.html  # CNSA 2.0 audit (HTML)
 qryx scan --format evidence <path> > evidence.json  # tamper-evident compliance attestation
+qryx scan --format evidence --sign-key key.pem <path> > evidence.json  # ...signed (ed25519/ECDSA)
+qryx verify-evidence evidence.json     # verify a signed attestation
 qryx scan --format dashboard <path> > dashboard.html # one-page governance dashboard
 qryx scan --save-evidence trail.jsonl <path>   # append a dated compliance record
 qryx trend trail.jsonl                 # show the compliance-score history
@@ -243,6 +245,22 @@ the same way to confirm the artifact is unmodified — integrity without key
 management. Reuses the same CNSA classification as `--format cnsa`, so the two
 never disagree. Commit `evidence.json` as a CI artifact for a dated audit trail.
 
+Pass `--sign-key <pkcs8.pem>` to add a detached signature over the digest
+(ed25519 or ECDSA P-256, stdlib — no cosign dependency), embedding the public
+key so the artifact is self-verifying:
+
+```bash
+openssl genpkey -algorithm ed25519 -out key.pem
+qryx scan --format evidence --sign-key key.pem ./src > evidence.json
+qryx verify-evidence evidence.json   # VERIFIED (ed25519, key sha256:…) or exit 1
+```
+
+`verify-evidence` recomputes the digest, confirms the document is unmodified,
+and checks the signature against the embedded key, printing its fingerprint to
+compare against your trusted signer. (The signing keys are themselves
+classically strong but quantum-vulnerable; ML-DSA signing awaits Go stdlib
+support.)
+
 **Governance dashboard** (`--format dashboard`) — one self-contained HTML page
 for a security lead: the CNSA compliance score, the risk profile by severity,
 the evidence integrity digest, and the **top remediation priorities** (the
@@ -276,7 +294,8 @@ qryx trend 'postgres://user:pass@host:5432/db'
 - [x] Phase 2 cloud KMS — AWS, GCP and Azure done; owner-mapping; CNSA 2.0 audit report
 - [x] Phase 3 — crypto-agility scoring (`--format migration`), safe code remediation (`qryx fix` / `--open-pr`), Terraform detector + rule
 - [x] Phase 4 (in progress) — policy engine (`--policy`, exit 3), drift-gated (`--policy-new-only`), evidence export (`--format evidence`), governance dashboard (`--format dashboard`), evidence trail + trend (`--save-evidence` / `qryx trend`)
-- [ ] Next — evidence signing (x509/cosign); HTML trend chart; continuous monitoring/alerting
+- [x] Phase 4 — evidence signing + verification (`--sign-key` / `qryx verify-evidence`, ed25519/ECDSA)
+- [ ] Next — HTML trend chart; regression-alert CI gate; ML-DSA signing (pending stdlib)
 
 Roadmap and rationale: [`qryx-plan.md`](./qryx-plan.md).
 

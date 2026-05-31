@@ -8,6 +8,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/TAIPANBOX/qryx/internal/attest"
 	"github.com/TAIPANBOX/qryx/internal/graph"
 	"github.com/TAIPANBOX/qryx/internal/model"
 	"github.com/TAIPANBOX/qryx/internal/scan"
@@ -17,14 +18,15 @@ import (
 // a single scan. It reuses the CNSA 2.0 classification so it never disagrees
 // with the `cnsa` report.
 type evidenceReport struct {
-	Tool        string          `json:"tool"`
-	Version     string          `json:"version"`
-	Standard    string          `json:"standard"`
-	GeneratedAt string          `json:"generatedAt"`
-	Root        string          `json:"root"`
-	Summary     evidenceSummary `json:"summary"`
-	Assets      []cnsaAssetJSON `json:"assets"`
-	Digest      string          `json:"digest"`
+	Tool        string            `json:"tool"`
+	Version     string            `json:"version"`
+	Standard    string            `json:"standard"`
+	GeneratedAt string            `json:"generatedAt"`
+	Root        string            `json:"root"`
+	Summary     evidenceSummary   `json:"summary"`
+	Assets      []cnsaAssetJSON   `json:"assets"`
+	Digest      string            `json:"digest"`
+	Signature   *attest.Signature `json:"signature,omitempty"`
 }
 
 type evidenceSummary struct {
@@ -64,11 +66,20 @@ func Attest(res *scan.Result, version string) (Attestation, error) {
 	}, nil
 }
 
-// Evidence writes a compliance evidence document with an integrity digest.
-func Evidence(w io.Writer, res *scan.Result, version string) error {
+// Evidence writes a compliance evidence document with an integrity digest. When
+// signer is non-nil it adds a detached signature over the digest, making the
+// attestation authentic as well as tamper-evident.
+func Evidence(w io.Writer, res *scan.Result, version string, signer *attest.Signer) error {
 	rep, err := buildEvidence(res, version)
 	if err != nil {
 		return err
+	}
+	if signer != nil {
+		sig, err := signer.Sign([]byte(rep.Digest))
+		if err != nil {
+			return fmt.Errorf("sign evidence: %w", err)
+		}
+		rep.Signature = &sig
 	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
@@ -118,6 +129,32 @@ func buildEvidence(res *scan.Result, version string) (evidenceReport, error) {
 	return rep, nil
 }
 
+// VerifyEvidence checks a signed evidence document: it recomputes the content
+// digest, confirms it matches the embedded digest, and verifies the signature
+// against the embedded public key. It returns the algorithm and key fingerprint
+// on success.
+func VerifyEvidence(data []byte) (alg, fingerprint string, err error) {
+	var rep evidenceReport
+	if err := json.Unmarshal(data, &rep); err != nil {
+		return "", "", fmt.Errorf("parse evidence: %w", err)
+	}
+	if rep.Signature == nil {
+		return "", "", fmt.Errorf("evidence is not signed")
+	}
+
+	want, err := evidenceDigest(rep)
+	if err != nil {
+		return "", "", err
+	}
+	if rep.Digest != "sha256:"+want {
+		return "", "", fmt.Errorf("digest mismatch: document has been modified")
+	}
+	if err := attest.Verify([]byte(rep.Digest), *rep.Signature); err != nil {
+		return "", "", err
+	}
+	return rep.Signature.Alg, attest.Fingerprint(*rep.Signature), nil
+}
+
 // assetJSON renders one CNSA entry as the shared per-asset record.
 func assetJSON(e cnsaEntry) cnsaAssetJSON {
 	locs := make([]string, 0, len(e.Node.Occurrences))
@@ -145,6 +182,7 @@ func assetJSON(e cnsaEntry) cnsaAssetJSON {
 // encoding/json sorts string-keyed maps and entries are pre-sorted.
 func evidenceDigest(rep evidenceReport) (string, error) {
 	rep.Digest = ""
+	rep.Signature = nil
 	raw, err := json.Marshal(rep)
 	if err != nil {
 		return "", err

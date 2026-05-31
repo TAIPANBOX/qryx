@@ -58,12 +58,18 @@ drift gating. Pure-Go bias; stdlib first. Product plan and roadmap:
   table, shared `pgConnect`) behind the same `Trail` interface; `openTrail`
   picks JSONL vs Postgres by `postgres://`. Integration-tested under the
   `integration` build tag (CI postgres:16). Local run needs DATABASE_URL/docker.
+- Phase 4 increment 7: evidence signing — `internal/attest` (stdlib ed25519 /
+  ECDSA P-256, PKCS#8). `--format evidence --sign-key key.pem` adds a detached
+  signature over the digest (embeds SPKI public key); `qryx verify-evidence`
+  recomputes the digest and verifies. Pure attest pkg table-tested; live
+  openssl keys verified end-to-end.
 
 **Next (in priority order per qryx-plan.md):**
-1. Phase 4 cont.: evidence signing (x509/cosign); HTML trend chart; continuous
-   monitoring / regression alerting.
-2. Detector depth: HCL-accurate parsing (heredocs/interpolation), `google_kms_*`
-   template algorithms.
+1. Phase 4 cont.: HTML trend chart; regression-alert CI gate (exit non-zero when
+   the latest score drops); ML-DSA signing once Go stdlib ships it.
+2. Detector depth (deliberate non-debt): HCL-accurate parsing would need the
+   `hashicorp/hcl` dep, against the zero-dep + precision-over-recall design —
+   revisit only if recall becomes a goal, not as cleanup.
 
 **Ask the user which to tackle first at the start of a new session.**
 
