@@ -4,16 +4,21 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
+
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/zclconf/go-cty/cty"
 
 	"github.com/TAIPANBOX/qryx/internal/model"
 	"github.com/TAIPANBOX/qryx/internal/scan"
 )
 
-// Terraform detects cryptographic key material declared in HCL. HCL has no
-// stdlib parser and the project keeps a zero-dependency bias, so this is a
-// precision-first regex detector over crypto resource blocks rather than a full
-// HCL parse: it reads only well-known attributes and emits one asset per
-// resource, leaving risk to the central classifier.
+// Terraform detects cryptographic key material declared in HCL using the
+// official hashicorp/hcl parser: it reads only well-known crypto resource
+// attributes, evaluates statically (literal) expressions, and treats
+// interpolated/variable values as unknown rather than guessing. One asset per
+// resource; risk is left to the central classifier.
 type Terraform struct{}
 
 func NewTerraform() *Terraform { return &Terraform{} }
@@ -22,109 +27,118 @@ func (t *Terraform) Name() string { return "terraform" }
 
 func (t *Terraform) Wants(path string) bool { return filepath.Ext(path) == ".tf" }
 
-var (
-	reResourceHeader = regexp.MustCompile(`(?m)resource\s+"([a-z0-9_]+)"\s+"[^"]*"\s*\{`)
-	reAttrString     = func(name string) *regexp.Regexp {
-		return regexp.MustCompile(name + `\s*=\s*"([^"]*)"`)
-	}
-	reAttrInt = func(name string) *regexp.Regexp {
-		return regexp.MustCompile(name + `\s*=\s*(\d+)`)
-	}
-	reKMSSpec      = reAttrString("customer_master_key_spec")
-	reAlgorithm    = reAttrString("algorithm")
-	reRSABits      = reAttrInt("rsa_bits")
-	reKeyType      = reAttrString("key_type")
-	reKeySize      = reAttrInt("key_size")
-	reKMSRSASize   = regexp.MustCompile(`^RSA_(\d+)$`)
-	reECCSpecValue = regexp.MustCompile(`^ECC_`)
-	reHMACSpec     = regexp.MustCompile(`^HMAC_`)
-)
-
 func (t *Terraform) Detect(f scan.File) []model.Finding {
-	content := string(f.Content)
+	file, _ := hclsyntax.ParseConfig(f.Content, f.Path, hcl.InitialPos)
+	if file == nil {
+		return nil
+	}
+	body, ok := file.Body.(*hclsyntax.Body)
+	if !ok {
+		return nil
+	}
+
 	var out []model.Finding
-	for _, b := range tfResources(content) {
-		switch b.kind {
+	for _, b := range body.Blocks {
+		if b.Type != "resource" || len(b.Labels) == 0 {
+			continue
+		}
+		switch b.Labels[0] {
 		case "tls_private_key":
 			out = appendIf(out, t.tlsPrivateKey(f, b))
 		case "aws_kms_key":
 			out = appendIf(out, t.awsKMSKey(f, b))
 		case "azurerm_key_vault_key":
 			out = appendIf(out, t.azureKey(f, b))
+		case "google_kms_crypto_key":
+			out = appendIf(out, t.googleKMSKey(f, b))
 		}
 	}
 	return out
 }
 
-func (t *Terraform) tlsPrivateKey(f scan.File, b tfBlock) *model.Finding {
+func (t *Terraform) tlsPrivateKey(f scan.File, b *hclsyntax.Block) *model.Finding {
 	algo := "RSA"
-	if m := reAlgorithm.FindStringSubmatch(b.body); m != nil {
-		algo = m[1]
+	if v, _, ok := attrStatic(b.Body, "algorithm"); ok {
+		algo = ctyString(v)
 	}
 	switch algo {
 	case "RSA":
-		size := 2048
-		ev := `algorithm = "RSA"`
-		if m := reRSABits.FindStringSubmatchIndex(b.body); m != nil {
-			size, _ = strconv.Atoi(b.body[m[2]:m[3]])
-			ev = b.body[m[0]:m[1]]
-			return t.key(f, b, m[0], "RSA", size, model.PrimitiveSignature, ev)
+		size := 2048 // Terraform default when rsa_bits is omitted.
+		line := blockLine(b)
+		if v, present, static := attrStatic(b.Body, "rsa_bits"); present {
+			line = attrLine(b.Body, "rsa_bits")
+			if static {
+				size = ctyInt(v)
+			} else {
+				size = 0 // variable/interpolated: unknown, do not guess.
+			}
 		}
-		return t.key(f, b, 0, "RSA", size, model.PrimitiveSignature, ev)
+		return t.key(f, line, "RSA", size, model.PrimitiveSignature, `algorithm = "RSA"`)
 	case "ECDSA":
-		return t.key(f, b, 0, "ECDSA", 0, model.PrimitiveSignature, `algorithm = "ECDSA"`)
+		return t.key(f, blockLine(b), "ECDSA", 0, model.PrimitiveSignature, `algorithm = "ECDSA"`)
 	}
 	return nil
 }
 
-func (t *Terraform) awsKMSKey(f scan.File, b tfBlock) *model.Finding {
+func (t *Terraform) awsKMSKey(f scan.File, b *hclsyntax.Block) *model.Finding {
 	spec := "SYMMETRIC_DEFAULT"
-	off := 0
-	if m := reKMSSpec.FindStringSubmatchIndex(b.body); m != nil {
-		spec = b.body[m[2]:m[3]]
-		off = m[0]
+	line := blockLine(b)
+	if v, present, static := attrStatic(b.Body, "customer_master_key_spec"); present && static {
+		spec = ctyString(v)
+		line = attrLine(b.Body, "customer_master_key_spec")
 	}
-	ev := "customer_master_key_spec = " + strconv.Quote(spec)
-	switch {
-	case reKMSRSASize.MatchString(spec):
-		size, _ := strconv.Atoi(reKMSRSASize.FindStringSubmatch(spec)[1])
-		return t.key(f, b, off, "RSA", size, model.PrimitiveSignature, ev)
-	case reECCSpecValue.MatchString(spec):
-		return t.key(f, b, off, "ECDSA", 0, model.PrimitiveSignature, ev)
-	case reHMACSpec.MatchString(spec):
-		return t.key(f, b, off, "HMAC", 0, model.PrimitiveUnknown, ev)
-	default: // SYMMETRIC_DEFAULT
-		return t.key(f, b, off, "AES", 256, model.PrimitiveEncryption, ev)
-	}
+	algo, size, prim := kmsSpecAsset(spec)
+	return t.key(f, line, algo, size, prim, "customer_master_key_spec = "+strconv.Quote(spec))
 }
 
-func (t *Terraform) azureKey(f scan.File, b tfBlock) *model.Finding {
-	m := reKeyType.FindStringSubmatchIndex(b.body)
-	if m == nil {
+func (t *Terraform) azureKey(f scan.File, b *hclsyntax.Block) *model.Finding {
+	v, _, static := attrStatic(b.Body, "key_type")
+	if !static {
 		return nil
 	}
-	kt := b.body[m[2]:m[3]]
+	kt := ctyString(v)
+	line := attrLine(b.Body, "key_type")
 	ev := "key_type = " + strconv.Quote(kt)
 	switch kt {
 	case "RSA", "RSA-HSM":
 		size := 2048
-		if s := reKeySize.FindStringSubmatch(b.body); s != nil {
-			size, _ = strconv.Atoi(s[1])
+		if sv, _, ok := attrStatic(b.Body, "key_size"); ok {
+			size = ctyInt(sv)
 		}
-		return t.key(f, b, m[0], "RSA", size, model.PrimitiveSignature, ev)
+		return t.key(f, line, "RSA", size, model.PrimitiveSignature, ev)
 	case "EC", "EC-HSM":
-		return t.key(f, b, m[0], "ECDSA", 0, model.PrimitiveSignature, ev)
+		return t.key(f, line, "ECDSA", 0, model.PrimitiveSignature, ev)
 	case "oct", "oct-HSM":
-		return t.key(f, b, m[0], "AES", 0, model.PrimitiveEncryption, ev)
+		return t.key(f, line, "AES", 0, model.PrimitiveEncryption, ev)
 	}
 	return nil
 }
 
-// key builds a finding for an asset at bodyOffset within the block body.
-func (t *Terraform) key(f scan.File, b tfBlock, bodyOffset int, algo string, size int, prim model.Primitive, ev string) *model.Finding {
+func (t *Terraform) googleKMSKey(f scan.File, b *hclsyntax.Block) *model.Finding {
+	// The algorithm lives in a nested version_template block.
+	for _, nb := range b.Body.Blocks {
+		if nb.Type != "version_template" {
+			continue
+		}
+		v, _, static := attrStatic(nb.Body, "algorithm")
+		if !static {
+			return nil
+		}
+		alg := ctyString(v)
+		algo, size, prim := googleAlgAsset(alg)
+		if algo == "" {
+			return nil
+		}
+		return t.key(f, attrLine(nb.Body, "algorithm"), algo, size, prim, "algorithm = "+strconv.Quote(alg))
+	}
+	return nil
+}
+
+// key builds a finding for an asset at the given 1-based line.
+func (t *Terraform) key(f scan.File, line int, algo string, size int, prim model.Primitive, ev string) *model.Finding {
 	return &model.Finding{
 		Asset:    model.Asset{Type: model.TypeKey, Algorithm: algo, KeySize: size, Primitive: prim},
-		Location: model.Location{File: f.Path, Line: lineNumber(f.Content, b.bodyStart+bodyOffset)},
+		Location: model.Location{File: f.Path, Line: line},
 		Evidence: ev,
 		Source:   t.Name(),
 	}
@@ -137,88 +151,81 @@ func appendIf(out []model.Finding, f *model.Finding) []model.Finding {
 	return out
 }
 
-// tfBlock is a resource block: its resource type, body text and the byte offset
-// of the body within the original file.
-type tfBlock struct {
-	kind      string
-	body      string
-	bodyStart int
+var reDigits = regexp.MustCompile(`(\d{3,4})`)
+
+// kmsSpecAsset maps an aws_kms_key customer_master_key_spec to an asset.
+func kmsSpecAsset(spec string) (algo string, size int, prim model.Primitive) {
+	switch {
+	case strings.HasPrefix(spec, "RSA_"):
+		size := 0
+		if m := reDigits.FindString(spec); m != "" {
+			size, _ = strconv.Atoi(m)
+		}
+		return "RSA", size, model.PrimitiveSignature
+	case strings.HasPrefix(spec, "ECC_"):
+		return "ECDSA", 0, model.PrimitiveSignature
+	case strings.HasPrefix(spec, "HMAC_"):
+		return "HMAC", 0, model.PrimitiveUnknown
+	default: // SYMMETRIC_DEFAULT
+		return "AES", 256, model.PrimitiveEncryption
+	}
 }
 
-// tfResources extracts top-level resource blocks via brace matching that skips
-// strings and comments, so braces inside them do not unbalance the scan.
-func tfResources(content string) []tfBlock {
-	var blocks []tfBlock
-	for _, h := range reResourceHeader.FindAllStringSubmatchIndex(content, -1) {
-		bodyStart := h[1] // just past the opening "{"
-		end, ok := matchBrace(content, bodyStart)
-		if !ok {
-			continue
+// googleAlgAsset maps a google_kms_crypto_key version_template algorithm.
+func googleAlgAsset(alg string) (algo string, size int, prim model.Primitive) {
+	switch {
+	case strings.HasPrefix(alg, "RSA_"):
+		size := 0
+		if m := reDigits.FindString(alg); m != "" {
+			size, _ = strconv.Atoi(m)
 		}
-		blocks = append(blocks, tfBlock{
-			kind:      content[h[2]:h[3]],
-			body:      content[bodyStart:end],
-			bodyStart: bodyStart,
-		})
+		return "RSA", size, model.PrimitiveSignature
+	case strings.HasPrefix(alg, "EC_"):
+		return "ECDSA", 0, model.PrimitiveSignature
+	case strings.HasPrefix(alg, "HMAC"):
+		return "HMAC", 0, model.PrimitiveUnknown
+	case strings.Contains(alg, "SYMMETRIC"):
+		return "AES", 256, model.PrimitiveEncryption
+	default:
+		return "", 0, model.PrimitiveUnknown
 	}
-	return blocks
 }
 
-// matchBrace returns the index of the closing brace that balances the opening
-// brace immediately before start, skipping string literals and comments.
-func matchBrace(s string, start int) (int, bool) {
-	depth := 1
-	for i := start; i < len(s); i++ {
-		switch s[i] {
-		case '"':
-			i = skipString(s, i)
-		case '#':
-			i = skipLine(s, i)
-		case '/':
-			if i+1 < len(s) && s[i+1] == '/' {
-				i = skipLine(s, i)
-			} else if i+1 < len(s) && s[i+1] == '*' {
-				i = skipBlockComment(s, i)
-			}
-		case '{':
-			depth++
-		case '}':
-			depth--
-			if depth == 0 {
-				return i, true
-			}
-		}
+// attrStatic returns an attribute's statically-evaluated value. present reports
+// whether the attribute exists; static reports whether it evaluated without
+// diagnostics (a literal, not a variable/function reference).
+func attrStatic(body *hclsyntax.Body, name string) (val cty.Value, present, static bool) {
+	a, ok := body.Attributes[name]
+	if !ok {
+		return cty.NilVal, false, false
 	}
-	return 0, false
+	v, diags := a.Expr.Value(nil)
+	if diags.HasErrors() {
+		return cty.NilVal, true, false
+	}
+	return v, true, true
 }
 
-func skipString(s string, i int) int {
-	for j := i + 1; j < len(s); j++ {
-		if s[j] == '\\' {
-			j++
-			continue
-		}
-		if s[j] == '"' {
-			return j
-		}
+func attrLine(body *hclsyntax.Body, name string) int {
+	if a, ok := body.Attributes[name]; ok {
+		return a.SrcRange.Start.Line
 	}
-	return len(s)
+	return 0
 }
 
-func skipLine(s string, i int) int {
-	for j := i; j < len(s); j++ {
-		if s[j] == '\n' {
-			return j
-		}
+func blockLine(b *hclsyntax.Block) int { return b.DefRange().Start.Line }
+
+func ctyString(v cty.Value) string {
+	if v.Type() == cty.String && !v.IsNull() {
+		return v.AsString()
 	}
-	return len(s)
+	return ""
 }
 
-func skipBlockComment(s string, i int) int {
-	for j := i + 2; j+1 < len(s); j++ {
-		if s[j] == '*' && s[j+1] == '/' {
-			return j + 1
-		}
+func ctyInt(v cty.Value) int {
+	if v.Type() == cty.Number && !v.IsNull() {
+		i, _ := v.AsBigFloat().Int64()
+		return int(i)
 	}
-	return len(s)
+	return 0
 }

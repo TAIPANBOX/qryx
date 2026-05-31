@@ -31,9 +31,11 @@ drift gating. Pure-Go bias; stdlib first. Product plan and roadmap:
   unverified by design (don't run `--open-pr` against this repo — it makes a real PR).
 
 - Terraform: `terraform` detector (`.tf`: `tls_private_key`, `aws_kms_key`,
-  `azurerm_key_vault_key`) feeds the shared graph; `tf-rsa-bits` remediation rule
-  raises weak `rsa_bits` via `qryx fix`. Regex + brace-matched block scan (no HCL
-  dep, per zero-dep bias); precision over recall.
+  `azurerm_key_vault_key`, `google_kms_crypto_key`) feeds the shared graph;
+  `tf-rsa-bits` remediation rule raises weak `rsa_bits` via `qryx fix`. Uses the
+  `hashicorp/hcl/v2` parser (hclsyntax): reads well-known crypto attributes,
+  evaluates only static expressions, treats variables/interpolation as unknown
+  (size 0) rather than guessing. Heredoc/string text no longer false-matches.
 - Phase 4 increment 1: policy engine (`internal/policy`) + `--policy <name|file>`
   CI gate. Builtin `cnsa` + JSON files; evaluates the deduped graph, prints
   violations to stderr, exits 3 (distinct from `--fail-on`'s 2). stdout format
@@ -73,12 +75,14 @@ drift gating. Pure-Go bias; stdlib first. Product plan and roadmap:
 CBOM/CNSA -> policy gate (+drift) -> remediation (fix/PR) -> evidence
 (export/sign/verify/dashboard/trail/trend).
 
+- Phase 4 increment 9: HCL-accurate Terraform detector — rewrote
+  `internal/scan/detectors/terraform.go` onto `hashicorp/hcl/v2` (hclsyntax);
+  added `google_kms_crypto_key`. The zero-dep bias was relaxed for this with the
+  user's explicit approval (HCL parsing can't be done correctly with regex).
+
 **Remaining (deliberate deferrals, not tech debt):**
 1. ML-DSA (FIPS 204) signing — once Go stdlib ships it (attest pkg is ready for
    a new alg).
-2. HCL-accurate Terraform parsing (heredocs/interpolation), `google_kms_*`
-   templates — would need the `hashicorp/hcl` dep, against the zero-dep +
-   precision-over-recall design. Revisit only if recall becomes a goal.
 
 **Ask the user which to tackle first at the start of a new session.**
 
@@ -118,7 +122,8 @@ CBOM/CNSA -> policy gate (+drift) -> remediation (fix/PR) -> evidence
   findings.
 - **Zero-dependency bias:** prefer stdlib (`debug/elf|pe|macho`, `archive/tar`,
   `crypto/tls`, `html/template`). Add a dependency only when unavoidable (pgx,
-  cloud SDKs) and justify it in the plan.
+  cloud SDKs, `hashicorp/hcl/v2` for correct Terraform parsing) and justify it
+  in the plan.
 - **Detector philosophy:** signal quality over recall. Resolve real imports/
   symbols (AST, ELF dynsyms), don't scrape strings; keep false positives low.
 

@@ -148,7 +148,7 @@ Run against the bundled fixtures with `make scan`.
 | `tlsconfig` | legacy TLS/SSL in code and nginx/apache config |
 | `hardcoded` | private keys embedded in source/config |
 | `deps` | crypto libraries in dependency manifests |
-| `terraform` | key material in HCL (`tls_private_key`, `aws_kms_key`, `azurerm_key_vault_key`) |
+| `terraform` | key material in HCL via the hashicorp/hcl parser (`tls_private_key`, `aws_kms_key`, `azurerm_key_vault_key`, `google_kms_crypto_key`) |
 
 **TLS probing** (`qryx tls`) — negotiated TLS version, insecure cipher suites,
 and the leaf certificate's public-key algorithm, size and expiry.
@@ -300,7 +300,8 @@ qryx trend 'postgres://user:pass@host:5432/db'
 - [x] Phase 4 (in progress) — policy engine (`--policy`, exit 3), drift-gated (`--policy-new-only`), evidence export (`--format evidence`), governance dashboard (`--format dashboard`), evidence trail + trend (`--save-evidence` / `qryx trend`)
 - [x] Phase 4 — evidence signing + verification (`--sign-key` / `qryx verify-evidence`, ed25519/ECDSA)
 - [x] Phase 4 — trend monitoring: HTML chart (`trend --html`) + regression CI gate (`trend --fail-on-regression`)
-- [ ] Later — ML-DSA signing (pending Go stdlib); HCL-accurate Terraform parsing (only if recall becomes a goal)
+- [x] Terraform — HCL-accurate detection via hashicorp/hcl (heredoc/interpolation-safe) + `google_kms_crypto_key`
+- [ ] Later — ML-DSA signing (pending Go stdlib)
 
 Roadmap and rationale: [`qryx-plan.md`](./qryx-plan.md).
 

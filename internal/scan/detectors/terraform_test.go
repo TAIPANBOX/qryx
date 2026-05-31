@@ -104,7 +104,7 @@ func TestTerraformOneAssetPerResource(t *testing.T) {
 }
 
 func TestTerraformIgnoresCommentsAndStrings(t *testing.T) {
-	// A brace inside a string/comment must not break block matching, and a
+	// A brace inside a string/comment must not confuse the parser, and a
 	// non-crypto resource must be ignored.
 	got := detectTF(t, `resource "aws_s3_bucket" "b" {
   tags = { name = "has } brace" } # trailing } comment
@@ -116,5 +116,61 @@ resource "tls_private_key" "k" {
 }`)
 	if len(got) != 1 || got[0].Asset.KeySize != 1024 {
 		t.Fatalf("brace/comment handling failed, got %+v", got)
+	}
+}
+
+func TestTerraformHeredocNotMatched(t *testing.T) {
+	// "rsa_bits = 512" appears only inside a heredoc string; the HCL parser
+	// must not treat it as an attribute (a regex scanner would mis-match).
+	got := detectTF(t, `resource "local_file" "doc" {
+  content = <<-EOT
+    example config:
+    rsa_bits = 512
+  EOT
+}`)
+	if len(got) != 0 {
+		t.Fatalf("heredoc text must not produce a finding, got %+v", got)
+	}
+}
+
+func TestTerraformInterpolatedSizeUnknown(t *testing.T) {
+	// rsa_bits bound to a variable cannot be statically resolved: detect RSA
+	// but with unknown size (0), never a guessed value.
+	got := detectTF(t, `variable "bits" { default = 1024 }
+resource "tls_private_key" "k" {
+  algorithm = "RSA"
+  rsa_bits  = var.bits
+}`)
+	if len(got) != 1 || got[0].Asset.Algorithm != "RSA" || got[0].Asset.KeySize != 0 {
+		t.Fatalf("interpolated size should be RSA/0, got %+v", got)
+	}
+}
+
+func TestTerraformGoogleKMS(t *testing.T) {
+	tests := []struct {
+		alg      string
+		wantAlgo string
+		wantSize int
+	}{
+		{"RSA_SIGN_PKCS1_2048_SHA256", "RSA", 2048},
+		{"RSA_DECRYPT_OAEP_3072_SHA256", "RSA", 3072},
+		{"EC_SIGN_P256_SHA256", "ECDSA", 0},
+		{"GOOGLE_SYMMETRIC_ENCRYPTION", "AES", 256},
+	}
+	for _, tc := range tests {
+		t.Run(tc.alg, func(t *testing.T) {
+			got := detectTF(t, `resource "google_kms_crypto_key" "k" {
+  name = "k"
+  version_template {
+    algorithm = "`+tc.alg+`"
+  }
+}`)
+			if len(got) != 1 {
+				t.Fatalf("want 1 finding, got %d", len(got))
+			}
+			if got[0].Asset.Algorithm != tc.wantAlgo || got[0].Asset.KeySize != tc.wantSize {
+				t.Errorf("got %+v, want %s/%d", got[0].Asset, tc.wantAlgo, tc.wantSize)
+			}
+		})
 	}
 }
