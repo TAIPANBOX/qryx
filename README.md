@@ -127,7 +127,7 @@ Run against the bundled fixtures with `make scan`.
 
 ## What works today
 
-**Code scan** (`qryx scan`) — 6 detectors:
+**Code scan** (`qryx scan`) — 7 detectors:
 
 | Detector | Covers |
 |---|---|
@@ -137,6 +137,7 @@ Run against the bundled fixtures with `make scan`.
 | `tlsconfig` | legacy TLS/SSL in code and nginx/apache config |
 | `hardcoded` | private keys embedded in source/config |
 | `deps` | crypto libraries in dependency manifests |
+| `terraform` | key material in HCL (`tls_private_key`, `aws_kms_key`, `azurerm_key_vault_key`) |
 
 **TLS probing** (`qryx tls`) — negotiated TLS version, insecure cipher suites,
 and the leaf certificate's public-key algorithm, size and expiry.
@@ -188,9 +189,10 @@ a KMS RSA key reports `high` agility, the same algorithm in source reports `low`
 
 **Remediation** (`qryx fix`) — turns findings into reviewable source patches,
 but only for transforms that are *provably safe*. Today that is raising a
-sub-floor RSA key size (`rsa.GenerateKey(rand, 1024)` → `3072`, configurable via
-`--min-rsa-bits`): a single integer-literal change that always compiles. By
-default it prints a unified diff; `--write` applies it in place. Algorithm swaps
+sub-floor RSA key size — in Go (`rsa.GenerateKey(rand, 1024)` → `3072`) and in
+Terraform (`rsa_bits = 1024` → `3072`), configurable via `--min-rsa-bits`: a
+single integer-literal change that stays valid and compiles. By default it
+prints a unified diff; `--write` applies it in place. Algorithm swaps
 (MD5→SHA-256) and hybrid schemes change semantics and break downstream
 consumers, so they stay as migration *guidance* and are never auto-applied.
 With `--open-pr` the fix is applied on a fresh branch and opened as a GitHub

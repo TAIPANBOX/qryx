@@ -39,7 +39,7 @@ type rule interface {
 }
 
 // rules is the ordered registry. Add safe, semantics-preserving rules here.
-var rules = []rule{rsaKeySize{}}
+var rules = []rule{rsaKeySize{}, tfRSABits{}}
 
 // Plan derives safe patches from a scan result. minRSABits is the floor that
 // sub-floor RSA keys are raised to. Unreadable files are skipped, not fatal.

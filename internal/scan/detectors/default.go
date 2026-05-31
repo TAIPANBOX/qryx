@@ -12,5 +12,6 @@ func Default() []scan.Detector {
 		NewTLSConfig(),
 		NewHardcoded(),
 		NewDeps(),
+		NewTerraform(),
 	}
 }

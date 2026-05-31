@@ -170,6 +170,53 @@ func TestMinBitsHonored(t *testing.T) {
 	}
 }
 
+func tfRSAFinding(bits int) model.Finding {
+	return model.Finding{
+		Asset:  model.Asset{Type: model.TypeKey, Algorithm: "RSA", KeySize: bits, Primitive: model.PrimitiveSignature},
+		Source: "terraform",
+	}
+}
+
+func writeScanTF(t *testing.T, src string, f model.Finding) *scan.Result {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "main.tf"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f.Location.File = "main.tf"
+	return &scan.Result{Root: dir, Findings: []model.Finding{f}}
+}
+
+func TestTerraformRSABitsRaised(t *testing.T) {
+	src := "resource \"tls_private_key\" \"k\" {\n  algorithm = \"RSA\"\n  rsa_bits  = 1024\n}\n"
+	res := writeScanTF(t, src, tfRSAFinding(1024))
+	patches, err := Plan(res, 3072)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(patches) != 1 {
+		t.Fatalf("want 1 patch, got %d", len(patches))
+	}
+	if !strings.Contains(patches[0].NewContent, "rsa_bits  = 3072") {
+		t.Errorf("rsa_bits not raised:\n%s", patches[0].NewContent)
+	}
+	if patches[0].Rule != "tf-rsa-bits" {
+		t.Errorf("rule=%q", patches[0].Rule)
+	}
+}
+
+func TestTerraformRSABitsAtFloorNoOp(t *testing.T) {
+	src := "resource \"tls_private_key\" \"k\" {\n  rsa_bits = 4096\n}\n"
+	res := writeScanTF(t, src, tfRSAFinding(4096))
+	patches, err := Plan(res, 3072)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(patches) != 0 {
+		t.Fatalf("4096 >= floor must not be patched, got %d", len(patches))
+	}
+}
+
 func mustParse(t *testing.T, src string) {
 	t.Helper()
 	if _, err := parser.ParseFile(token.NewFileSet(), "", src, 0); err != nil {

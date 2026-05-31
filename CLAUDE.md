@@ -30,10 +30,15 @@ drift gating. Pure-Go bias; stdlib first. Product plan and roadmap:
   interface seam, orchestration table-tested with a fake; the live git/gh path is
   unverified by design (don't run `--open-pr` against this repo — it makes a real PR).
 
+- Terraform: `terraform` detector (`.tf`: `tls_private_key`, `aws_kms_key`,
+  `azurerm_key_vault_key`) feeds the shared graph; `tf-rsa-bits` remediation rule
+  raises weak `rsa_bits` via `qryx fix`. Regex + brace-matched block scan (no HCL
+  dep, per zero-dep bias); precision over recall.
+
 **Next (in priority order per qryx-plan.md):**
-1. Terraform remediation rule (`rsa_bits`/`customer_master_key_spec`) — needs a
-   `.tf` detector first; the `remediate` rule registry is ready for it.
-2. Phase 4: governance/enforcement (CI policy gates, drift monitoring, dashboards).
+1. Phase 4: governance/enforcement (CI policy gates, drift monitoring, dashboards).
+2. Detector depth: HCL-accurate parsing (heredocs/interpolation), `google_kms_*`
+   template algorithms.
 
 **Ask the user which to tackle first at the start of a new session.**
 
