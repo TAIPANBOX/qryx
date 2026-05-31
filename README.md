@@ -99,6 +99,7 @@ qryx scan --format cbom <path>         # CycloneDX 1.6 CBOM (JSON)
 qryx scan --format html <path> > report.html   # self-contained web report
 qryx scan --format cnsa <path>               # CNSA 2.0 compliance audit (JSON)
 qryx scan --format cnsa-html <path> > cnsa.html  # CNSA 2.0 audit (HTML)
+qryx scan --format migration <path>          # risk-prioritized migration plan (JSON)
 qryx scan --fail-on high <path>        # exit 2 if any finding >= high (for CI)
 
 qryx tls example.com:443               # probe a live endpoint's TLS posture
@@ -171,6 +172,15 @@ normalized `scans`/`assets`/`occurrences` tables.
 qryx scan --save 'postgres://user:pass@host:5432/db' <path>
 qryx scan --baseline 'postgres://user:pass@host:5432/db' --fail-on-new high <path>
 ```
+
+**Migration plan** (`--format migration`) — scores each non-compliant asset's
+*agility* (how hard it is to change: `high` for managed KMS keys you rotate via
+API, `medium` for config/cert/dependency changes, `low` for code that needs a
+redeploy) and emits a risk-prioritized plan. Each entry carries a recommended
+PQC/strong target (RSA→ML-DSA/ML-KEM, ECDSA→ML-DSA, MD5/SHA-1→SHA-256, etc.), a
+rationale and the occurrence locations. Quick wins — high-agility, high/critical
+severity — are counted in the summary. Works on any source, including cloud:
+a KMS RSA key reports `high` agility, the same algorithm in source reports `low`.
 
 ---
 
