@@ -1,0 +1,10 @@
+{
+  "name": "example-strict",
+  "forbidAlgorithms": ["MD5", "SHA-1", "DES", "3DES", "RC4", "DSA"],
+  "minRsaBits": 3072,
+  "forbidQuantumVulnerable": false,
+  "forbidHardcoded": true,
+  "forbidExpired": true,
+  "forbidMisconfig": true,
+  "maxSeverity": "medium"
+}

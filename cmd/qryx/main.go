@@ -15,8 +15,10 @@ import (
 	awscloud "github.com/TAIPANBOX/qryx/internal/cloud/aws"
 	azurecloud "github.com/TAIPANBOX/qryx/internal/cloud/azure"
 	gcpcloud "github.com/TAIPANBOX/qryx/internal/cloud/gcp"
+	"github.com/TAIPANBOX/qryx/internal/graph"
 	"github.com/TAIPANBOX/qryx/internal/imagescan"
 	"github.com/TAIPANBOX/qryx/internal/model"
+	"github.com/TAIPANBOX/qryx/internal/policy"
 	"github.com/TAIPANBOX/qryx/internal/probe"
 	"github.com/TAIPANBOX/qryx/internal/remediate"
 	"github.com/TAIPANBOX/qryx/internal/report"
@@ -54,6 +56,7 @@ func run(args []string) error {
 		minRSA    = fs.Int("min-rsa-bits", 3072, "raise RSA keys below this size when fixing (fix)")
 		openPR    = fs.Bool("open-pr", false, "apply fixes and open a GitHub PR via git+gh (fix)")
 		branch    = fs.String("branch", "", "branch name for --open-pr (default qryx/fix-<rule>-<timestamp>)")
+		policyArg = fs.String("policy", "", "evaluate against a policy (builtin name e.g. cnsa, or a JSON file); exit 3 on violation")
 	)
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage:\n  qryx scan [flags] <path>\n  qryx fix [--write] [--open-pr [--branch NAME]] [--min-rsa-bits N] <path>\n  qryx tls [flags] <host:port>...\n  qryx bin [flags] <file|dir>...\n  qryx image [flags] <image.tar>...\n  qryx aws [flags]\n  qryx gcp --project <id> [flags]\n  qryx azure --vault-url <url> [flags]\n\nflags:\n")
@@ -179,6 +182,18 @@ func run(args []string) error {
 		}
 	default:
 		return fmt.Errorf("unknown format %q", *format)
+	}
+
+	if *policyArg != "" {
+		pol, err := policy.Load(*policyArg)
+		if err != nil {
+			return err
+		}
+		violations := policy.Evaluate(pol, graph.Build(res.Findings))
+		report.Violations(os.Stderr, policyName(*policyArg, pol), violations)
+		if len(violations) > 0 {
+			os.Exit(3)
+		}
 	}
 
 	if *failOn != "" {
@@ -345,6 +360,15 @@ func runTLS(targets []string, timeout time.Duration) (*scan.Result, error) {
 	}
 	res.Findings = risk.Apply(res.Findings)
 	return res, nil
+}
+
+// policyName is the label shown in the violations report: the policy's own name
+// when set, otherwise the file/builtin argument.
+func policyName(arg string, p policy.Policy) string {
+	if p.Name != "" {
+		return p.Name
+	}
+	return arg
 }
 
 func parseSeverity(s string) (model.Severity, bool) {

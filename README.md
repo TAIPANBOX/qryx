@@ -101,6 +101,8 @@ qryx scan --format cnsa <path>               # CNSA 2.0 compliance audit (JSON)
 qryx scan --format cnsa-html <path> > cnsa.html  # CNSA 2.0 audit (HTML)
 qryx scan --format migration <path>          # risk-prioritized migration plan (JSON)
 qryx scan --fail-on high <path>        # exit 2 if any finding >= high (for CI)
+qryx scan --policy cnsa <path>         # enforce a crypto policy; exit 3 on violation
+qryx scan --policy .qryx-policy.json <path>   # ...or a custom JSON policy
 
 qryx fix <path>                        # show safe code patches as a unified diff
 qryx fix --write <path>                # apply them in place (e.g. raise RSA key size)
@@ -199,18 +201,44 @@ With `--open-pr` the fix is applied on a fresh branch and opened as a GitHub
 pull request (via `git` + `gh`), with the rationale and diff in the PR body —
 guarded by a clean-working-tree check so it never mixes in unrelated edits.
 
+**Policy enforcement** (`--policy`) — gate CI on a declarative crypto policy.
+Pass a builtin (`cnsa`) or a JSON file; qryx evaluates the deduped asset graph
+and, on any violation, prints a report to stderr and exits **3** (distinct from
+`--fail-on`'s severity gate, exit 2, so CI can tell them apart). The builtin
+`cnsa` forbids weak algorithms (MD5, SHA-1, DES, 3DES, RC4, DSA), requires
+RSA ≥ 3072, and rejects hardcoded keys / expired certs / TLS misconfig;
+quantum-vulnerable assets are opt-in (`forbidQuantumVulnerable`) since their
+CNSA deadline is 2030. A custom policy is plain JSON:
+
+```json
+{
+  "name": "example-strict",
+  "forbidAlgorithms": ["MD5", "SHA-1", "DES", "3DES", "RC4", "DSA"],
+  "minRsaBits": 3072,
+  "forbidQuantumVulnerable": false,
+  "forbidHardcoded": true,
+  "forbidExpired": true,
+  "forbidMisconfig": true,
+  "maxSeverity": "medium"
+}
+```
+
+`--policy` writes only to stderr, so `--format cbom`/`html` output on stdout
+stays valid.
+
 ---
 
 ## Status
 
-**Phases 0-3 complete**, **Phase 4 (governance) next:**
+**Phases 0-3 complete, Phase 4 (governance) in progress:**
 
 - [x] static code scan · TLS probing · binary scanning (ELF/PE/Mach-O) · container images
 - [x] cross-source CBOM asset graph · JSON/Postgres persistence · drift detection · CI gate
 - [x] human / CBOM (CycloneDX 1.6) / HTML reports — all CI-gated
 - [x] Phase 2 cloud KMS — AWS, GCP and Azure done; owner-mapping; CNSA 2.0 audit report
-- [x] Phase 3 — crypto-agility scoring (`--format migration`), safe code remediation (`qryx fix`), and PR opening (`qryx fix --open-pr`)
-- [ ] Next — Terraform remediation rule; Phase 4 governance/enforcement
+- [x] Phase 3 — crypto-agility scoring (`--format migration`), safe code remediation (`qryx fix` / `--open-pr`), Terraform detector + rule
+- [x] Phase 4 (in progress) — policy engine + CI enforcement (`--policy`, exit 3)
+- [ ] Next — drift-gated policy (fail only on new violations); compliance dashboards
 
 Roadmap and rationale: [`qryx-plan.md`](./qryx-plan.md).
 

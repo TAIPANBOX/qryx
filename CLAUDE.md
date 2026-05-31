@@ -34,9 +34,14 @@ drift gating. Pure-Go bias; stdlib first. Product plan and roadmap:
   `azurerm_key_vault_key`) feeds the shared graph; `tf-rsa-bits` remediation rule
   raises weak `rsa_bits` via `qryx fix`. Regex + brace-matched block scan (no HCL
   dep, per zero-dep bias); precision over recall.
+- Phase 4 increment 1: policy engine (`internal/policy`) + `--policy <name|file>`
+  CI gate. Builtin `cnsa` + JSON files; evaluates the deduped graph, prints
+  violations to stderr, exits 3 (distinct from `--fail-on`'s 2). stdout format
+  output stays clean. Pure `Evaluate`, table-tested.
 
 **Next (in priority order per qryx-plan.md):**
-1. Phase 4: governance/enforcement (CI policy gates, drift monitoring, dashboards).
+1. Phase 4 cont.: drift-gated policy (fail only on NEW violations vs `--baseline`,
+   reuse `store.Diff`); compliance dashboards / evidence export; continuous monitoring.
 2. Detector depth: HCL-accurate parsing (heredocs/interpolation), `google_kms_*`
    template algorithms.
 
