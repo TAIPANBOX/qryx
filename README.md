@@ -89,6 +89,26 @@ qryx scan --baseline base.json --fail-on-new high <path>       # 2. diff → exi
 
 ---
 
+## Install
+
+Prebuilt binaries (Linux, macOS, Windows) are published on the
+[Releases page](https://github.com/TAIPANBOX/qryx/releases) for every `v*` tag,
+with a `SHA256SUMS` file for verification:
+
+```bash
+tar -xzf qryx_v*_$(uname -s | tr A-Z a-z)_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz
+sha256sum -c SHA256SUMS --ignore-missing
+./qryx version
+```
+
+Or build from source (Go 1.26+):
+
+```bash
+make build   # → ./bin/qryx
+```
+
+> Maintainers: a release is cut automatically by CI on `git tag vX.Y.Z && git push --tags`.
+
 ## Quick start
 
 ```bash
