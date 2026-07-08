@@ -47,7 +47,17 @@ type Result struct {
 func (s *Scanner) Scan(root string) (*Result, error) {
 	res := &Result{Root: root}
 
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	// Root-scope file reads to the walked directory: os.Root rejects any
+	// resolved path that would land outside root (including via a symlink
+	// swapped in between the walk's stat and the read), closing the
+	// TOCTOU/traversal window a plain os.ReadFile(path) would leave open.
+	rootDir, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	defer rootDir.Close()
+
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil // skip unreadable entries, keep walking
 		}
@@ -79,7 +89,7 @@ func (s *Scanner) Scan(root string) (*Result, error) {
 			return nil
 		}
 
-		content, readErr := os.ReadFile(path)
+		content, readErr := rootDir.ReadFile(rel)
 		if readErr != nil {
 			return nil
 		}

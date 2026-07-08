@@ -67,7 +67,7 @@ func OpenPR(root string, patches []Patch, opts PROptions, r Runner) (string, err
 		return "", fmt.Errorf("create branch %s: %w", branch, err)
 	}
 	for _, p := range patches {
-		if err := os.WriteFile(filepath.Join(root, p.File), []byte(p.NewContent), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(root, p.File), []byte(p.NewContent), 0o600); err != nil {
 			return "", fmt.Errorf("apply %s: %w", p.File, err)
 		}
 	}

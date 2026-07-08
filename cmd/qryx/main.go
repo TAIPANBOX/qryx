@@ -366,7 +366,7 @@ func runFix(res *scan.Result, opts fixOptions) error {
 		return nil
 	}
 	for _, p := range patches {
-		if err := os.WriteFile(filepath.Join(res.Root, p.File), []byte(p.NewContent), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(res.Root, p.File), []byte(p.NewContent), 0o600); err != nil {
 			return fmt.Errorf("write %s: %w", p.File, err)
 		}
 		fmt.Fprintf(os.Stderr, "fixed %s (%s)\n", p.File, p.Rule)

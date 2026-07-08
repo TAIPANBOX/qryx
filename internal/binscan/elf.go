@@ -112,7 +112,7 @@ func imports(path string) (libs, syms []string, ok bool) {
 
 // readMagic returns the first 4 bytes of a file (fewer if shorter).
 func readMagic(path string) []byte {
-	f, err := os.Open(path)
+	f, err := os.Open(path) // #nosec G304 -- path is an operator-supplied CLI argument or a file discovered under an operator-specified scan root; reading arbitrary binaries is this scanner's job
 	if err != nil {
 		return nil
 	}

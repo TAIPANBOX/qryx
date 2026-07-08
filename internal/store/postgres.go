@@ -34,7 +34,7 @@ func pgConnect(ctx context.Context, connString string) (*pgx.Conn, error) {
 		return nil, err
 	}
 	if _, err := conn.Exec(ctx, schemaSQL); err != nil {
-		conn.Close(ctx)
+		_ = conn.Close(ctx)
 		return nil, fmt.Errorf("ensure schema: %w", err)
 	}
 	return conn, nil

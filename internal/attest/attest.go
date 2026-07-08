@@ -40,7 +40,7 @@ type Signer struct {
 
 // LoadSigner reads a PKCS#8 PEM private key (ed25519 or ECDSA P-256).
 func LoadSigner(pemPath string) (*Signer, error) {
-	raw, err := os.ReadFile(pemPath)
+	raw, err := os.ReadFile(pemPath) // #nosec G304 -- pemPath is the operator's own --sign-key/--verify CLI argument, same trust model as any local key file the invoking user names
 	if err != nil {
 		return nil, err
 	}

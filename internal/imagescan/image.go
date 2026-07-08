@@ -79,7 +79,7 @@ func scanImage(imageTar string) ([]model.Finding, error) {
 // extractImage walks the outer tar and extracts every layer (an entry that is
 // itself a tar or gzip) into root, overlaying later layers onto earlier ones.
 func extractImage(imageTar, root string) error {
-	f, err := os.Open(imageTar)
+	f, err := os.Open(imageTar) // #nosec G304 -- imageTar is the operator's own CLI argument (qryx image scan <tar>), same trust model as any local file the invoking user names
 	if err != nil {
 		return err
 	}
@@ -169,7 +169,7 @@ func extractLayer(tr *tar.Reader, root string, total *int64) error {
 		if *total+hdr.Size > maxTotalBytes {
 			return fmt.Errorf("image exceeds %d-byte extraction limit", int64(maxTotalBytes))
 		}
-		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(dest), 0o750); err != nil {
 			return err
 		}
 		n, err := writeCapped(dest, tr, maxFileBytes)
@@ -199,7 +199,7 @@ func readCapped(r io.Reader, max int) ([]byte, error) {
 
 // writeCapped writes up to max bytes from r into path, returning bytes written.
 func writeCapped(path string, r io.Reader, max int) (int64, error) {
-	out, err := os.Create(path)
+	out, err := os.Create(path) // #nosec G304 -- path is always the output of safeJoin, which rejects any name that would escape root (path-traversal guard); do not remove
 	if err != nil {
 		return 0, err
 	}

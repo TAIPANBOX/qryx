@@ -57,7 +57,7 @@ func Load(nameOrPath string) (Policy, error) {
 	if p, ok := builtins[nameOrPath]; ok {
 		return p, nil
 	}
-	raw, err := os.ReadFile(nameOrPath)
+	raw, err := os.ReadFile(nameOrPath) // #nosec G304 -- nameOrPath is the operator's own --policy CLI argument, same trust model as any local config file the invoking user names
 	if err != nil {
 		return Policy{}, fmt.Errorf("load policy %q: not a builtin and %w", nameOrPath, err)
 	}

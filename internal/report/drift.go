@@ -24,7 +24,7 @@ func Drift(w io.Writer, d store.Delta) {
 	for _, n := range d.Removed {
 		fmt.Fprintf(tw, "  REMOVED\t%s\t%s\t%s\n", n.Risk.Severity, assetName(n), where(n))
 	}
-	tw.Flush()
+	_ = tw.Flush()
 }
 
 // assetName renders an asset's algorithm with its key size when known.

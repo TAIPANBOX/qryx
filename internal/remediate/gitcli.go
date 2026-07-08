@@ -59,7 +59,7 @@ func (GitCLI) CreatePR(title, body, base string) (string, error) {
 // run executes a command, returning stdout and wrapping any failure with the
 // command and its stderr.
 func run(name string, args ...string) (string, error) {
-	cmd := exec.Command(name, args...)
+	cmd := exec.Command(name, args...) // #nosec G204 -- name is always a "git"/"gh" literal from the call sites in this file, args are our own fixed subcommands
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

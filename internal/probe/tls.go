@@ -30,8 +30,8 @@ func Endpoint(addr string, timeout time.Duration) ([]model.Finding, error) {
 	conn, err := tls.DialWithDialer(
 		&net.Dialer{Timeout: timeout},
 		"tcp", addr,
-		&tls.Config{ //nolint:gosec // inspection, not trust; see comment above
-			InsecureSkipVerify: true,
+		&tls.Config{
+			InsecureSkipVerify: true, // #nosec G402 -- inspection, not trust; see comment above
 			MinVersion:         tls.VersionTLS10,
 		},
 	)

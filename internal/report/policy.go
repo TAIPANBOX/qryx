@@ -20,7 +20,7 @@ func Violations(w io.Writer, name string, vs []policy.Violation) {
 	for _, v := range vs {
 		fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\n", v.Severity, v.Rule, v.Asset, firstLocation(v), v.Message)
 	}
-	tw.Flush()
+	_ = tw.Flush()
 }
 
 func firstLocation(v policy.Violation) string {

@@ -46,7 +46,7 @@ func Human(w io.Writer, res *scan.Result) {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\t%s\n",
 			n.Risk.Severity, risk, algo, len(n.Occurrences), where(n), n.Risk.Reason)
 	}
-	tw.Flush()
+	_ = tw.Flush()
 
 	fmt.Fprintln(w)
 	fmt.Fprintf(w, "Summary: %d quantum-vulnerable, %d weak, %d misconfig, %d expired, %d hardcoded (unique assets)\n",

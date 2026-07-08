@@ -30,7 +30,7 @@ func Trend(w io.Writer, records []store.EvidenceRecord) {
 		fmt.Fprintf(tw, "  %s\t%d%%\t%d\t%s\n",
 			r.CreatedAt.UTC().Format("2006-01-02 15:04"), r.ScorePct, r.NonCompliant, shortDigest(r.Digest))
 	}
-	tw.Flush()
+	_ = tw.Flush()
 
 	if len(records) >= 2 {
 		prev, cur := records[len(records)-2], records[len(records)-1]

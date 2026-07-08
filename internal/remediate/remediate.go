@@ -8,7 +8,6 @@ package remediate
 
 import (
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -56,9 +55,18 @@ func Plan(res *scan.Result, minRSABits int) ([]Patch, error) {
 	}
 	sort.Strings(files)
 
+	// Root-scope reads to the scan root: file is a scan-relative path off the
+	// findings we generated, but os.Root still closes the traversal/TOCTOU
+	// window a raw filepath.Join+os.ReadFile leaves open.
+	rootDir, err := os.OpenRoot(res.Root)
+	if err != nil {
+		return nil, err
+	}
+	defer rootDir.Close()
+
 	var patches []Patch
 	for _, file := range files {
-		raw, err := os.ReadFile(filepath.Join(res.Root, file))
+		raw, err := rootDir.ReadFile(file)
 		if err != nil {
 			continue
 		}
