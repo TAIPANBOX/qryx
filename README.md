@@ -119,6 +119,8 @@ qryx scan --format cbom <path>         # CycloneDX 1.6 CBOM (JSON)
 qryx scan --format html <path> > report.html   # self-contained web report
 qryx scan --format cnsa <path>               # CNSA 2.0 compliance audit (JSON)
 qryx scan --format cnsa-html <path> > cnsa.html  # CNSA 2.0 audit (HTML)
+qryx scan --format ncsc <path>               # NCSC PQC migration readiness, 2028/2031/2035 milestones (JSON)
+qryx scan --format ncsc-html <path> > ncsc.html  # NCSC readiness (HTML)
 qryx scan --format evidence <path> > evidence.json  # tamper-evident compliance attestation
 qryx scan --format evidence --sign-key key.pem <path> > evidence.json  # ...signed (ed25519/ECDSA)
 qryx verify-evidence evidence.json     # verify a signed attestation

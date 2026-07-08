@@ -80,6 +80,16 @@ CBOM/CNSA -> policy gate (+drift) -> remediation (fix/PR) -> evidence
   added `google_kms_crypto_key`. The zero-dep bias was relaxed for this with the
   user's explicit approval (HCL parsing can't be done correctly with regex).
 
+- Phase 4 increment 10: NCSC PQC readiness report — `--format ncsc|ncsc-html`
+  (internal/report/ncsc.go) tracks the NCSC migration timeline (2028 discovery /
+  2031 highest-priority / 2035 full) against the shared asset graph, with
+  deterministic on-track/at-risk/not-started verdicts. 2031 subset = quantum-
+  vulnerable AND (externally-facing via tls-probe/aws-acm OR long-lived-data via
+  encryption/key-exchange primitives); criteria string embedded in both outputs.
+  Migrated-count honestly stubbed at 0 (no per-scan remediation state; trail/
+  trend is the progress mechanism). Known orthogonal gap: `agility.target()`
+  has no Ed25519 case, so Ed25519 counts as "unplanned".
+
 **Remaining (deliberate deferrals, not tech debt):**
 1. ML-DSA (FIPS 204) signing — once Go stdlib ships it (attest pkg is ready for
    a new alg).

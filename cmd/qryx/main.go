@@ -42,7 +42,7 @@ func main() {
 func run(args []string) error {
 	fs := flag.NewFlagSet("qryx", flag.ContinueOnError)
 	var (
-		format    = fs.String("format", "human", "output format: human|cbom|html|cnsa|cnsa-html|migration|evidence|dashboard")
+		format    = fs.String("format", "human", "output format: human|cbom|html|cnsa|cnsa-html|migration|evidence|dashboard|ncsc|ncsc-html")
 		failOn    = fs.String("fail-on", "", "exit 2 if any finding is at or above this severity: low|medium|high|critical")
 		failOnNew = fs.String("fail-on-new", "", "exit 2 if a NEW asset (vs --baseline) is at or above this severity")
 		timeout   = fs.Duration("timeout", 5*time.Second, "per-endpoint connect timeout (tls)")
@@ -241,6 +241,14 @@ func run(args []string) error {
 		}
 	case "dashboard":
 		if err := report.Dashboard(os.Stdout, res, version); err != nil {
+			return err
+		}
+	case "ncsc":
+		if err := report.NCSC(os.Stdout, res); err != nil {
+			return err
+		}
+	case "ncsc-html":
+		if err := report.NCSCHTML(os.Stdout, res); err != nil {
 			return err
 		}
 	default:

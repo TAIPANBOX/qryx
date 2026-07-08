@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>qryx — NCSC PQC Migration Readiness Report</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 14px/1.5 -apple-system, system-ui, sans-serif; margin: 2rem; max-width: 1100px; }
+  h1 { font-size: 1.4rem; margin: 0 0 .15rem; }
+  h2 { font-size: 1.05rem; margin: 1.6rem 0 .3rem; border-bottom: 1px solid #8882; padding-bottom: .3rem; }
+  .meta { color: #777; margin-bottom: 1rem; font-size: .88rem; }
+  .note { color: #777; font-size: .82rem; margin: .2rem 0 .8rem; }
+  .milestones { display:flex; gap:1rem; flex-wrap:wrap; margin: 1rem 0 1.4rem; }
+  .milestone { background:#f4f4f4; border-radius:.6rem; padding:.7rem 1rem; min-width:220px; }
+  .milestone h3 { margin:0 0 .3rem; font-size:.95rem; }
+  .verdict { display:inline-block; padding:.15rem .55rem; border-radius:999px; font-size:.78rem; font-weight:700; color:#fff; text-transform:uppercase; letter-spacing:.02em; }
+  .v-ok   { background:#276749; }
+  .v-risk { background:#d9480f; }
+  .v-none { background:#666; }
+  table { border-collapse:collapse; width:100%; margin-top:.5rem; }
+  th, td { text-align:left; padding:.45rem .6rem; border-bottom:1px solid #8882; vertical-align:top; }
+  th { font-size:.78rem; text-transform:uppercase; letter-spacing:.03em; color:#888; }
+  .algo { font-family:ui-monospace,monospace; font-weight:600; }
+  .loc  { font-family:ui-monospace,monospace; font-size:.82rem; color:#666; }
+  .tag  { display:inline-block; padding:.05rem .4rem; border-radius:.3rem; background:#2b6cb022; color:#2b6cb0; font-size:.75rem; font-weight:600; margin-right:.25rem; }
+  .empty { color:#276749; font-size:.9rem; }
+</style>
+</head>
+<body>
+  <h1>NCSC PQC Migration Readiness Report</h1>
+  <div class="meta">{{.Root}} &mdash; generated {{.GeneratedAt}} &mdash; {{.Report.Standard}}</div>
+
+  <div class="milestones">
+    <div class="milestone">
+      <h3>2028 &mdash; Discovery</h3>
+      <span class="verdict {{verdictClass .Report.Discovery2028.Verdict}}">{{.Report.Discovery2028.Verdict}}</span>
+      <div class="note">{{.Report.Discovery2028.TotalInventoried}} assets inventoried &middot; {{.Report.Discovery2028.QuantumVulnerable}} quantum-vulnerable &middot; plan: {{if .Report.Discovery2028.PlanExists}}yes{{else}}no plan artifact{{end}}</div>
+    </div>
+    <div class="milestone">
+      <h3>2031 &mdash; Highest-priority systems</h3>
+      <span class="verdict {{verdictClass .Report.Priority2031.Verdict}}">{{.Report.Priority2031.Verdict}}</span>
+      <div class="note">{{.Report.Priority2031.Count}} highest-priority &middot; {{.Report.Priority2031.Migrated}} migrated &middot; {{.Report.Priority2031.Remaining}} remaining</div>
+    </div>
+    <div class="milestone">
+      <h3>2035 &mdash; Full migration</h3>
+      <span class="verdict {{verdictClass .Report.Full2035.Verdict}}">{{.Report.Full2035.Verdict}}</span>
+      <div class="note">{{.Report.Full2035.Count}} quantum-vulnerable assets remaining</div>
+    </div>
+  </div>
+
+  <h2>2028: Discovery coverage</h2>
+  <table>
+    <thead><tr><th>Source</th><th>Inventoried</th></tr></thead>
+    <tbody>
+      {{range $bucket, $count := .Report.Discovery2028.CoverageBySource}}
+      <tr><td>{{$bucket}}</td><td>{{$count}}</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+  <div class="note">{{.Report.Discovery2028.PlanNote}}</div>
+
+  {{if .Report.Discovery2028.Findings}}
+  <h2>2028: Quantum-vulnerable inventory</h2>
+  <table>
+    <thead><tr><th>Algorithm</th><th>Severity</th><th>Occurrences</th><th>Planned</th><th>Where</th></tr></thead>
+    <tbody>
+      {{range .Report.Discovery2028.Findings}}
+      <tr>
+        <td class="algo">{{.Algorithm}}</td>
+        <td>{{.Severity}}</td>
+        <td>{{.Occurrences}}</td>
+        <td>{{if .Planned}}yes{{else}}no{{end}}</td>
+        <td class="loc">{{ncscWhere .}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <p class="empty">No quantum-vulnerable cryptography found.</p>
+  {{end}}
+
+  <h2>2031: Highest-priority migration</h2>
+  <div class="note">Criteria: {{.Report.Priority2031.Criteria}}</div>
+  {{if .Report.Priority2031.Findings}}
+  <table>
+    <thead><tr><th>Algorithm</th><th>Severity</th><th>Occurrences</th><th>Why priority</th><th>Where</th></tr></thead>
+    <tbody>
+      {{range .Report.Priority2031.Findings}}
+      <tr>
+        <td class="algo">{{.Algorithm}}</td>
+        <td>{{.Severity}}</td>
+        <td>{{.Occurrences}}</td>
+        <td>
+          {{if .ExternallyFacing}}<span class="tag">externally-facing</span>{{end}}
+          {{if .LongLivedData}}<span class="tag">long-lived-data</span>{{end}}
+        </td>
+        <td class="loc">{{ncscWhere .}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  <div class="note">{{.Report.Priority2031.Note}}</div>
+  {{else}}
+  <p class="empty">No highest-priority systems outstanding.</p>
+  {{end}}
+
+  <h2>2035: Full remaining inventory</h2>
+  {{if .Report.Full2035.Findings}}
+  <table>
+    <thead><tr><th>Algorithm</th><th>Severity</th><th>Occurrences</th><th>Where</th></tr></thead>
+    <tbody>
+      {{range .Report.Full2035.Findings}}
+      <tr>
+        <td class="algo">{{.Algorithm}}</td>
+        <td>{{.Severity}}</td>
+        <td>{{.Occurrences}}</td>
+        <td class="loc">{{ncscWhere .}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <p class="empty">No quantum-vulnerable cryptography remaining.</p>
+  {{end}}
+</body>
+</html>
