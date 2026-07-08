@@ -87,8 +87,15 @@ CBOM/CNSA -> policy gate (+drift) -> remediation (fix/PR) -> evidence
   vulnerable AND (externally-facing via tls-probe/aws-acm OR long-lived-data via
   encryption/key-exchange primitives); criteria string embedded in both outputs.
   Migrated-count honestly stubbed at 0 (no per-scan remediation state; trail/
-  trend is the progress mechanism). Known orthogonal gap: `agility.target()`
-  has no Ed25519 case, so Ed25519 counts as "unplanned".
+  trend is the progress mechanism).
+
+- Phase 4 increment 11: `agility.target()` gained an Ed25519 case (maps to
+  ML-DSA (FIPS 204), same as ECDSA/DSA — signature-to-signature) so Ed25519
+  now counts as "planned" in the migration/NCSC reports. The NCSC at-risk
+  fixture that used to lean on the Ed25519 gap (`ncsc_test.go`,
+  `TestNCSCVerdicts`) now uses a synthetic SM2 finding (Risk set directly,
+  bypassing risk.Classify) to keep exercising the "quantum-vulnerable with no
+  agility target" branch.
 
 **Remaining (deliberate deferrals, not tech debt):**
 1. ML-DSA (FIPS 204) signing — once Go stdlib ships it (attest pkg is ready for

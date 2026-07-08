@@ -132,13 +132,18 @@ func TestNCSCVerdicts(t *testing.T) {
 			want: verdictOnTrack,
 		},
 		{
-			// Ed25519 is quantum-vulnerable (baseline table) but agility.Assess
-			// does not yet recognize it (no migration target), so no plan
-			// covers it; it is also externally-facing (tls-probe), so it lands
-			// in the 2031 highest-priority subset too.
+			// SM2 (a real ECC-based signature algorithm, quantum-vulnerable via
+			// Shor like any discrete-log scheme) is not in agility.target()'s
+			// switch, so agility.Assess proposes no migration target for it and
+			// no plan covers it. Risk is set directly on the finding here
+			// (buildNCSC/graph.Build never call risk.Classify — they trust
+			// Finding.Risk as scored upstream) specifically so this test stays
+			// independent of which algorithms risk.Classify happens to flag;
+			// it is also externally-facing (tls-probe), so it lands in the 2031
+			// highest-priority subset too.
 			name: "quantum-vulnerable asset with no migration plan",
 			findings: []model.Finding{
-				{Asset: model.Asset{Type: model.TypeAlgorithm, Algorithm: "ED25519"}, Location: model.Location{File: "host:443"}, Source: "tls-probe", Risk: model.Risk{Class: model.RiskQuantumVulnerable, Severity: model.SeverityMedium}},
+				{Asset: model.Asset{Type: model.TypeAlgorithm, Algorithm: "SM2"}, Location: model.Location{File: "host:443"}, Source: "tls-probe", Risk: model.Risk{Class: model.RiskQuantumVulnerable, Severity: model.SeverityMedium}},
 			},
 			want: verdictAtRisk,
 		},

@@ -120,7 +120,7 @@ func target(a model.Asset) string {
 			return "ML-DSA (FIPS 204)"
 		}
 		return "ML-KEM (FIPS 203)"
-	case "ECDSA", "DSA":
+	case "ECDSA", "DSA", "ED25519":
 		return "ML-DSA (FIPS 204)"
 	case "ECDH", "DH", "ECC":
 		return "ML-KEM (FIPS 203)"
@@ -154,7 +154,7 @@ func rationale(a model.Asset) string {
 			return fmt.Sprintf("RSA-%d is weak today and quantum-vulnerable; if PQC is not yet viable, raise to RSA-3072 as an interim step before migrating to a lattice scheme", a.KeySize)
 		}
 		return "RSA is quantum-vulnerable (Shor); migrate to a NIST PQC algorithm"
-	case "ECDSA", "DSA", "ECDH", "DH", "ECC":
+	case "ECDSA", "DSA", "ECDH", "DH", "ECC", "ED25519":
 		return fmt.Sprintf("%s relies on discrete-log/ECDLP hardness, broken by a quantum computer", a.Algorithm)
 	case "MD5", "SHA1":
 		return fmt.Sprintf("%s is collision-broken; replace with a SHA-2 family hash", a.Algorithm)

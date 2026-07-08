@@ -32,6 +32,9 @@ func TestTargetMapping(t *testing.T) {
 		{"RSA", 2048, model.PrimitiveEncryption, "ML-KEM (FIPS 203)", true},
 		{"ECDSA", 0, model.PrimitiveSignature, "ML-DSA (FIPS 204)", true},
 		{"ECDH", 0, model.PrimitiveKeyExch, "ML-KEM (FIPS 203)", true},
+		{"Ed25519", 0, model.PrimitiveSignature, "ML-DSA (FIPS 204)", true},
+		{"ed25519", 0, model.PrimitiveSignature, "ML-DSA (FIPS 204)", true},
+		{"ED25519", 0, model.PrimitiveSignature, "ML-DSA (FIPS 204)", true},
 		{"MD5", 0, model.PrimitiveHash, "SHA-256 / SHA-384", true},
 		{"DES", 0, model.PrimitiveEncryption, "AES-256-GCM", true},
 		{"AES", 128, model.PrimitiveEncryption, "AES-256-GCM", true},
@@ -101,5 +104,26 @@ func TestRSAUnder2048Rationale(t *testing.T) {
 	// rationale should mention the interim RSA-3072 step
 	if a.Rationale == "" {
 		t.Error("expected non-empty rationale for RSA-1024")
+	}
+}
+
+// TestEd25519MapsLikeOtherSignatureAlgorithms ensures Ed25519 gets the same
+// migration target and a non-empty rationale, consistent with how the other
+// classical signature algorithms (ECDSA/DSA) are mapped in target()/rationale().
+func TestEd25519MapsLikeOtherSignatureAlgorithms(t *testing.T) {
+	for _, algo := range []string{"Ed25519", "ed25519", "ED25519"} {
+		t.Run(algo, func(t *testing.T) {
+			ed, ok := Assess(node(algo, 0, model.PrimitiveSignature, "goast"))
+			if !ok {
+				t.Fatal("expected migration needed for Ed25519")
+			}
+			ecdsa, _ := Assess(node("ECDSA", 0, model.PrimitiveSignature, "goast"))
+			if ed.Target != ecdsa.Target {
+				t.Errorf("Ed25519 target=%q, want same as ECDSA (%q)", ed.Target, ecdsa.Target)
+			}
+			if ed.Rationale == "" {
+				t.Error("expected non-empty rationale for Ed25519")
+			}
+		})
 	}
 }

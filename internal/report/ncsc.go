@@ -67,7 +67,8 @@ const highestPriorityCriteria = "quantum-vulnerable AND (externally-facing: an o
 // reuses the same agility-derived migration plan as `--format migration`
 // (rankedSteps/agility.Assess). A quantum-vulnerable asset is "planned" when
 // agility.Assess recognizes its algorithm and proposes a migration target;
-// today that covers RSA/ECDSA/ECDH/DH/ECC/DSA but not, for example, Ed25519.
+// today that covers RSA/ECDSA/ECDH/DH/ECC/DSA/Ed25519 but not every algorithm
+// risk.Classify can flag as quantum-vulnerable (e.g. SM2 is not yet mapped).
 const discoveryPlanNote = "reuses the qryx migration report's plan (agility.Assess over the asset graph); an asset counts as planned when its algorithm has a recognized migration target"
 
 // sourceBucket classifies an occurrence into one of the six discovery-coverage
