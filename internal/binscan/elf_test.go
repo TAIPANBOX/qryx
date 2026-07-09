@@ -34,6 +34,97 @@ func TestCryptoFromSymbols(t *testing.T) {
 	}
 }
 
+// TestCryptoFromSymbolsEVP pins the OpenSSL 3.x EVP_* detection rules against
+// the real dynamic symbol set imported by /usr/bin/openssl on Ubuntu (nm -D),
+// which is almost entirely EVP_* — the legacy flat API (RSA_new, MD5_Init,
+// ...) barely appears anymore. Before this test, none of these symbols
+// matched any rule and a scan of a modern openssl binary found near nothing.
+func TestCryptoFromSymbolsEVP(t *testing.T) {
+	tests := []struct {
+		sym  string
+		algo string
+		prim model.Primitive
+	}{
+		{"EVP_aes_256_cbc", "AES", model.PrimitiveEncryption},
+		{"EVP_aes_128_gcm", "AES", model.PrimitiveEncryption},
+		{"AES_encrypt", "AES", model.PrimitiveEncryption},
+		{"AES_set_encrypt_key", "AES", model.PrimitiveEncryption},
+		{"EVP_des_ede3_cbc", "3DES", model.PrimitiveEncryption},
+		{"EVP_md5", "MD5", model.PrimitiveHash},
+		{"EVP_sha1", "SHA-1", model.PrimitiveHash},
+		{"EVP_sha256", "SHA-256", model.PrimitiveHash},
+		{"EVP_sha512", "SHA-512", model.PrimitiveHash},
+		{"EVP_PKEY_CTX_set_rsa_keygen_bits", "RSA", model.PrimitiveSignature},
+		{"EVP_PKEY_CTX_set1_rsa_keygen_pubexp", "RSA", model.PrimitiveSignature},
+		{"EVP_PKEY_get0_RSA", "RSA", model.PrimitiveSignature},
+		{"EVP_PKEY_CTX_set_ec_paramgen_curve_nid", "ECDSA", model.PrimitiveSignature},
+		{"EVP_PKEY_CTX_set_dsa_paramgen_bits", "DSA", model.PrimitiveSignature},
+		{"EVP_PKEY_CTX_set_dh_paramgen_prime_len", "DH", model.PrimitiveKeyExch},
+		{"EVP_PKEY_CTX_set_dh_nid", "DH", model.PrimitiveKeyExch},
+		// Generic entry points with no statically-resolvable algorithm: still
+		// reported (an EVP-flavored crypto library is clearly in use) rather
+		// than silently dropped, per the bug report ("EVP_EncryptInit/
+		// EVP_DecryptInit -> symmetric; EVP_DigestInit + EVP_MD_* -> hashing;
+		// EVP_PKEY_* -> asymmetric").
+		{"EVP_EncryptInit_ex", "EVP_CIPHER", model.PrimitiveEncryption},
+		{"EVP_DecryptInit_ex", "EVP_CIPHER", model.PrimitiveEncryption},
+		{"EVP_DigestInit_ex", "EVP_MD", model.PrimitiveHash},
+		{"EVP_MD_CTX_new", "EVP_MD", model.PrimitiveHash},
+		{"EVP_PKEY_sign", "EVP_PKEY", model.PrimitiveUnknown},
+		{"EVP_PKEY_new", "EVP_PKEY", model.PrimitiveUnknown},
+	}
+	for _, tt := range tests {
+		got := cryptoFromSymbols("bin", []string{tt.sym})
+		if len(got) != 1 {
+			t.Fatalf("%s: got %d findings, want 1: %+v", tt.sym, len(got), got)
+		}
+		if got[0].Asset.Algorithm != tt.algo {
+			t.Errorf("%s: algorithm = %q, want %q", tt.sym, got[0].Asset.Algorithm, tt.algo)
+		}
+		if got[0].Asset.Primitive != tt.prim {
+			t.Errorf("%s: primitive = %q, want %q", tt.sym, got[0].Asset.Primitive, tt.prim)
+		}
+	}
+}
+
+// TestCryptoFromSymbolsEVPDedup mirrors a real /usr/bin/openssl symbol table:
+// many EVP_PKEY_* helpers alongside a handful of algorithm-specific ones. The
+// specific algorithm must win over the generic catch-all, and each algorithm
+// is still reported once.
+func TestCryptoFromSymbolsEVPDedup(t *testing.T) {
+	syms := []string{
+		"EVP_PKEY_new", "EVP_PKEY_free", "EVP_PKEY_sign", "EVP_PKEY_verify",
+		"EVP_PKEY_CTX_set_rsa_keygen_bits", "EVP_PKEY_CTX_set1_rsa_keygen_pubexp",
+		"EVP_aes_256_cbc", "EVP_sha256", "EVP_md5",
+	}
+	got := cryptoFromSymbols("bin", syms)
+	want := map[string]bool{"RSA": true, "AES": true, "SHA-256": true, "MD5": true, "EVP_PKEY": true}
+	if len(got) != len(want) {
+		t.Fatalf("got %d findings, want %d: %+v", len(got), len(want), algos(got))
+	}
+	for _, f := range got {
+		if !want[f.Asset.Algorithm] {
+			t.Errorf("unexpected algorithm %q", f.Asset.Algorithm)
+		}
+	}
+}
+
+func TestCryptoLibsIncludesLibgcrypt(t *testing.T) {
+	found := false
+	for _, cl := range cryptoLibs {
+		if cl.name == "libgcrypt" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("libgcrypt not in cryptoLibs")
+	}
+	got := librariesToFindings("bin", []string{"libgcrypt.so.20"})
+	if len(got) != 1 || got[0].Asset.Algorithm != "libgcrypt" {
+		t.Fatalf("librariesToFindings(libgcrypt.so.20) = %+v, want one libgcrypt finding", got)
+	}
+}
+
 func TestCryptoFromSymbolsNoFalsePositives(t *testing.T) {
 	if got := cryptoFromSymbols("bin", []string{"printf", "strlen", "main", "abort", "_main"}); len(got) != 0 {
 		t.Errorf("expected no findings, got %+v", algos(got))

@@ -26,6 +26,7 @@ var cryptoLibs = []struct{ needle, name string }{
 	{"libgnutls", "GnuTLS"},
 	{"libmbedtls", "mbedTLS"},
 	{"libsodium", "libsodium"},
+	{"libgcrypt", "libgcrypt"},
 }
 
 // symRule maps a dynamic-symbol prefix to an algorithm and primitive.
@@ -37,11 +38,22 @@ type symRule struct {
 
 // symRules are checked in order; the first matching prefix wins. Ordered so more
 // specific prefixes precede broader ones (SHA1 before SHA, EC before ED).
+//
+// Legacy flat OpenSSL API (MD5_Init, RSA_new, ...) is listed first. OpenSSL
+// 3.x deprecated that flat API in favor of the EVP_* interface — the openssl
+// CLI and most modern libcrypto consumers call crypto almost exclusively
+// through EVP_* now, so the EVP rules below are what actually fires on a
+// current OpenSSL 3.x build. Algorithm-bearing EVP symbols (EVP_aes_*,
+// EVP_sha256, EVP_PKEY_CTX_set_rsa_keygen_bits, ...) are ordered before the
+// generic EVP_{Encrypt,Decrypt,Cipher,Digest}Init*/EVP_PKEY_* catch-alls so a
+// specific algorithm is reported whenever one is resolvable.
 var symRules = []symRule{
+	// Legacy flat API.
 	{"MD5", "MD5", model.PrimitiveHash},
 	{"SHA1", "SHA-1", model.PrimitiveHash},
 	{"SHA256", "SHA-256", model.PrimitiveHash},
 	{"SHA512", "SHA-512", model.PrimitiveHash},
+	{"AES_", "AES", model.PrimitiveEncryption}, // AES_encrypt/AES_decrypt/AES_set_*_key
 	{"RSA", "RSA", model.PrimitiveSignature},
 	{"ECDSA", "ECDSA", model.PrimitiveSignature},
 	{"EC_", "ECDSA", model.PrimitiveSignature},
@@ -50,6 +62,44 @@ var symRules = []symRule{
 	{"DH_", "DH", model.PrimitiveKeyExch},
 	{"DES", "DES", model.PrimitiveEncryption},
 	{"RC4", "RC4", model.PrimitiveEncryption},
+
+	// EVP_* cipher fetch/legacy-wrapper names that name their algorithm.
+	{"EVP_aes_", "AES", model.PrimitiveEncryption},
+	{"EVP_des_ede3", "3DES", model.PrimitiveEncryption},
+	{"EVP_des_", "DES", model.PrimitiveEncryption},
+	{"EVP_rc4", "RC4", model.PrimitiveEncryption},
+
+	// EVP_* digest fetch names.
+	{"EVP_md5", "MD5", model.PrimitiveHash},
+	{"EVP_sha1", "SHA-1", model.PrimitiveHash},
+	{"EVP_sha224", "SHA-224", model.PrimitiveHash},
+	{"EVP_sha256", "SHA-256", model.PrimitiveHash},
+	{"EVP_sha384", "SHA-384", model.PrimitiveHash},
+	{"EVP_sha512", "SHA-512", model.PrimitiveHash},
+	{"EVP_sm3", "SM3", model.PrimitiveHash},
+
+	// EVP_PKEY_* calls that name their algorithm (keygen/paramgen setters,
+	// typed getters) — checked before the generic EVP_PKEY_ catch-all.
+	{"EVP_PKEY_get0_RSA", "RSA", model.PrimitiveSignature},
+	{"EVP_PKEY_CTX_set1_rsa", "RSA", model.PrimitiveSignature},
+	{"EVP_PKEY_CTX_set_rsa", "RSA", model.PrimitiveSignature},
+	{"EVP_PKEY_CTX_set_ec_paramgen", "ECDSA", model.PrimitiveSignature},
+	{"EVP_PKEY_CTX_set_dsa_paramgen", "DSA", model.PrimitiveSignature},
+	{"EVP_PKEY_CTX_set_dh_paramgen", "DH", model.PrimitiveKeyExch},
+	{"EVP_PKEY_CTX_set_dh_nid", "DH", model.PrimitiveKeyExch},
+
+	// Generic EVP_* entry points: the binary demonstrably does symmetric /
+	// hashing / asymmetric-key crypto through them, but the concrete
+	// algorithm isn't resolvable from the symbol name alone (it's chosen at
+	// runtime, e.g. via EVP_get_cipherbyname or an EVP_MD/EVP_CIPHER fetched
+	// by name). Reported with a generic algorithm label rather than guessing,
+	// per the "keep false positives low" detector philosophy.
+	{"EVP_EncryptInit", "EVP_CIPHER", model.PrimitiveEncryption},
+	{"EVP_DecryptInit", "EVP_CIPHER", model.PrimitiveEncryption},
+	{"EVP_CipherInit", "EVP_CIPHER", model.PrimitiveEncryption},
+	{"EVP_DigestInit", "EVP_MD", model.PrimitiveHash},
+	{"EVP_MD_", "EVP_MD", model.PrimitiveHash},
+	{"EVP_PKEY_", "EVP_PKEY", model.PrimitiveUnknown},
 }
 
 // Scan walks each path (file or directory) and returns crypto findings from
