@@ -75,6 +75,63 @@ func TestCNSAJSONOutput(t *testing.T) {
 	}
 }
 
+// TestCNSAJSONOutputSurfacesBothRisksOnExpiredQuantumVulnerableCert pins the
+// graph dedup bug at the report level: a certificate that is both
+// quantum-vulnerable and expired must produce two entries in the CNSA report
+// — a "non-compliant"/2030 entry for the algorithm and an "issue"/immediate
+// entry for the expiry — not just one. A CI gate on `--policy cnsa
+// --forbid-expired` (or reading this report) must be able to see the expiry;
+// before the fix it was silently dropped by the graph's asset dedup.
+func TestCNSAJSONOutputSurfacesBothRisksOnExpiredQuantumVulnerableCert(t *testing.T) {
+	cert := model.Asset{Type: model.TypeCertificate, Algorithm: "RSA", KeySize: 2048}
+	res := &scan.Result{Root: "test", Findings: []model.Finding{
+		{
+			Asset:    cert,
+			Location: model.Location{File: "expired.badssl.com:443"},
+			Source:   "tls-probe",
+			Risk:     model.Risk{Class: model.RiskQuantumVulnerable, Severity: model.SeverityHigh},
+		},
+		{
+			Asset:    cert,
+			Location: model.Location{File: "expired.badssl.com:443"},
+			Source:   "tls-probe",
+			Risk:     model.Risk{Class: model.RiskExpired, Severity: model.SeverityHigh},
+		},
+	}}
+
+	var buf bytes.Buffer
+	if err := CNSA(&buf, res); err != nil {
+		t.Fatal(err)
+	}
+	var rep cnsaReport
+	if err := json.Unmarshal(buf.Bytes(), &rep); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(rep.Assets) != 2 {
+		t.Fatalf("got %d asset entries, want 2 (quantum-vulnerable + expired): %+v", len(rep.Assets), rep.Assets)
+	}
+
+	var sawQuantum, sawExpired bool
+	for _, a := range rep.Assets {
+		if a.Type != string(model.TypeCertificate) || a.Algorithm != "RSA-2048" {
+			t.Errorf("unexpected asset entry: %+v", a)
+			continue
+		}
+		switch {
+		case a.Status == "non-compliant" && a.Deadline == "2030":
+			sawQuantum = true
+		case a.Status == "issue" && a.Deadline == "immediate":
+			sawExpired = true
+		}
+	}
+	if !sawQuantum {
+		t.Errorf("quantum-vulnerable entry missing from report: %+v", rep.Assets)
+	}
+	if !sawExpired {
+		t.Errorf("expired entry missing from report — dedup dropped it: %+v", rep.Assets)
+	}
+}
+
 func TestCNSAHTMLOutput(t *testing.T) {
 	res := &scan.Result{Root: "test", Findings: []model.Finding{
 		{Asset: model.Asset{Type: model.TypeAlgorithm, Algorithm: "RSA"}, Location: model.Location{File: "a.go", Line: 1}, Risk: model.Risk{Class: model.RiskQuantumVulnerable, Severity: model.SeverityHigh}},

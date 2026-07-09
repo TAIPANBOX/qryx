@@ -53,6 +53,65 @@ func TestBuildKeepsHighestSeverityAndNormalizes(t *testing.T) {
 	}
 }
 
+// TestBuildPreservesOrthogonalRisksOnSameAsset pins a real bug: a certificate
+// that is both quantum-vulnerable (an algorithm property) and expired (a
+// validity/hygiene state) must surface BOTH risks, not just one. Before the
+// fix, both findings shared the same (type, algo, keySize) key and AssetNode
+// carried a single Risk field; since both risks are severity "high", the
+// strict `>` comparison in Build never let the second-seen risk overwrite the
+// first, silently dropping whichever risk didn't happen to be classified
+// first (in practice: expired, since risk.Apply's central classification of
+// the algorithm-only finding runs before/independently of the context finding
+// that asserts RiskExpired — see internal/probe/tls.go's certFindings, which
+// is the exact shape reproduced here). This mirrors what was verified live
+// against expired.badssl.com.
+func TestBuildPreservesOrthogonalRisksOnSameAsset(t *testing.T) {
+	cert := model.Asset{Type: model.TypeCertificate, Algorithm: "RSA", KeySize: 2048, Primitive: model.PrimitiveSignature}
+	findings := []model.Finding{
+		// Algorithm property: RSA is quantum-vulnerable (as risk.Apply would
+		// classify it centrally).
+		{
+			Asset:    cert,
+			Location: model.Location{File: "expired.badssl.com:443"},
+			Evidence: `certificate "expired.badssl.com", RSA key`,
+			Source:   "tls-probe",
+			Risk:     model.Risk{Class: model.RiskQuantumVulnerable, Severity: model.SeverityHigh, Reason: "RSA is broken by a cryptographically relevant quantum computer (Shor)"},
+		},
+		// Validity/hygiene state: the same certificate is also expired.
+		{
+			Asset:    cert,
+			Location: model.Location{File: "expired.badssl.com:443"},
+			Evidence: `certificate "expired.badssl.com" expired 2015-08-01`,
+			Source:   "tls-probe",
+			Risk:     model.Risk{Class: model.RiskExpired, Severity: model.SeverityHigh, Reason: "certificate is past its NotAfter date"},
+		},
+	}
+
+	nodes := Build(findings)
+
+	byClass := map[model.RiskClass]AssetNode{}
+	for _, n := range nodes {
+		byClass[n.Risk.Class] = n
+	}
+	if len(nodes) != 2 {
+		t.Fatalf("got %d nodes, want 2 (one per risk class): %+v", len(nodes), nodes)
+	}
+	qv, ok := byClass[model.RiskQuantumVulnerable]
+	if !ok {
+		t.Fatal("quantum-vulnerable risk missing from graph")
+	}
+	if qv.Asset.Algorithm != "RSA" || qv.Asset.Type != model.TypeCertificate {
+		t.Errorf("quantum-vulnerable node has wrong asset: %+v", qv.Asset)
+	}
+	exp, ok := byClass[model.RiskExpired]
+	if !ok {
+		t.Fatal("expired risk missing from graph — silently dropped by dedup collision")
+	}
+	if exp.Asset.Algorithm != "RSA" || exp.Asset.Type != model.TypeCertificate {
+		t.Errorf("expired node has wrong asset: %+v", exp.Asset)
+	}
+}
+
 func TestBuildDedupsIdenticalOccurrence(t *testing.T) {
 	f := model.Finding{Asset: model.Asset{Type: model.TypeAlgorithm, Algorithm: "AES"}, Location: model.Location{File: "a.go", Line: 1}, Source: "goast", Risk: model.Risk{Class: model.RiskNone}}
 	nodes := Build([]model.Finding{f, f, f})

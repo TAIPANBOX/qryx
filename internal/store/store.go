@@ -105,12 +105,12 @@ func Diff(base, cur Snapshot) Delta {
 
 	var d Delta
 	for _, a := range cur.Assets {
-		if !baseKeys[graph.AssetKey(a.Asset)] {
+		if !baseKeys[graph.AssetKey(a.Asset, a.Risk.Class)] {
 			d.Added = append(d.Added, a)
 		}
 	}
 	for _, a := range base.Assets {
-		if !curKeys[graph.AssetKey(a.Asset)] {
+		if !curKeys[graph.AssetKey(a.Asset, a.Risk.Class)] {
 			d.Removed = append(d.Removed, a)
 		}
 	}
@@ -120,7 +120,7 @@ func Diff(base, cur Snapshot) Delta {
 func keySet(assets []graph.AssetNode) map[string]bool {
 	m := make(map[string]bool, len(assets))
 	for _, a := range assets {
-		m[graph.AssetKey(a.Asset)] = true
+		m[graph.AssetKey(a.Asset, a.Risk.Class)] = true
 	}
 	return m
 }

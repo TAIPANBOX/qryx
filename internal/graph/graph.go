@@ -31,22 +31,42 @@ type AssetNode struct {
 }
 
 // key identifies a logical asset: an algorithm of a given size and kind,
-// regardless of where or how often it appears.
+// under a given risk class, regardless of where or how often it appears.
+//
+// Risk class is part of the identity, not just an attribute hanging off it.
+// An algorithm property (e.g. "RSA is quantum-vulnerable") and a validity/
+// hygiene state (e.g. "this cert is expired") are orthogonal — the same
+// physical asset can legitimately carry both at once. Folding every finding
+// for a (type, algo, keySize) into one node with a single Risk field meant a
+// same-severity risk discovered after the first never overwrote it (see the
+// strict `>` below), so one of the two was silently dropped. Keying on risk
+// class instead gives each risk dimension its own node, so every risk a scan
+// found is reported, not just the first/highest-severity one seen.
 type key struct {
 	typ     model.AssetType
 	algo    string // normalized
 	keySize int
+	risk    model.RiskClass
 }
 
-func keyOf(a model.Asset) key {
-	return key{typ: a.Type, algo: risk.NormalizeAlgorithm(a.Algorithm), keySize: a.KeySize}
+func keyOf(f model.Finding) key {
+	return key{
+		typ:     f.Asset.Type,
+		algo:    risk.NormalizeAlgorithm(f.Asset.Algorithm),
+		keySize: f.Asset.KeySize,
+		risk:    f.Risk.Class,
+	}
 }
 
-// AssetKey returns the canonical string identity of an asset — its type,
-// normalized algorithm, and key size — used to match the same logical asset
-// across runs and sources.
-func AssetKey(a model.Asset) string {
-	return fmt.Sprintf("%s|%s|%d", a.Type, risk.NormalizeAlgorithm(a.Algorithm), a.KeySize)
+// AssetKey returns the canonical string identity of an (asset, risk class)
+// pair — type, normalized algorithm, key size, and risk class — used to match
+// the same logical finding across runs and sources, e.g. for baseline/drift
+// diffing. Two findings for the same physical asset but different risk
+// classes (say, quantum-vulnerable and expired on the same certificate) have
+// different keys by design: each is its own trackable finding, so a newly
+// discovered risk on an already-known asset still shows up as drift.
+func AssetKey(a model.Asset, class model.RiskClass) string {
+	return fmt.Sprintf("%s|%s|%d|%s", a.Type, risk.NormalizeAlgorithm(a.Algorithm), a.KeySize, class)
 }
 
 // occKey is the comparable identity of an occurrence used for deduplication.
@@ -79,7 +99,7 @@ func Build(findings []model.Finding) []AssetNode {
 	var order []key
 
 	for _, f := range findings {
-		k := keyOf(f.Asset)
+		k := keyOf(f)
 		node, ok := nodes[k]
 		if !ok {
 			node = &AssetNode{Asset: f.Asset, Risk: f.Risk}

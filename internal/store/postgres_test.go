@@ -41,10 +41,10 @@ func TestPostgresRoundtrip(t *testing.T) {
 	}
 	wantKeys := map[string]bool{}
 	for _, a := range want.Assets {
-		wantKeys[graph.AssetKey(a.Asset)] = true
+		wantKeys[graph.AssetKey(a.Asset, a.Risk.Class)] = true
 	}
 	for _, a := range got.Assets {
-		if !wantKeys[graph.AssetKey(a.Asset)] {
+		if !wantKeys[graph.AssetKey(a.Asset, a.Risk.Class)] {
 			t.Errorf("unexpected asset %+v", a.Asset)
 		}
 		if len(a.Occurrences) == 0 {
