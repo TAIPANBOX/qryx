@@ -50,7 +50,7 @@ deduplicated into a graph of unique assets, each carrying every place it occurs.
 | **Sources** | source code (Go · Python · JS · TS), Terraform/HCL, binaries (ELF · PE · Mach-O), container images (`docker save` / OCI), live TLS endpoints, PEM/x509 certificates, dependency manifests, cloud KMS (AWS KMS + ACM · GCP KMS · Azure Key Vault) |
 | **Scan engine** | AST + parser detectors (`goast`, `cryptocall`, `certfile`, `tlsconfig`, `hardcoded`, `deps`, `terraform`), the binary/image/TLS/cloud connectors, and the risk classifier |
 | **Asset graph** | one node per logical asset (algorithm + key size), deduplicated across all sources, with every occurrence attached |
-| **Outputs** | CycloneDX 1.6 CBOM · human · HTML · CNSA 2.0 audit · migration plan · signed evidence attestation · governance dashboard · JSON/Postgres snapshots · CI drift, severity & policy gates |
+| **Outputs** | CycloneDX 1.6 CBOM · human · HTML · CNSA 2.0 audit · NCSC PQC readiness · migration plan · signed evidence attestation · governance dashboard · JSON/Postgres snapshots · CI drift, severity & policy gates |
 
 ---
 
@@ -86,6 +86,20 @@ quantum-vulnerable asset is introduced — the "don't add new weak crypto" gate.
 qryx scan --save base.json <path>                              # 1. baseline
 qryx scan --baseline base.json --fail-on-new high <path>       # 2. diff → exit 2 on new high-risk
 ```
+
+---
+
+## Supply-chain hygiene
+
+qryx is a security tool, so its own build is held to the standard it audits
+others against. A dedicated `security` CI job (Go 1.26.5) runs `govulncheck`
+against every dependency and `gosec` static analysis on every push to `main`;
+both are clean. Every gosec finding was either fixed (scoped file reads via
+`os.Root`, tightened file/dir permissions, explicit handling of best-effort
+cleanup errors) or is a deliberate pattern annotated inline with a
+`#nosec Gxxx -- reason` comment on the exact offending line — e.g. `qryx tls`'s
+`InsecureSkipVerify` (it inspects TLS posture, it doesn't trust it) — never a
+blanket CI exclude.
 
 ---
 
@@ -211,14 +225,44 @@ qryx scan --save 'postgres://user:pass@host:5432/db' <path>
 qryx scan --baseline 'postgres://user:pass@host:5432/db' --fail-on-new high <path>
 ```
 
+**Compliance & governance reports** — five reports form a compliance pack for
+regulated orgs, all computed from the same asset graph and the same risk
+classification so they can never disagree with one another:
+
+**CNSA 2.0 audit** (`--format cnsa`/`cnsa-html`) — classifies every asset
+against the NSA's CNSA 2.0 suite: ML-KEM/ML-DSA/SLH-DSA and AES-256/SHA-384+
+are compliant; RSA/ECDSA/ECC/DSA/DH are non-compliant with a 2030 migration
+deadline; MD5/SHA-1/DES/3DES/RC4 and sub-floor keys are non-compliant
+immediately; expired certificates, hardcoded keys and TLS misconfig are
+flagged as issues. Reports compliant/non-compliant/issue counts, a percentage
+score, and a per-asset remediation action, sorted by deadline urgency.
+`--policy cnsa` enforces the same standard as a CI gate (see Policy
+enforcement below); this report is the audit view, in JSON or HTML.
+
+**NCSC PQC readiness** (`--format ncsc`/`ncsc-html`) — tracks the same graph
+against the UK NCSC's three-milestone PQC migration timeline: complete
+discovery by 2028, migrate the highest-priority systems by 2031, migrate
+everything by 2035. Each milestone gets a deterministic
+`on-track`/`at-risk`/`not-started` verdict — 2028 is at-risk if any
+quantum-vulnerable asset has no recognized migration target; the 2031
+"highest-priority" subset is quantum-vulnerable **and** either
+externally-facing (seen via a live TLS probe or an AWS ACM certificate) or
+long-lived data (an encryption/key-exchange primitive, i.e. exposed to
+harvest-now-decrypt-later) — the exact predicate is embedded as a criteria
+string in both outputs, so the report documents its own rules. The migrated
+count is honestly reported as 0 within a single scan (qryx doesn't persist
+remediation state across runs); track real progress with `--baseline` drift
+or the evidence trail (`--save-evidence` / `qryx trend`) below.
+
 **Migration plan** (`--format migration`) — scores each non-compliant asset's
 *agility* (how hard it is to change: `high` for managed KMS keys you rotate via
 API, `medium` for config/cert/dependency changes, `low` for code that needs a
 redeploy) and emits a risk-prioritized plan. Each entry carries a recommended
-PQC/strong target (RSA→ML-DSA/ML-KEM, ECDSA→ML-DSA, MD5/SHA-1→SHA-256, etc.), a
-rationale and the occurrence locations. Quick wins — high-agility, high/critical
-severity — are counted in the summary. Works on any source, including cloud:
-a KMS RSA key reports `high` agility, the same algorithm in source reports `low`.
+PQC/strong target (RSA→ML-DSA/ML-KEM, ECDSA/DSA/Ed25519→ML-DSA, MD5/SHA-1→SHA-256,
+etc.), a rationale and the occurrence locations. Quick wins — high-agility,
+high/critical severity — are counted in the summary. Works on any source,
+including cloud: a KMS RSA key reports `high` agility, the same algorithm in
+source reports `low`.
 
 **Remediation** (`qryx fix`) — turns findings into reviewable source patches,
 but only for transforms that are *provably safe*. Today that is raising a
@@ -323,6 +367,10 @@ qryx trend 'postgres://user:pass@host:5432/db'
 - [x] Phase 4 — evidence signing + verification (`--sign-key` / `qryx verify-evidence`, ed25519/ECDSA)
 - [x] Phase 4 — trend monitoring: HTML chart (`trend --html`) + regression CI gate (`trend --fail-on-regression`)
 - [x] Terraform — HCL-accurate detection via hashicorp/hcl (heredoc/interpolation-safe) + `google_kms_crypto_key`
+- [x] Phase 4 — NCSC PQC readiness report (`--format ncsc`/`ncsc-html`): 2028/2031/2035
+  milestones, deterministic on-track/at-risk/not-started verdicts, self-documenting
+  2031 highest-priority criteria; Ed25519 now maps to ML-DSA (FIPS 204) in the
+  agility/migration plan
 - [ ] Later — ML-DSA signing (pending Go stdlib)
 
 Roadmap and rationale: [`qryx-plan.md`](./qryx-plan.md).
