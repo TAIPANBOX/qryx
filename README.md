@@ -22,6 +22,42 @@ each asset for post-quantum and hygiene risk, and emits a standard **CBOM**
 
 ---
 
+## Where this fits in the stack
+
+Qryx is the crypto plane of the TAIPANBOX agent-governance stack: it scans Agent Passports, agent-event hash-chains, and real crypto artifacts for post-quantum and hygiene risk.
+
+```mermaid
+flowchart TB
+  Agent["AI agent (any framework)"] -->|"LLM call (base-URL swap)"| TF["TokenFuse proxy: spend + enforcement"]
+  TF -->|"POST /v1/decide (PEP)"| WX["Wardryx: policy PDP"]
+  WX -.->|"allow / deny / hold"| TF
+  TF -->|"cheapest model, budget OK"| LLM[("LLM provider")]
+  TF -->|"CallRecords"| CL["TokenFuse Cloud: control plane, incidents, replay, evidence, kill-switch"]
+  TF ==>|"agent-event NDJSON"| BUS{{"agent-event bus + Agent Passport"}}
+  WX ==> BUS
+  ENG["Engram: memory"] -->|"reflect via base_url"| TF
+  ENG ==> BUS
+  BUS ==> IDX["Idryx: identity graph, detectors, Agent-BOM"]
+  BUS ==> QX["Qryx: crypto / PQC, passport + hash-chain scan"]
+  BUS ==> VX["Verdryx: quality / drift"]
+  TF -->|"outcome-tagged traces"| VX
+  MX["Mockryx: pre-prod safety rehearsal"] -->|"hostile scenarios"| TF
+  TFP["terraform-provider-taipan"] -->|"budgets + passports as code"| CL
+  ASG[["agent-stack-go: shared Go contract"]] -.->|imported by| IDX
+  ASG -.->|imported by| WX
+  ASG -.->|imported by| MX
+  ASG -.->|imported by| TFP
+  SPEC[["agent-passport: the spec"]] -.->|governs| BUS
+```
+
+- **Consumes**: Agent Passports and agent-event NDJSON (`qryx agents` checks attestation and `prev_hash` chains), plus real crypto artifacts (code, binaries, TLS, cloud KMS).
+- **Produces**: NCSC/CNSA/CycloneDX crypto posture reports.
+- **Talks to**: **agent-passport** (the passport and event schema it scans), fed by the same agent-event bus that **TokenFuse**, **Wardryx**, and **Engram** write to.
+
+The full stack is TokenFuse (spend), Wardryx (policy), Engram (memory), Idryx (access), Qryx (crypto), Verdryx (quality), Mockryx (pre-prod), on the shared Agent Passport + agent-event contract (agent-stack-go / agent-passport), configured via terraform-provider-taipan.
+
+---
+
 ## Why now
 
 <div align="center">
