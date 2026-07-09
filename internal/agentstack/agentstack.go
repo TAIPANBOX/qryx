@@ -42,6 +42,7 @@ import (
 const (
 	passportSchema = "taipanbox.dev/agent-passport/v0.1" // #nosec G101 -- schema identifier string ("Passport" substring), not a credential
 	eventSchema    = "taipanbox.dev/agent-event/v0.1"
+	eventSchemaV02 = "taipanbox.dev/agent-event/v0.2"
 )
 
 // passport is the subset of the Agent Passport document (SPEC.md §4) this
@@ -167,9 +168,12 @@ func scanFile(path string, content []byte) []model.Finding {
 	return nil
 }
 
-// parseEvents reads content as NDJSON, one agent-event object per line. Lines
-// that fail to parse, or parse but carry an unexpected schema, are counted as
-// malformed rather than aborting the stream.
+// parseEvents reads content as NDJSON, one agent-event object per line. Both
+// eventSchema (v0.1) and eventSchemaV02 (v0.2) are accepted per SPEC.md §6.4:
+// the two versions differ only in the source field (closed enum vs. open
+// string), which this connector doesn't parse, so the same agentEvent fields
+// apply to both. Lines that fail to parse, or parse but carry a schema that
+// matches neither, are counted as malformed rather than aborting the stream.
 func parseEvents(content []byte) (events []agentEvent, malformed int) {
 	sc := bufio.NewScanner(bytes.NewReader(content))
 	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
@@ -179,7 +183,7 @@ func parseEvents(content []byte) (events []agentEvent, malformed int) {
 			continue
 		}
 		var e agentEvent
-		if err := json.Unmarshal(line, &e); err != nil || e.Schema != eventSchema {
+		if err := json.Unmarshal(line, &e); err != nil || (e.Schema != eventSchema && e.Schema != eventSchemaV02) {
 			malformed++
 			continue
 		}

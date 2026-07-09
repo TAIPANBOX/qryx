@@ -113,6 +113,36 @@ func TestEventsChained(t *testing.T) {
 	}
 }
 
+// TestEventsSchemaV02Accepted proves the scanner accepts agent-event schema
+// v0.2 (wardryx/verdryx/mockryx's schema, agent-passport SPEC.md §6.4:
+// consumers MUST accept either v0.1 or v0.2) rather than treating a v0.2
+// stream as unrecognized and silently dropping it. A v0.2 event line yields
+// the same finding a v0.1 line with an equivalent hash chain would.
+func TestEventsSchemaV02Accepted(t *testing.T) {
+	tests := []struct {
+		name string
+		file string
+	}{
+		{"v0.1", "testdata/events-chained.ndjson"},
+		{"v0.2", "testdata/events-chained-v02.ndjson"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := mustScan(t, tc.file)
+			if len(got) != 1 {
+				t.Fatalf("want 1 finding, got %d: %+v", len(got), got)
+			}
+			f := got[0]
+			if f.Asset.Type != model.TypeAlgorithm || f.Asset.Algorithm != "SHA-256" {
+				t.Errorf("asset = %+v, want algorithm/SHA-256", f.Asset)
+			}
+			if f.Risk.Class != "" {
+				t.Errorf("risk class = %q, want empty (sha256 is fine; centrally classified)", f.Risk.Class)
+			}
+		})
+	}
+}
+
 func TestEventsNoHashChain(t *testing.T) {
 	got := mustScan(t, "testdata/events-nohash.ndjson")
 	if len(got) != 1 {
@@ -164,11 +194,12 @@ func TestScanDirectory(t *testing.T) {
 	}
 
 	want := map[string]int{
-		"passport-spiffe.json":  1,
-		"passport-none.json":    1,
-		"events-chained.ndjson": 1,
-		"events-nohash.ndjson":  1,
-		"events-mixed.ndjson":   1,
+		"passport-spiffe.json":      1,
+		"passport-none.json":        1,
+		"events-chained.ndjson":     1,
+		"events-chained-v02.ndjson": 1,
+		"events-nohash.ndjson":      1,
+		"events-mixed.ndjson":       1,
 	}
 	for file, n := range want {
 		if byFile[file] != n {
