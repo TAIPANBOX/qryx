@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TAIPANBOX/qryx/internal/agentstack"
 	"github.com/TAIPANBOX/qryx/internal/attest"
 	"github.com/TAIPANBOX/qryx/internal/binscan"
 	awscloud "github.com/TAIPANBOX/qryx/internal/cloud/aws"
@@ -65,7 +66,7 @@ func run(args []string) error {
 		htmlOut   = fs.Bool("html", false, "with trend: render a self-contained HTML chart instead of a text table")
 	)
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage:\n  qryx scan [flags] <path>\n  qryx fix [--write] [--open-pr [--branch NAME]] [--min-rsa-bits N] <path>\n  qryx trend <evidence-trail.jsonl>\n  qryx verify-evidence <evidence.json>\n  qryx tls [flags] <host:port>...\n  qryx bin [flags] <file|dir>...\n  qryx image [flags] <image.tar>...\n  qryx aws [flags]\n  qryx gcp --project <id> [flags]\n  qryx azure --vault-url <url> [flags]\n\nflags:\n")
+		fmt.Fprintf(os.Stderr, "usage:\n  qryx scan [flags] <path>\n  qryx fix [--write] [--open-pr [--branch NAME]] [--min-rsa-bits N] <path>\n  qryx trend <evidence-trail.jsonl>\n  qryx verify-evidence <evidence.json>\n  qryx tls [flags] <host:port>...\n  qryx bin [flags] <file|dir>...\n  qryx image [flags] <image.tar>...\n  qryx aws [flags]\n  qryx gcp --project <id> [flags]\n  qryx azure --vault-url <url> [flags]\n  qryx agents [flags] <path>\n\nflags:\n")
 		fs.PrintDefaults()
 	}
 
@@ -74,7 +75,7 @@ func run(args []string) error {
 		return fmt.Errorf("no command given")
 	}
 	cmd := args[0]
-	if cmd != "scan" && cmd != "fix" && cmd != "trend" && cmd != "verify-evidence" && cmd != "tls" && cmd != "bin" && cmd != "image" && cmd != "aws" && cmd != "gcp" && cmd != "azure" {
+	if cmd != "scan" && cmd != "fix" && cmd != "trend" && cmd != "verify-evidence" && cmd != "tls" && cmd != "bin" && cmd != "image" && cmd != "aws" && cmd != "gcp" && cmd != "azure" && cmd != "agents" {
 		fs.Usage()
 		return fmt.Errorf("unknown command %q", cmd)
 	}
@@ -173,6 +174,12 @@ func run(args []string) error {
 			return fmt.Errorf("azure requires --vault-url")
 		}
 		res, err = runAzure(*vaultURL)
+	case "agents":
+		if fs.NArg() != 1 {
+			fs.Usage()
+			return fmt.Errorf("agents requires exactly one path")
+		}
+		res, err = runAgents(fs.Arg(0))
 	}
 	if err != nil {
 		return err
@@ -441,6 +448,21 @@ func runGCP(project, location string) (*scan.Result, error) {
 		return nil, err
 	}
 	res := &scan.Result{Root: fmt.Sprintf("gcp://%s/%s", project, location), FilesWalked: 1}
+	res.Findings = risk.Apply(findings)
+	return res, nil
+}
+
+// runAgents inventories the cryptography of AI-agent infrastructure: Agent
+// Passport attestation methods and agent-event NDJSON hash-chain integrity, so
+// the agent-governance stack's own trust surface lands in the same asset graph
+// as everything else. path is a directory (walked recursively), a glob
+// pattern, or a single file.
+func runAgents(path string) (*scan.Result, error) {
+	findings, err := agentstack.Scan(path)
+	if err != nil {
+		return nil, err
+	}
+	res := &scan.Result{Root: "agents://" + path, FilesWalked: 1}
 	res.Findings = risk.Apply(findings)
 	return res, nil
 }

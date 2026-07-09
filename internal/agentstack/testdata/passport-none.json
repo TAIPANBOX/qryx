@@ -1,0 +1,11 @@
+{
+  "schema": "taipanbox.dev/agent-passport/v0.1",
+  "id": "agent://acme-bank.example/eng/ci-fixer/instance-7",
+  "display_name": "CI auto-fixer",
+  "owner": "team-platform@acme-bank.example",
+  "runtime": "custom",
+  "attestation": {
+    "method": "none"
+  },
+  "created_at": "2026-07-09T00:00:00Z"
+}

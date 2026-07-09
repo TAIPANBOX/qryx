@@ -97,6 +97,11 @@ CBOM/CNSA -> policy gate (+drift) -> remediation (fix/PR) -> evidence
   bypassing risk.Classify) to keep exercising the "quantum-vulnerable with no
   agility target" branch.
 
+- Phase 4 increment 12: `qryx agents` — `internal/agentstack` connector
+  inventories the agent-governance stack's own trust surface (Agent Passport
+  attestation crypto + agent-event NDJSON hash-chain integrity), per
+  `agent-passport/SPEC.md` §4/§6; identity/privilege stays Idryx's job.
+
 **Remaining (deliberate deferrals, not tech debt):**
 1. ML-DSA (FIPS 204) signing — once Go stdlib ships it (attest pkg is ready for
    a new alg).

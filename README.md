@@ -47,7 +47,7 @@ deduplicated into a graph of unique assets, each carrying every place it occurs.
 
 | Stage | What it covers |
 |---|---|
-| **Sources** | source code (Go · Python · JS · TS), Terraform/HCL, binaries (ELF · PE · Mach-O), container images (`docker save` / OCI), live TLS endpoints, PEM/x509 certificates, dependency manifests, cloud KMS (AWS KMS + ACM · GCP KMS · Azure Key Vault) |
+| **Sources** | source code (Go · Python · JS · TS), Terraform/HCL, binaries (ELF · PE · Mach-O), container images (`docker save` / OCI), live TLS endpoints, PEM/x509 certificates, dependency manifests, cloud KMS (AWS KMS + ACM · GCP KMS · Azure Key Vault), AI-agent infrastructure (Agent Passport identity docs + agent-event NDJSON streams) |
 | **Scan engine** | AST + parser detectors (`goast`, `cryptocall`, `certfile`, `tlsconfig`, `hardcoded`, `deps`, `terraform`), the binary/image/TLS/cloud connectors, and the risk classifier |
 | **Asset graph** | one node per logical asset (algorithm + key size), deduplicated across all sources, with every occurrence attached |
 | **Outputs** | CycloneDX 1.6 CBOM · human · HTML · CNSA 2.0 audit · NCSC PQC readiness · migration plan · signed evidence attestation · governance dashboard · JSON/Postgres snapshots · CI drift, severity & policy gates |
@@ -159,6 +159,7 @@ docker save app:latest -o img.tar && qryx image img.tar   # scan a container ima
 qryx aws --region us-east-1            # inventory AWS KMS keys + ACM certs
 qryx gcp --project my-project          # inventory GCP Cloud KMS key versions
 qryx azure --vault-url https://myvault.vault.azure.net/  # inventory Azure Key Vault
+qryx agents ./passports                # inventory AI-agent attestation crypto + event-stream integrity
 
 qryx scan --save base.json <path>      # snapshot the asset graph
 qryx scan --baseline base.json <path>  # report drift vs the baseline
@@ -209,6 +210,15 @@ Application Default Credentials, behind the same lister seam.
 Web Key type (EC/EC-HSM → ECDSA, RSA/RSA-HSM → RSA with size from modulus,
 oct/oct-HSM → AES) via DefaultAzureCredential. Expired keys are flagged
 separately.
+
+**AI-agent infrastructure** (`qryx agents <path>`) — inventories the
+agent-governance stack's own trust surface: Agent Passport `attestation.method`
+(mTLS/SPIFFE → certificate-based, enclave key → hardware-backed and safe, OIDC
+→ token-based, none → a `misconfig` finding) and agent-event NDJSON
+`prev_hash` chains (present → a sha256 hash asset, absent → a `misconfig`
+finding). Passport/event files are told apart by their `schema` field, not
+extension; malformed files are counted and skipped, never fatal. Identity and
+privilege stay Idryx's job — this connector stays strictly on the crypto axis.
 
 **Asset graph** — findings from every source collapse into one node per logical
 asset, deduplicated across files and sources. The CBOM emits one CycloneDX
