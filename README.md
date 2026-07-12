@@ -87,7 +87,7 @@ deduplicated into a graph of unique assets, each carrying every place it occurs.
 |---|---|
 | **Sources** | source code (Go · Python · JS · TS), Terraform/HCL, binaries (ELF · PE · Mach-O), container images (`docker save` / OCI), live TLS endpoints, PEM/x509 certificates, dependency manifests, cloud KMS (AWS KMS + ACM · GCP KMS · Azure Key Vault), AI-agent infrastructure (Agent Passport identity docs + agent-event NDJSON streams) |
 | **Scan engine** | AST + parser detectors (`goast`, `cryptocall`, `certfile`, `tlsconfig`, `hardcoded`, `deps`, `terraform`), the binary/image/TLS/cloud connectors, and the risk classifier |
-| **Asset graph** | one node per logical asset (algorithm + key size), deduplicated across all sources, with every occurrence attached |
+| **Asset graph** | one node per logical asset **and risk class** (algorithm + key size + risk class), deduplicated across all sources, with every occurrence attached |
 | **Outputs** | CycloneDX 1.6 CBOM · human · HTML · CNSA 2.0 audit · NCSC PQC readiness · migration plan · signed evidence attestation · governance dashboard · JSON/Postgres snapshots · CI drift, severity & policy gates |
 
 ---
@@ -229,8 +229,12 @@ Run against the bundled fixtures with `make scan`.
 and the leaf certificate's public-key algorithm, size and expiry.
 
 **Binary scanning** (`qryx bin`) — ELF/PE/Mach-O via `debug/elf|pe|macho`,
-mapping needed crypto libraries and imported symbols (`MD5_*`, `RSA_*`, …) to
-assets. Symbol/library based, not string scraping; low false positives.
+mapping needed crypto libraries and imported symbols to assets: both the
+legacy flat OpenSSL API (`MD5_*`, `RSA_*`, …) and OpenSSL 3.x's `EVP_*`
+interface (`EVP_aes_*`, `EVP_sha256`, `EVP_PKEY_CTX_set_rsa_*`, …), since
+modern OpenSSL 3.x builds call crypto almost exclusively through `EVP_*`, so
+both are resolved. Symbol/library based, not string scraping; low false
+positives.
 
 **Container images** (`qryx image`) — extracts a local image tarball
 (`docker save` / OCI) with stdlib tar/gzip, hardened against path traversal and
@@ -259,10 +263,14 @@ extension; malformed files are counted and skipped, never fatal. Identity and
 privilege stay Idryx's job — this connector stays strictly on the crypto axis.
 
 **Asset graph** — findings from every source collapse into one node per logical
-asset, deduplicated across files and sources. The CBOM emits one CycloneDX
-component per asset with all occurrences; the human report shows asset-level
-counts (one `RSA` row with 112 occurrences, not 112 rows); `--format html`
-renders the same graph as a static page.
+asset **and risk class**, deduplicated across files and sources: the same
+algorithm and key size but two orthogonal risks (say, a certificate that is
+both expired **and** quantum-vulnerable) become two nodes, not one, so neither
+risk is silently dropped. The CBOM emits one CycloneDX component per node with
+all its occurrences; the human report shows asset-level counts (one `RSA` row
+with 112 occurrences, not 112 rows, though a physical asset carrying two risk
+classes shows up as two rows, one per risk); `--format html` renders the same
+graph as a static page.
 
 **Persistence** — behind a `Store` interface with two backends: a JSON file (any
 path) and **Postgres** (a `postgres://` URL), persisting the graph into
@@ -419,6 +427,9 @@ qryx trend 'postgres://user:pass@host:5432/db'
   milestones, deterministic on-track/at-risk/not-started verdicts, self-documenting
   2031 highest-priority criteria; Ed25519 now maps to ML-DSA (FIPS 204) in the
   agility/migration plan
+- [x] Phase 4 — `qryx agents`: AI-agent infrastructure connector inventorying the
+  agent-governance stack's own trust surface (Agent Passport attestation crypto,
+  agent-event NDJSON hash-chain integrity) into the same asset graph
 - [ ] Later — ML-DSA signing (pending Go stdlib)
 
 Roadmap and rationale: [`qryx-plan.md`](./qryx-plan.md).
