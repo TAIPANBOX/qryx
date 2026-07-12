@@ -143,10 +143,17 @@ func toComponent(n graph.AssetNode) cbomComp {
 }
 
 // bomRef is a stable identifier for an asset node, derived from its canonical
-// identity (type, algorithm, key size) so it is reproducible across runs.
+// identity (type, algorithm, key size, risk class) so it is reproducible
+// across runs. Risk class must be part of the hash, mirroring
+// graph.AssetKey: graph.Build keys AssetNode on risk class too (see
+// internal/graph/graph.go), so the same physical asset carrying two
+// orthogonal risks (e.g. a certificate that is both quantum-vulnerable and
+// expired) produces two AssetNodes. Without risk class here, both would hash
+// to the same bom-ref, and CycloneDX requires bom-ref to be unique within a
+// document.
 func bomRef(n graph.AssetNode) string {
-	h := sha256.Sum256([]byte(fmt.Sprintf("%s|%s|%d",
-		n.Asset.Type, n.Asset.Algorithm, n.Asset.KeySize)))
+	h := sha256.Sum256([]byte(fmt.Sprintf("%s|%s|%d|%s",
+		n.Asset.Type, n.Asset.Algorithm, n.Asset.KeySize, n.Risk.Class)))
 	return "crypto:" + hex.EncodeToString(h[:8])
 }
 
