@@ -68,7 +68,7 @@ func TestCBOMBasicShape(t *testing.T) {
 // TestCBOMBomRefUniqueAcrossRiskClasses pins the CycloneDX-spec-violation
 // counterpart of the graph dedup fix in commit e06d605: a certificate that is
 // both quantum-vulnerable and expired now produces two graph.AssetNode
-// entries (risk class is part of node identity — see
+// entries (risk class is part of node identity, see
 // internal/graph/graph.go), so CBOM() must emit two components with distinct
 // bom-ref values. Before bomRef() was updated to include risk class, both
 // components hashed type|algorithm|keySize alone and collided on an
