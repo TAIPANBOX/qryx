@@ -8,7 +8,9 @@
 //   - Attestation crypto: what cryptographic binding, if any, backs an
 //     agent's identity (its passport's attestation.method).
 //   - Event-stream integrity: whether the agent-event NDJSON streams a
-//     product emits are hash-chained (tamper-evident) or not.
+//     product emits are hash-chained (tamper-evident) or not. This is a
+//     structural check (every event carries a well-formed, non-repeated
+//     sha256 prev_hash), not a cryptographic one: see eventStreamFindings.
 //
 // Identity and privilege (who an agent is, what it can do, whether its
 // privilege is excessive) are Idryx's job; this package does not duplicate
@@ -250,18 +252,39 @@ func ownerTags(owner string) map[string]string {
 	return map[string]string{"owner": owner}
 }
 
-// eventStreamFindings judges one NDJSON stream's tamper-evidence: any event
-// carrying a sha256 prev_hash means the stream is chained (inventoried as a
-// hash asset — sha256 is not weak, so it's left for the central classifier to
-// mark safe); no event carrying one is a misconfig.
+// eventStreamFindings judges one NDJSON stream's tamper-evidence. A stream is
+// tamper-evident only when EVERY event carries a sha256 prev_hash (all, not
+// any: a 1000-event stream with a single chained event is not tamper-evident,
+// it just has one chained event) and those hashes are not all the same fixed
+// value (a real chain links each event to a different predecessor, so a
+// repeated hash is the signature of a dummy/placeholder value rather than a
+// genuine one).
+//
+// This is a structural check, not a cryptographic one. It confirms every
+// event carries a sha256:-shaped prev_hash and that the values aren't
+// suspiciously repeated, but it does NOT recompute the RFC 8785 (JCS)
+// canonical serialization of the preceding event and its sha256 digest to
+// confirm prev_hash actually equals hash(prev), per agent-passport SPEC.md
+// §6.5. A stream of well-formed, mutually distinct, but fabricated hashes
+// would still pass this check; that gap is future work (agent-stack-go's
+// event package defines the wire format but no hashing helper to reuse here
+// today).
 func eventStreamFindings(path string, events []agentEvent) []model.Finding {
 	chained := 0
+	seen := map[string]bool{}
+	duplicate := false
 	for _, e := range events {
-		if strings.HasPrefix(e.PrevHash, "sha256:") {
-			chained++
+		if !strings.HasPrefix(e.PrevHash, "sha256:") {
+			continue
 		}
+		chained++
+		if seen[e.PrevHash] {
+			duplicate = true
+		}
+		seen[e.PrevHash] = true
 	}
-	if chained > 0 {
+
+	if len(events) > 0 && chained == len(events) && !duplicate {
 		return []model.Finding{{
 			Asset:    model.Asset{Type: model.TypeAlgorithm, Algorithm: "SHA-256", Primitive: model.PrimitiveHash},
 			Location: model.Location{File: path},
@@ -269,11 +292,19 @@ func eventStreamFindings(path string, events []agentEvent) []model.Finding {
 			Source:   "agentstack",
 		}}
 	}
+
+	reason := "agent event stream is not tamper-evident (no hash chain)"
+	switch {
+	case duplicate:
+		reason = "agent event stream reuses the same prev_hash value across multiple events (not a genuine per-event chain)"
+	case chained > 0:
+		reason = "agent event stream is only partially hash-chained: not every event carries a prev_hash"
+	}
 	return []model.Finding{{
 		Asset:    model.Asset{Type: model.TypeProtocol, Algorithm: "no-hash-chain", Primitive: model.PrimitiveHash},
 		Location: model.Location{File: path},
-		Evidence: fmt.Sprintf("event stream has no prev_hash chain across %d event(s)", len(events)),
+		Evidence: fmt.Sprintf("event stream hash-chain covers %d/%d event(s): %s", chained, len(events), reason),
 		Source:   "agentstack",
-		Risk:     model.Risk{Class: model.RiskMisconfig, Severity: model.SeverityLow, Reason: "agent event stream is not tamper-evident (no hash chain)"},
+		Risk:     model.Risk{Class: model.RiskMisconfig, Severity: model.SeverityLow, Reason: reason},
 	}}
 }

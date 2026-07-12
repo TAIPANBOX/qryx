@@ -268,8 +268,12 @@ separately.
 agent-governance stack's own trust surface: Agent Passport `attestation.method`
 (mTLS/SPIFFE → certificate-based, enclave key → hardware-backed and safe, OIDC
 → token-based, none → a `misconfig` finding) and agent-event NDJSON
-`prev_hash` chains (present → a sha256 hash asset, absent → a `misconfig`
-finding). Passport/event files are told apart by their `schema` field, not
+`prev_hash` chains (every event carries a distinct sha256 prev_hash → a
+sha256 hash asset; any event missing one, or the same value repeated across
+events, → a `misconfig` finding). The chain check is structural: it confirms
+every event is linked and no hash is suspiciously reused, but it does not
+recompute each event's canonical hash to verify a prev_hash equals the actual
+predecessor. Passport/event files are told apart by their `schema` field, not
 extension; malformed files are counted and skipped, never fatal. Identity and
 privilege stay Idryx's job — this connector stays strictly on the crypto axis.
 

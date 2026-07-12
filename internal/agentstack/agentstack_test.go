@@ -157,6 +157,44 @@ func TestEventsNoHashChain(t *testing.T) {
 	}
 }
 
+// TestEventsPartiallyChainedNotTamperEvident is the fail-before/pass-after
+// case for the any-vs-all bug: a stream where only some events carry a
+// prev_hash must NOT be reported tamper-evident. The old check ("chained >
+// 0") called any stream with at least one chained event fully tamper-evident:
+// a 1000-event stream with a single chained event passed the same as a
+// fully chained one. This fixture has 3 events, only 2 of them chained.
+func TestEventsPartiallyChainedNotTamperEvident(t *testing.T) {
+	got := mustScan(t, "testdata/events-partially-chained.ndjson")
+	if len(got) != 1 {
+		t.Fatalf("want 1 finding, got %d: %+v", len(got), got)
+	}
+	f := got[0]
+	if f.Risk.Class != model.RiskMisconfig {
+		t.Errorf("risk class = %q, want %q (a partially-chained stream is not tamper-evident)", f.Risk.Class, model.RiskMisconfig)
+	}
+	if f.Asset.Algorithm == "SHA-256" {
+		t.Error("a partially-chained stream must not report the tamper-evident SHA-256 asset")
+	}
+}
+
+// TestEventsDuplicateHashNotTamperEvident covers the other failure mode named
+// in the bug report: every event carries a prev_hash (chained == len(events)
+// passes the any-vs-all fix on its own), but it is the exact same fixed value
+// on every line, not a real per-event chain, just a dummy placeholder. A
+// genuine chain links each event to a different predecessor, so the same
+// hash value repeating is a structural tell that this isn't a real chain,
+// even without recomputing the actual hash.
+func TestEventsDuplicateHashNotTamperEvident(t *testing.T) {
+	got := mustScan(t, "testdata/events-dummy-chain.ndjson")
+	if len(got) != 1 {
+		t.Fatalf("want 1 finding, got %d: %+v", len(got), got)
+	}
+	f := got[0]
+	if f.Risk.Class != model.RiskMisconfig {
+		t.Errorf("risk class = %q, want %q (a repeated/dummy prev_hash is not a real chain)", f.Risk.Class, model.RiskMisconfig)
+	}
+}
+
 // TestEventsMixedMalformedLinesTolerated exercises the "count, skip, never
 // fatal" requirement: a stream with an unparseable line and a line with the
 // wrong schema alongside one valid, chained event must still yield the
@@ -194,12 +232,14 @@ func TestScanDirectory(t *testing.T) {
 	}
 
 	want := map[string]int{
-		"passport-spiffe.json":      1,
-		"passport-none.json":        1,
-		"events-chained.ndjson":     1,
-		"events-chained-v02.ndjson": 1,
-		"events-nohash.ndjson":      1,
-		"events-mixed.ndjson":       1,
+		"passport-spiffe.json":            1,
+		"passport-none.json":              1,
+		"events-chained.ndjson":           1,
+		"events-chained-v02.ndjson":       1,
+		"events-nohash.ndjson":            1,
+		"events-mixed.ndjson":             1,
+		"events-partially-chained.ndjson": 1,
+		"events-dummy-chain.ndjson":       1,
 	}
 	for file, n := range want {
 		if byFile[file] != n {
