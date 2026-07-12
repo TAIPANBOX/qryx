@@ -165,6 +165,40 @@ func TestScanACMMapsAlgoAndExpiry(t *testing.T) {
 	}
 }
 
+// TestScanACMExpiryPreservesRealKeyAlgorithm guards against the expiry
+// finding collapsing every expired cert into one generic {Certificate, "TLS",
+// 0} node regardless of its actual key. An expired RSA-1024 cert's expiry
+// finding must carry Algorithm "RSA" / KeySize 1024 (the cert's real key),
+// not the hardcoded "TLS"/0: otherwise a CBOM/CNSA/dashboard reader can't
+// tell an expired RSA-1024 cert (also a weak-key finding, needs an algorithm
+// replacement) from an expired ECDSA cert (just needs renewal).
+func TestScanACMExpiryPreservesRealKeyAlgorithm(t *testing.T) {
+	past := time.Now().Add(-24 * time.Hour)
+	api := fakeACM{certs: []acmtypes.CertificateDetail{
+		{CertificateArn: ptr("arn:cert/weak"), DomainName: ptr("weak.example"), KeyAlgorithm: acmtypes.KeyAlgorithmRsa1024, NotAfter: &past},
+	}}
+	got, err := scanACM(context.Background(), api)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var expiry *model.Finding
+	for i := range got {
+		if got[i].Risk.Class == model.RiskExpired {
+			expiry = &got[i]
+		}
+	}
+	if expiry == nil {
+		t.Fatalf("no expiry finding: %+v", got)
+	}
+	if expiry.Asset.Algorithm != "RSA" || expiry.Asset.KeySize != 1024 {
+		t.Errorf("expiry finding asset = %+v, want RSA/1024 (the cert's real key), not a hardcoded TLS/0", expiry.Asset)
+	}
+	if expiry.Asset.Type != model.TypeCertificate {
+		t.Errorf("expiry finding type = %q, want %q", expiry.Asset.Type, model.TypeCertificate)
+	}
+}
+
 func TestScanKMSTagsPopulated(t *testing.T) {
 	api := fakeKMS{
 		keys: map[string]kmstypes.KeySpec{"k1": kmstypes.KeySpecRsa2048},

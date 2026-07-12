@@ -148,7 +148,8 @@ func scanACM(ctx context.Context, api acmAPI) ([]model.Finding, error) {
 			if err != nil {
 				return nil, err
 			}
-			if asset, ok := acmKeyAlgoToAsset(string(cert.KeyAlgorithm)); ok {
+			asset, ok := acmKeyAlgoToAsset(string(cert.KeyAlgorithm))
+			if ok {
 				out = append(out, model.Finding{
 					Asset:    asset,
 					Location: model.Location{File: arn},
@@ -158,8 +159,17 @@ func scanACM(ctx context.Context, api acmAPI) ([]model.Finding, error) {
 				})
 			}
 			if cert.NotAfter != nil && cert.NotAfter.Before(time.Now()) {
+				// Reuse the cert's real key algorithm/size on the expiry finding
+				// too (mirroring azure.go), so an expired RSA-1024 cert and an
+				// expired ECDSA cert don't collapse into one generic "TLS" node
+				// that hides which one also needs an algorithm/size fix, not
+				// just renewal. Type stays TypeCertificate even in the (today
+				// unreachable, since every real ACM KeyAlgorithm is RSA_*/EC_*)
+				// case the algorithm itself isn't recognized.
+				expired := asset
+				expired.Type = model.TypeCertificate
 				out = append(out, model.Finding{
-					Asset:    model.Asset{Type: model.TypeCertificate, Algorithm: "TLS", Primitive: model.PrimitiveTLS},
+					Asset:    expired,
 					Location: model.Location{File: arn},
 					Evidence: fmt.Sprintf("ACM certificate %s expired %s", deref(cert.DomainName, ""), cert.NotAfter.Format("2006-01-02")),
 					Source:   "aws-acm",
