@@ -201,6 +201,15 @@ CBOM/CNSA -> policy gate (+drift) -> remediation (fix/PR) -> evidence
 - The repo is **private**; README badges/images only render for users with access.
 - Security extraction (`imagescan`): keep the path-traversal/symlink/tar-bomb
   guards; never follow links out of the temp root.
+- **binscan sees only what has a symbol to read:** dynamic imports (`.dynsym`
+  / needed libraries) are the primary source for ELF/PE/Mach-O; ELF also
+  falls back to the full `.symtab` when dynamic imports are empty, so a
+  non-stripped statically-linked binary (static OpenSSL/BoringSSL/libsodium,
+  a Rust binary on `ring`/`rustls`, a Go binary with crypto compiled in) is
+  still caught. A **stripped** static binary has neither `.dynsym` crypto nor
+  a `.symtab` and is invisible here; PE/Mach-O have no `.symtab`-style
+  fallback at all yet. Don't read a "clear" scan of a statically-linked
+  binary as proof of absence. Say so if it comes up.
 
 ## Escalate to Opus 4.8 — tell the user, don't just push through
 You (any model) cannot switch models. When a task hits the high-stakes criteria

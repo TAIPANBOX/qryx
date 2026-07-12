@@ -236,6 +236,17 @@ modern OpenSSL 3.x builds call crypto almost exclusively through `EVP_*`, so
 both are resolved. Symbol/library based, not string scraping; low false
 positives.
 
+*Known blind spot: statically-linked crypto.* Detection is primarily via the
+dynamic import table (`.dynsym` / needed libraries); a statically-linked
+OpenSSL/BoringSSL/libsodium binary, a Rust binary using `ring`/`rustls`, or a
+Go binary with its crypto compiled in has none of that, and used to scan as
+"clear". For ELF, a non-stripped static binary now also falls back to the
+full symbol table (`.symtab`), so its crypto symbols are still caught. A
+**stripped** static binary has no `.symtab` either, and PE/Mach-O have no
+equivalent fallback implemented yet: both stay invisible to this scanner
+regardless of stripping. Treat a "clear" `qryx bin` result on a statically-
+linked binary as limited assurance, not proof there is no crypto in it.
+
 **Container images** (`qryx image`) — extracts a local image tarball
 (`docker save` / OCI) with stdlib tar/gzip, hardened against path traversal and
 tar bombs, then runs the code and binary scanners over the layers.

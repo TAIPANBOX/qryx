@@ -190,6 +190,13 @@ func isMachOMagic(b []byte) bool {
 }
 
 // elfImports extracts needed libraries and imported symbol names from an ELF.
+// Dynamic imports (.dynsym) are the primary source; a statically-linked
+// binary has no dynamic entry for its own compiled-in crypto at all, so when
+// that yields nothing this falls back to the full symbol table (.symtab),
+// which a non-stripped static binary still carries. A *stripped* static
+// binary has neither and stays invisible to this detector: see the
+// "binscan blind spot" note in CLAUDE.md and README.md; a scan reporting
+// "clear" on such a binary is limited assurance, not proof of absence.
 func elfImports(path string) (libs, syms []string, ok bool) {
 	f, err := elf.Open(path)
 	if err != nil {
@@ -201,6 +208,14 @@ func elfImports(path string) (libs, syms []string, ok bool) {
 	syms = make([]string, len(imported))
 	for i, s := range imported {
 		syms[i] = s.Name
+	}
+	if len(syms) == 0 {
+		if all, err := f.Symbols(); err == nil {
+			syms = make([]string, len(all))
+			for i, s := range all {
+				syms[i] = s.Name
+			}
+		}
 	}
 	return libs, syms, true
 }
