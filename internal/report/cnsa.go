@@ -68,26 +68,11 @@ type cnsaEntry struct {
 
 // cnsaStatus classifies an asset node against the CNSA 2.0 standard.
 func cnsaStatus(n graph.AssetNode) cnsaEntry {
-	algo := strings.ToUpper(strings.ReplaceAll(n.Asset.Algorithm, "-", ""))
-
-	// Post-quantum safe (FIPS 203/204/205) and approved symmetric/hash.
-	switch algo {
-	case "MLKEM", "MLDSA", "SLHDSA":
-		return cnsaEntry{Node: n, Status: "compliant", Deadline: "n/a",
-			Action: "Approved CNSA 2.0 post-quantum algorithm."}
-	case "AES":
-		if n.Asset.KeySize == 0 || n.Asset.KeySize >= 256 {
-			return cnsaEntry{Node: n, Status: "compliant", Deadline: "n/a",
-				Action: "AES-256 is the CNSA 2.0 approved symmetric cipher."}
-		}
-		return cnsaEntry{Node: n, Status: "non-compliant", Deadline: "immediate",
-			Action: fmt.Sprintf("AES-%d is below the CNSA 2.0 minimum of 256 bits. Upgrade to AES-256.", n.Asset.KeySize)}
-	case "SHA384", "SHA512":
-		return cnsaEntry{Node: n, Status: "compliant", Deadline: "n/a",
-			Action: "SHA-384/512 is the CNSA 2.0 approved hash function."}
-	}
-
-	// Context issues (not algorithm-specific).
+	// Context issues (not algorithm-specific) are evaluated first: a real
+	// context risk must always win over algorithm compliance. Otherwise an
+	// asset whose algorithm is otherwise CNSA-approved (e.g. AES, ML-KEM)
+	// would short-circuit to "compliant" before its expiry/hardcoding/
+	// misconfiguration was ever consulted.
 	switch n.Risk.Class {
 	case model.RiskExpired:
 		return cnsaEntry{Node: n, Status: "issue", Deadline: "immediate",
@@ -110,6 +95,26 @@ func cnsaStatus(n graph.AssetNode) cnsaEntry {
 	if n.Risk.Class == model.RiskWeak {
 		return cnsaEntry{Node: n, Status: "non-compliant", Deadline: "immediate",
 			Action: fmt.Sprintf("%s is not approved by CNSA 2.0; replace immediately.", n.Asset.Algorithm)}
+	}
+
+	// No context risk (Risk.Class == RiskNone): grade on algorithm+size alone.
+	algo := strings.ToUpper(strings.ReplaceAll(n.Asset.Algorithm, "-", ""))
+
+	// Post-quantum safe (FIPS 203/204/205) and approved symmetric/hash.
+	switch algo {
+	case "MLKEM", "MLDSA", "SLHDSA":
+		return cnsaEntry{Node: n, Status: "compliant", Deadline: "n/a",
+			Action: "Approved CNSA 2.0 post-quantum algorithm."}
+	case "AES":
+		if n.Asset.KeySize == 0 || n.Asset.KeySize >= 256 {
+			return cnsaEntry{Node: n, Status: "compliant", Deadline: "n/a",
+				Action: "AES-256 is the CNSA 2.0 approved symmetric cipher."}
+		}
+		return cnsaEntry{Node: n, Status: "non-compliant", Deadline: "immediate",
+			Action: fmt.Sprintf("AES-%d is below the CNSA 2.0 minimum of 256 bits. Upgrade to AES-256.", n.Asset.KeySize)}
+	case "SHA384", "SHA512":
+		return cnsaEntry{Node: n, Status: "compliant", Deadline: "n/a",
+			Action: "SHA-384/512 is the CNSA 2.0 approved hash function."}
 	}
 
 	// Unknown / RiskNone — include as informational.

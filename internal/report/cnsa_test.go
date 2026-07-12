@@ -49,6 +49,49 @@ func TestCnsaStatusClassification(t *testing.T) {
 	}
 }
 
+// TestCnsaStatusContextRiskWinsOverAlgorithmCompliance pins the field-ordering
+// bug in cnsaStatus: the algorithm switch (MLKEM/MLDSA/SLHDSA, AES,
+// SHA-384/512) used to return before n.Risk.Class was ever consulted, so a
+// node carrying a real context risk (expired/hardcoded/misconfigured) on an
+// otherwise CNSA-approved algorithm was silently graded "compliant". Concrete
+// case: an expired Azure Key Vault symmetric key arrives as
+// {Algorithm:"AES", KeySize:0, Risk.Class:RiskExpired} (Azure oct/HSM keys
+// never expose a size): the AES branch's KeySize==0 path used to return
+// "compliant" before the expiry was ever checked, corrupting `--format cnsa`,
+// `cnsa-html`, `evidence`, `dashboard`, and the signed evidence trail. A
+// context risk must always win over algorithm compliance.
+func TestCnsaStatusContextRiskWinsOverAlgorithmCompliance(t *testing.T) {
+	tests := []struct {
+		name         string
+		node         graph.AssetNode
+		wantStatus   string
+		wantDeadline string
+	}{
+		// The bug: an expired AES key (Azure oct/HSM, no key size exposed)
+		// must report the expiry, not fall through to "compliant".
+		{"expired AES key, no key size (Azure oct/HSM)", makeNode("AES", 0, model.RiskExpired, model.SeverityHigh), "issue", "immediate"},
+		// Same trap, other context-risk classes and another CNSA-approved algorithm.
+		{"hardcoded AES-256 key", makeNode("AES", 256, model.RiskHardcoded, model.SeverityHigh), "issue", "immediate"},
+		{"misconfigured ML-KEM context", makeNode("ML-KEM", 0, model.RiskMisconfig, model.SeverityHigh), "issue", "immediate"},
+		// Positive controls: no context risk (RiskNone) must still fall
+		// through to algorithm+size grading, unaffected by the reorder.
+		{"compliant AES-256, no context risk", makeNode("AES", 256, model.RiskNone, model.SeverityNone), "compliant", "n/a"},
+		{"non-compliant AES-128 on size, no context risk", makeNode("AES", 128, model.RiskNone, model.SeverityNone), "non-compliant", "immediate"},
+		{"compliant ML-KEM, no context risk", makeNode("ML-KEM", 0, model.RiskNone, model.SeverityNone), "compliant", "n/a"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e := cnsaStatus(tc.node)
+			if e.Status != tc.wantStatus {
+				t.Errorf("status=%q want %q", e.Status, tc.wantStatus)
+			}
+			if e.Deadline != tc.wantDeadline {
+				t.Errorf("deadline=%q want %q", e.Deadline, tc.wantDeadline)
+			}
+		})
+	}
+}
+
 func TestCNSAJSONOutput(t *testing.T) {
 	res := &scan.Result{Root: "test", Findings: []model.Finding{
 		{Asset: model.Asset{Type: model.TypeAlgorithm, Algorithm: "RSA", KeySize: 2048}, Location: model.Location{File: "a.go", Line: 5}, Risk: model.Risk{Class: model.RiskQuantumVulnerable, Severity: model.SeverityHigh}},
