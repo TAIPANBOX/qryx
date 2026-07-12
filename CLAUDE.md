@@ -12,7 +12,7 @@ CycloneDX CBOM / human / HTML reports with JSON/Postgres persistence and CI
 drift gating. Pure-Go bias; stdlib first. Product plan and roadmap:
 [`qryx-plan.md`](./qryx-plan.md).
 
-## Current status (as of 2026-05-31)
+## Current status (as of 2026-07-10)
 
 **Done:**
 - Phase 0: static code scan (goast/cryptocall/certfile/tlsconfig/hardcoded/deps)
@@ -102,6 +102,39 @@ CBOM/CNSA -> policy gate (+drift) -> remediation (fix/PR) -> evidence
   attestation crypto + agent-event NDJSON hash-chain integrity), per
   `agent-passport/SPEC.md` §4/§6; identity/privilege stays Idryx's job.
 
+- `binscan`: ELF detector now resolves OpenSSL 3.x's primary `EVP_*` API
+  (`EVP_aes_*`, `EVP_des_*`, `EVP_md5/sha1/sha224/256/384/512` fetch names,
+  `EVP_PKEY_CTX_set_*` asymmetric keygen setters), not just the legacy flat
+  API (`RSA_new`, `MD5_Init`, ...). Scanning a modern `/usr/bin/openssl`
+  found almost nothing before this fix; verified against the real symbol
+  set via `nm -D`. Added libgcrypt to the known crypto-library list
+  (commit ce21060).
+
+- Graph dedup fix: `graph.AssetNode`'s identity (`key`, and the exported
+  `graph.AssetKey`) now includes risk class alongside type/algo/key size, so
+  a physical asset carrying two orthogonal risks (e.g. a certificate that is
+  both expired and quantum-vulnerable) produces two nodes instead of one
+  silently overwriting the other. Verified live against
+  `expired.badssl.com`: `qryx tls` was reporting "0 expired" even though the
+  finding existed, its evidence folded into the RSA node instead of getting
+  its own risk class. `internal/store`'s baseline/drift diffing updated to
+  match the new `AssetKey` signature (commit e06d605).
+
+- README: added a "Where this fits in the stack" section (shared TAIPANBOX
+  cross-service diagram plus this repo's consumes/produces/talks-to card),
+  so a reader landing on this repo gets the whole agent-governance workflow
+  from one service README (commit f6ed691).
+
+- `agentstack`: `qryx agents` now accepts agent-event schema `v0.2`
+  (Wardryx/Mockryx/Verdryx's emitted schema, differing from `v0.1` only in
+  the `source` field per `agent-passport/SPEC.md` §6.4) alongside `v0.1`.
+  Before this fix, any file containing only `v0.2` events parsed to zero
+  events and was silently skipped as unrecognized (commit ef364ba).
+
+- README: stack diagram now shows Mockryx's and Verdryx's bus-emission
+  edges (both emit agent-event `v0.2` to the shared bus), matching what the
+  services actually do (commit d8f5fbe).
+
 **Remaining (deliberate deferrals, not tech debt):**
 1. ML-DSA (FIPS 204) signing — once Go stdlib ships it (attest pkg is ready for
    a new alg).
@@ -140,8 +173,16 @@ CBOM/CNSA -> policy gate (+drift) -> remediation (fix/PR) -> evidence
   Only the thin real-SDK wiring stays unverified when no account is available —
   say so explicitly.
 - **Graph:** findings dedup into `graph.AssetNode` by `graph.AssetKey`
-  (type + normalized algo + key size). Reporters consume the graph, not raw
-  findings.
+  (type + normalized algo + key size + risk class). Risk class is part of
+  node identity, not just an attribute: an algorithm property (e.g. RSA is
+  quantum-vulnerable) and a validity/hygiene state (e.g. a cert is expired)
+  are orthogonal, so the same physical asset legitimately gets two nodes
+  instead of one silently overwriting the other (commit e06d605). Any code
+  that derives its own identity/hash from asset fields (a reporter's
+  bom-ref, a new connector's own dedup) must include risk class too, or two
+  distinct nodes will silently collide back into one: exactly the bug in
+  `internal/report/cbom.go`'s `bomRef()`, fixed to match. Reporters consume
+  the graph, not raw findings.
 - **Zero-dependency bias:** prefer stdlib (`debug/elf|pe|macho`, `archive/tar`,
   `crypto/tls`, `html/template`). Add a dependency only when unavoidable (pgx,
   cloud SDKs, `hashicorp/hcl/v2` for correct Terraform parsing) and justify it
