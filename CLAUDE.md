@@ -12,7 +12,7 @@ CycloneDX CBOM / human / HTML reports with JSON/Postgres persistence and CI
 drift gating. Pure-Go bias; stdlib first. Product plan and roadmap:
 [`qryx-plan.md`](./qryx-plan.md).
 
-## Current status (as of 2026-07-10)
+## Current status (as of 2026-07-13)
 
 **Done:**
 - Phase 0: static code scan (goast/cryptocall/certfile/tlsconfig/hardcoded/deps)
@@ -135,11 +135,26 @@ CBOM/CNSA -> policy gate (+drift) -> remediation (fix/PR) -> evidence
   edges (both emit agent-event `v0.2` to the shared bus), matching what the
   services actually do (commit d8f5fbe).
 
-**Remaining (deliberate deferrals, not tech debt):**
-1. ML-DSA (FIPS 204) signing — once Go stdlib ships it (attest pkg is ready for
-   a new alg).
+- ML-DSA (FIPS 204) signing: `internal/attest` gained a third case (ed25519 /
+  ECDSA P-256 / ML-DSA) using stdlib `crypto/mldsa`, which shipped its API
+  frozen in Go 1.27rc2 well ahead of GA (expected ~August 2026). `go.mod`
+  bumped to `go 1.27` / `toolchain go1.27rc2` -- a deliberate, user-approved
+  call to build against the RC now rather than wait weeks for GA or pull in
+  a third-party bridge library, since RC2 only takes bug/security fixes
+  before GA, not API changes. All three security levels (`ML-DSA-44/65/87`)
+  accepted, unlike the single P-256 curve ECDSA is restricted to -- they are
+  equally standardized, safe choices, not one recommended option among
+  weaker alternatives. Live end-to-end verified against real
+  `openssl genpkey -algorithm ML-DSA-44` keys, including one real
+  interoperability gotcha caught only by that live test: OpenSSL's default
+  PKCS#8 output encodes both the seed and the expanded key, which Go's
+  `x509.ParsePKCS8PrivateKey` rejects; generating with
+  `-provparam ml-dsa.output_formats=seed-only` is required and is now
+  documented in both the `--sign-key` flag help and the README.
 
-**Ask the user which to tackle first at the start of a new session.**
+**No remaining deliberate deferrals** -- the one item tracked here (ML-DSA
+signing) is done. Revisit `go.mod`'s `toolchain go1.27rc2` pin once Go 1.27
+GA ships, to drop the release-candidate requirement.
 
 ## The working loop (follow every time)
 1. **Plan Mode first** for anything touching multiple files or making an

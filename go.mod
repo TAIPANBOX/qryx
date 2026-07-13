@@ -1,8 +1,8 @@
 module github.com/TAIPANBOX/qryx
 
-go 1.26
+go 1.27
 
-toolchain go1.26.5
+toolchain go1.27rc2
 
 require (
 	cloud.google.com/go/kms v1.31.0

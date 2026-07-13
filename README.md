@@ -184,7 +184,7 @@ qryx scan --format cnsa-html <path> > cnsa.html  # CNSA 2.0 audit (HTML)
 qryx scan --format ncsc <path>               # NCSC PQC migration readiness, 2028/2031/2035 milestones (JSON)
 qryx scan --format ncsc-html <path> > ncsc.html  # NCSC readiness (HTML)
 qryx scan --format evidence <path> > evidence.json  # tamper-evident compliance attestation
-qryx scan --format evidence --sign-key key.pem <path> > evidence.json  # ...signed (ed25519/ECDSA)
+qryx scan --format evidence --sign-key key.pem <path> > evidence.json  # ...signed (ed25519/ECDSA/ML-DSA)
 qryx verify-evidence evidence.json     # verify a signed attestation
 qryx scan --format dashboard <path> > dashboard.html # one-page governance dashboard
 qryx scan --save-evidence trail.jsonl <path>   # append a dated compliance record
@@ -395,20 +395,27 @@ management. Reuses the same CNSA classification as `--format cnsa`, so the two
 never disagree. Commit `evidence.json` as a CI artifact for a dated audit trail.
 
 Pass `--sign-key <pkcs8.pem>` to add a detached signature over the digest
-(ed25519 or ECDSA P-256, stdlib — no cosign dependency), embedding the public
-key so the artifact is self-verifying:
+(ed25519, ECDSA P-256, or ML-DSA (FIPS 204) -- stdlib only, no cosign
+dependency), embedding the public key so the artifact is self-verifying:
 
 ```bash
 openssl genpkey -algorithm ed25519 -out key.pem
 qryx scan --format evidence --sign-key key.pem ./src > evidence.json
-qryx verify-evidence evidence.json   # VERIFIED (ed25519, key sha256:…) or exit 1
+qryx verify-evidence evidence.json   # VERIFIED (ed25519, key sha256:...) or exit 1
+
+# post-quantum: ML-DSA-44/65/87, all three levels accepted -- seed-only
+# encoding required (Go's x509 parser doesn't support OpenSSL's default
+# seed+expanded PKCS#8 form)
+openssl genpkey -algorithm ML-DSA-44 -provparam ml-dsa.output_formats=seed-only -out mldsa-key.pem
+qryx scan --format evidence --sign-key mldsa-key.pem ./src > evidence.json
+qryx verify-evidence evidence.json   # VERIFIED (ml-dsa-44, key sha256:...) or exit 1
 ```
 
 `verify-evidence` recomputes the digest, confirms the document is unmodified,
 and checks the signature against the embedded key, printing its fingerprint to
-compare against your trusted signer. (The signing keys are themselves
-classically strong but quantum-vulnerable; ML-DSA signing awaits Go stdlib
-support.)
+compare against your trusted signer. ed25519 and ECDSA P-256 remain
+classically strong but quantum-vulnerable; ML-DSA is the quantum-resistant
+option, requiring Go 1.27+ (`crypto/mldsa`).
 
 **Governance dashboard** (`--format dashboard`) — one self-contained HTML page
 for a security lead: the CNSA compliance score, the risk profile by severity,
@@ -437,25 +444,28 @@ qryx trend 'postgres://user:pass@host:5432/db'
 
 ## Status
 
-**Phases 0-4 complete** (only ML-DSA signing pends Go stdlib support):
+**Phases 0-4 complete, including post-quantum evidence signing:**
 
 - [x] static code scan · TLS probing · binary scanning (ELF/PE/Mach-O) · container images
 - [x] cross-source CBOM asset graph · JSON/Postgres persistence · drift detection · CI gate
-- [x] human / CBOM (CycloneDX 1.6) / HTML reports — all CI-gated
-- [x] Phase 2 cloud KMS — AWS, GCP and Azure done; owner-mapping; CNSA 2.0 audit report
-- [x] Phase 3 — crypto-agility scoring (`--format migration`), safe code remediation (`qryx fix` / `--open-pr`), Terraform detector + rule
-- [x] Phase 4 — policy engine (`--policy`, exit 3), drift-gated (`--policy-new-only`), evidence export (`--format evidence`), governance dashboard (`--format dashboard`), evidence trail + trend (`--save-evidence` / `qryx trend`)
-- [x] Phase 4 — evidence signing + verification (`--sign-key` / `qryx verify-evidence`, ed25519/ECDSA)
-- [x] Phase 4 — trend monitoring: HTML chart (`trend --html`) + regression CI gate (`trend --fail-on-regression`)
-- [x] Terraform — HCL-accurate detection via hashicorp/hcl (heredoc/interpolation-safe) + `google_kms_crypto_key`
-- [x] Phase 4 — NCSC PQC readiness report (`--format ncsc`/`ncsc-html`): 2028/2031/2035
+- [x] human / CBOM (CycloneDX 1.6) / HTML reports -- all CI-gated
+- [x] Phase 2 cloud KMS -- AWS, GCP and Azure done; owner-mapping; CNSA 2.0 audit report
+- [x] Phase 3 -- crypto-agility scoring (`--format migration`), safe code remediation (`qryx fix` / `--open-pr`), Terraform detector + rule
+- [x] Phase 4 -- policy engine (`--policy`, exit 3), drift-gated (`--policy-new-only`), evidence export (`--format evidence`), governance dashboard (`--format dashboard`), evidence trail + trend (`--save-evidence` / `qryx trend`)
+- [x] Phase 4 -- evidence signing + verification (`--sign-key` / `qryx verify-evidence`, ed25519, ECDSA P-256, or ML-DSA (FIPS 204, all three security levels))
+- [x] Phase 4 -- trend monitoring: HTML chart (`trend --html`) + regression CI gate (`trend --fail-on-regression`)
+- [x] Terraform -- HCL-accurate detection via hashicorp/hcl (heredoc/interpolation-safe) + `google_kms_crypto_key`
+- [x] Phase 4 -- NCSC PQC readiness report (`--format ncsc`/`ncsc-html`): 2028/2031/2035
   milestones, deterministic on-track/at-risk/not-started verdicts, self-documenting
   2031 highest-priority criteria; Ed25519 now maps to ML-DSA (FIPS 204) in the
   agility/migration plan
-- [x] Phase 4 — `qryx agents`: AI-agent infrastructure connector inventorying the
+- [x] Phase 4 -- `qryx agents`: AI-agent infrastructure connector inventorying the
   agent-governance stack's own trust surface (Agent Passport attestation crypto,
   agent-event NDJSON hash-chain integrity) into the same asset graph
-- [ ] Later — ML-DSA signing (pending Go stdlib)
+- [x] ML-DSA signing (`internal/attest`): stdlib `crypto/mldsa` (Go 1.27,
+  `toolchain go1.27rc2` in `go.mod` until GA), additive 3rd case in the
+  existing ed25519/ECDSA switch; live-verified against real openssl-generated
+  keys end to end, all three security levels (`ML-DSA-44/65/87`)
 
 Roadmap and rationale: [`qryx-plan.md`](./qryx-plan.md).
 

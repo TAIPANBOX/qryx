@@ -4,6 +4,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
+	"crypto/mldsa"
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/pem"
@@ -45,8 +46,30 @@ func ecdsaKey(t *testing.T) any {
 	return priv
 }
 
+// mldsaKeyGen returns an mldsaKey-shaped generator for the given FIPS 204
+// parameter set, so TestSignVerifyRoundtrip can exercise more than one
+// security level -- unlike ECDSA's single enforced curve, all three ML-DSA
+// levels are supported, so one is not enough to prove LoadSigner/Sign/
+// Verify are level-agnostic.
+func mldsaKeyGen(params mldsa.Parameters) func(*testing.T) any {
+	return func(t *testing.T) any {
+		t.Helper()
+		priv, err := mldsa.GenerateKey(params)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return priv
+	}
+}
+
 func TestSignVerifyRoundtrip(t *testing.T) {
-	for name, gen := range map[string]func(*testing.T) any{"ed25519": ed25519Key, "ecdsa": ecdsaKey} {
+	for name, gen := range map[string]func(*testing.T) any{
+		"ed25519":  ed25519Key,
+		"ecdsa":    ecdsaKey,
+		"mldsa-44": mldsaKeyGen(mldsa.MLDSA44()),
+		"mldsa-65": mldsaKeyGen(mldsa.MLDSA65()),
+		"mldsa-87": mldsaKeyGen(mldsa.MLDSA87()),
+	} {
 		t.Run(name, func(t *testing.T) {
 			signer, err := LoadSigner(writeKey(t, gen(t)))
 			if err != nil {

@@ -61,7 +61,7 @@ func run(args []string) error {
 		policyArg = fs.String("policy", "", "evaluate against a policy (builtin name e.g. cnsa, or a JSON file); exit 3 on violation")
 		policyNew = fs.Bool("policy-new-only", false, "with --policy and --baseline, fail only on NEW violations vs the baseline")
 		saveEvid  = fs.String("save-evidence", "", "append a compliance evidence record to this trail file (JSON Lines)")
-		signKey   = fs.String("sign-key", "", "sign --format evidence with this PKCS#8 PEM key (ed25519 or ECDSA P-256)")
+		signKey   = fs.String("sign-key", "", "sign --format evidence with this PKCS#8 PEM key (ed25519, ECDSA P-256, or ML-DSA -- for ML-DSA, generate with: openssl genpkey -algorithm ML-DSA-44 -provparam ml-dsa.output_formats=seed-only)")
 		failRegr  = fs.Bool("fail-on-regression", false, "with trend: exit 3 if the latest compliance score is below the previous (CI)")
 		htmlOut   = fs.Bool("html", false, "with trend: render a self-contained HTML chart instead of a text table")
 	)
