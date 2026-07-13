@@ -68,22 +68,30 @@ func Attest(res *scan.Result, version string) (Attestation, error) {
 
 // Evidence writes a compliance evidence document with an integrity digest. When
 // signer is non-nil it adds a detached signature over the digest, making the
-// attestation authentic as well as tamper-evident.
-func Evidence(w io.Writer, res *scan.Result, version string, signer *attest.Signer) error {
+// attestation authentic as well as tamper-evident. Returns the resulting
+// signature (nil when signer is nil), so a caller emitting an
+// evidence_signed agent-event (see internal/exporter) has the alg/
+// fingerprint without re-signing the digest a second time.
+func Evidence(w io.Writer, res *scan.Result, version string, signer *attest.Signer) (*attest.Signature, error) {
 	rep, err := buildEvidence(res, version)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	var sig *attest.Signature
 	if signer != nil {
-		sig, err := signer.Sign([]byte(rep.Digest))
+		s, err := signer.Sign([]byte(rep.Digest))
 		if err != nil {
-			return fmt.Errorf("sign evidence: %w", err)
+			return nil, fmt.Errorf("sign evidence: %w", err)
 		}
-		rep.Signature = &sig
+		rep.Signature = &s
+		sig = &s
 	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
-	return enc.Encode(rep)
+	if err := enc.Encode(rep); err != nil {
+		return nil, err
+	}
+	return sig, nil
 }
 
 // buildEvidence assembles the evidence report (summary, per-asset records and

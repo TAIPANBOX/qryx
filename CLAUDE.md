@@ -152,9 +152,37 @@ CBOM/CNSA -> policy gate (+drift) -> remediation (fix/PR) -> evidence
   `-provparam ml-dsa.output_formats=seed-only` is required and is now
   documented in both the `--sign-key` flag help and the README.
 
-**No remaining deliberate deferrals** -- the one item tracked here (ML-DSA
-signing) is done. Revisit `go.mod`'s `toolchain go1.27rc2` pin once Go 1.27
-GA ships, to drop the release-candidate requirement.
+- Agent-event export: `internal/exporter` (new package, wraps
+  `github.com/TAIPANBOX/agent-stack-go/event`) emits `crypto_finding` /
+  `crypto_drift` / `policy_violation` / `evidence_signed`
+  (agent-passport SPEC.md §6.2's qryx row) as `taipanbox.dev/agent-event/
+  v0.1` NDJSON, `source: "qryx"` -- qryx is one of the spec's original four
+  (closed source enum), not a wave-2 service, so it stays on v0.1 rather
+  than moving to v0.2 like Wardryx/Verdryx/Mockryx. This is the emitter
+  half of SPEC.md §9's Qryx adoption row; `qryx agents`
+  (`internal/agentstack`) already shipped the consumer half
+  (`agent_id`-as-evidence-subject). New `--events <path>` flag; wired into
+  the existing `res.Findings` / `delta.Added` / `policy.Evaluate`
+  / `report.Evidence` call sites already computed for other output, not
+  new detection logic. `agent_id` comes from `Tags["agent_id"]`,
+  set only by `internal/agentstack`'s passport findings (`findingTags`,
+  renamed from `ownerTags`) -- every other source's Tags has no agent
+  concept, so `--events` is correctly a no-op there, never a fabricated
+  subject. `policy.Violation` gained a `Tags` field (threaded through from
+  the `graph.AssetNode` each violation was scored against) so
+  `policy_violation` events can find their subject the same way;
+  `report.Evidence`'s signature changed to also return the resulting
+  `*attest.Signature`, so `evidence_signed` doesn't need to re-sign the
+  digest a second time. Live end-to-end verified for all four event types
+  against the real `internal/agentstack/testdata` fixtures via the actual
+  compiled CLI, not just unit tests -- including confirming
+  `policy_violation` correctly emits only for the one violation with a
+  real agent_id even when the human-readable report shows two.
+
+**No remaining deliberate deferrals** -- both items tracked here (ML-DSA
+signing, agent-event export) are done. Revisit `go.mod`'s
+`toolchain go1.27rc2` pin once Go 1.27 GA ships, to drop the
+release-candidate requirement.
 
 ## The working loop (follow every time)
 1. **Plan Mode first** for anything touching multiple files or making an

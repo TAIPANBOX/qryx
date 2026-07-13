@@ -208,6 +208,7 @@ qryx aws --region us-east-1            # inventory AWS KMS keys + ACM certs
 qryx gcp --project my-project          # inventory GCP Cloud KMS key versions
 qryx azure --vault-url https://myvault.vault.azure.net/  # inventory Azure Key Vault
 qryx agents ./passports                # inventory AI-agent attestation crypto + event-stream integrity
+qryx agents --events events.ndjson ./passports  # ...and append findings as agent-event NDJSON
 
 qryx scan --save base.json <path>      # snapshot the asset graph
 qryx scan --baseline base.json <path>  # report drift vs the baseline
@@ -286,6 +287,22 @@ recompute each event's canonical hash to verify a prev_hash equals the actual
 predecessor. Passport/event files are told apart by their `schema` field, not
 extension; malformed files are counted and skipped, never fatal. Identity and
 privilege stay Idryx's job — this connector stays strictly on the crypto axis.
+
+**Agent-event export** (`--events <path>`, `internal/exporter`): appends
+findings, drift, policy violations, and signed-evidence records as agent-event
+NDJSON (`taipanbox.dev/agent-event/v0.1`, `source: "qryx"`, per agent-passport
+SPEC.md §6.2's `crypto_finding`/`crypto_drift`/`policy_violation`/
+`evidence_signed` types), the producer half of qryx's Passport-awareness (it
+was already a consumer via `qryx agents` resolving `agent_id` as an evidence
+subject). Opt-in, fail-open, and agent_id is never fabricated: only findings
+carrying a real subject emit at all, which today means `qryx agents`'
+passport findings specifically -- the vast majority of qryx's other sources
+(code, binaries, TLS, cloud KMS) have no agent concept, so `--events` is a
+no-op for them by design, not an oversight. `crypto_drift` and
+`policy_violation` reuse the exact same `--baseline`/`--policy` results the
+human report prints, filtered to the subset with a real agent_id;
+`evidence_signed` fires once per distinct agent covered by a signed
+`--format evidence` document, not once per finding.
 
 **Asset graph** — findings from every source collapse into one node per logical
 asset **and risk class**, deduplicated across files and sources: the same
@@ -466,6 +483,11 @@ qryx trend 'postgres://user:pass@host:5432/db'
   `toolchain go1.27rc2` in `go.mod` until GA), additive 3rd case in the
   existing ed25519/ECDSA switch; live-verified against real openssl-generated
   keys end to end, all three security levels (`ML-DSA-44/65/87`)
+- [x] Agent-event export (`--events`, `internal/exporter`): the emitter half
+  of qryx's agent-passport SPEC.md §9 adoption row (`qryx agents` already
+  shipped `agent_id`-as-evidence-subject as a consumer); `crypto_finding`,
+  `crypto_drift`, `policy_violation`, `evidence_signed` per SPEC.md §6.2,
+  agent_id never fabricated; live-verified end to end for all four types
 
 Roadmap and rationale: [`qryx-plan.md`](./qryx-plan.md).
 

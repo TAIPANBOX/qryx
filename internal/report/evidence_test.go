@@ -30,7 +30,7 @@ func evidenceFixture() *scan.Result {
 func decodeEvidence(t *testing.T, res *scan.Result) (evidenceReport, []byte) {
 	t.Helper()
 	var buf bytes.Buffer
-	if err := Evidence(&buf, res, "test-1.0", nil); err != nil {
+	if _, err := Evidence(&buf, res, "test-1.0", nil); err != nil {
 		t.Fatal(err)
 	}
 	var rep evidenceReport
@@ -103,8 +103,12 @@ func TestEvidenceSignAndVerify(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if err := Evidence(&buf, evidenceFixture(), "v", signer); err != nil {
+	sig, err := Evidence(&buf, evidenceFixture(), "v", signer)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if sig == nil || sig.Alg != "ed25519" {
+		t.Errorf("Evidence returned signature = %+v, want a non-nil ed25519 signature", sig)
 	}
 	signed := buf.Bytes()
 
@@ -124,7 +128,7 @@ func TestEvidenceSignAndVerify(t *testing.T) {
 
 	// Unsigned evidence is reported as such.
 	var unsigned bytes.Buffer
-	if err := Evidence(&unsigned, evidenceFixture(), "v", nil); err != nil {
+	if _, err := Evidence(&unsigned, evidenceFixture(), "v", nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := VerifyEvidence(unsigned.Bytes()); err == nil {

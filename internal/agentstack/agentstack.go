@@ -202,7 +202,7 @@ func parseEvents(content []byte) (events []agentEvent, malformed int) {
 // no cryptographic attestation at all.
 func passportFindings(path string, p passport) []model.Finding {
 	loc := model.Location{File: path}
-	tags := ownerTags(p.Owner)
+	tags := findingTags(p)
 
 	switch p.Attestation.Method {
 	case "mtls-cert", "spiffe-svid":
@@ -242,14 +242,21 @@ func passportFindings(path string, p passport) []model.Finding {
 	}
 }
 
-// ownerTags maps a Passport owner to the Tags shape the shared owner-mapping
-// mechanism expects (report.ownerHint checks Owner/owner/team/Team/service/
-// Service), mirroring how the cloud connectors map owners via tags/labels.
-func ownerTags(owner string) map[string]string {
-	if owner == "" {
-		return nil
+// findingTags builds a passport finding's Tags: always "agent_id" (p.ID --
+// a passport document's id is schema-required, so this is never empty for
+// a recognized passport), plus "owner" when set, in the shape the shared
+// owner-mapping mechanism expects (report.ownerHint checks Owner/owner/
+// team/Team/service/Service), mirroring how the cloud connectors map
+// owners via tags/labels. "agent_id" is package exporter's only source of
+// a real subject to emit a passport finding as an agent-event for (see
+// exporter.agentIDFromTags) -- it is not overloaded onto Source or
+// Evidence, both of which stay human-readable text, not a stable key.
+func findingTags(p passport) map[string]string {
+	tags := map[string]string{"agent_id": p.ID}
+	if p.Owner != "" {
+		tags["owner"] = p.Owner
 	}
-	return map[string]string{"owner": owner}
+	return tags
 }
 
 // eventStreamFindings judges one NDJSON stream's tamper-evidence. A stream is

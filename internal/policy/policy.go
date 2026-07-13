@@ -36,6 +36,12 @@ type Violation struct {
 	Severity  model.Severity
 	Message   string
 	Locations []string
+	// Tags carries the violating node's own Tags (graph.AssetNode.Tags)
+	// through unchanged, so a caller that needs a violation's agent_id
+	// subject (e.g. internal/exporter's policy_violation event) has it
+	// without re-deriving it from Locations' file paths. nil for nodes
+	// with no tags, matching AssetNode's own convention.
+	Tags map[string]string
 }
 
 // builtins are named policies usable without a config file.
@@ -91,43 +97,43 @@ func Evaluate(p Policy, nodes []graph.AssetNode) []Violation {
 		if forbidden[algo] {
 			out = append(out, Violation{
 				Rule: "forbidden-algorithm", Asset: name, Severity: model.SeverityCritical,
-				Message: fmt.Sprintf("%s is forbidden by policy", name), Locations: locs,
+				Message: fmt.Sprintf("%s is forbidden by policy", name), Locations: locs, Tags: n.Tags,
 			})
 		}
 		if p.MinRSABits > 0 && algo == "RSA" && n.Asset.KeySize > 0 && n.Asset.KeySize < p.MinRSABits {
 			out = append(out, Violation{
 				Rule: "min-rsa-bits", Asset: name, Severity: model.SeverityCritical,
-				Message: fmt.Sprintf("RSA-%d is below the policy minimum of %d bits", n.Asset.KeySize, p.MinRSABits), Locations: locs,
+				Message: fmt.Sprintf("RSA-%d is below the policy minimum of %d bits", n.Asset.KeySize, p.MinRSABits), Locations: locs, Tags: n.Tags,
 			})
 		}
 		if p.ForbidQuantumVulnerable && n.Risk.Class == model.RiskQuantumVulnerable {
 			out = append(out, Violation{
 				Rule: "quantum-vulnerable", Asset: name, Severity: model.SeverityHigh,
-				Message: fmt.Sprintf("%s is quantum-vulnerable and forbidden by policy", name), Locations: locs,
+				Message: fmt.Sprintf("%s is quantum-vulnerable and forbidden by policy", name), Locations: locs, Tags: n.Tags,
 			})
 		}
 		if p.ForbidHardcoded && n.Risk.Class == model.RiskHardcoded {
 			out = append(out, Violation{
 				Rule: "hardcoded", Asset: name, Severity: model.SeverityCritical,
-				Message: "hardcoded key material is forbidden by policy", Locations: locs,
+				Message: "hardcoded key material is forbidden by policy", Locations: locs, Tags: n.Tags,
 			})
 		}
 		if p.ForbidExpired && n.Risk.Class == model.RiskExpired {
 			out = append(out, Violation{
 				Rule: "expired", Asset: name, Severity: model.SeverityHigh,
-				Message: fmt.Sprintf("%s is expired", name), Locations: locs,
+				Message: fmt.Sprintf("%s is expired", name), Locations: locs, Tags: n.Tags,
 			})
 		}
 		if p.ForbidMisconfig && n.Risk.Class == model.RiskMisconfig {
 			out = append(out, Violation{
 				Rule: "misconfig", Asset: name, Severity: n.Risk.Severity,
-				Message: fmt.Sprintf("%s is a misconfiguration forbidden by policy", name), Locations: locs,
+				Message: fmt.Sprintf("%s is a misconfiguration forbidden by policy", name), Locations: locs, Tags: n.Tags,
 			})
 		}
 		if hasMax && n.Risk.Class != model.RiskNone && n.Risk.Severity > maxSev {
 			out = append(out, Violation{
 				Rule: "max-severity", Asset: name, Severity: n.Risk.Severity,
-				Message: fmt.Sprintf("%s severity %s exceeds policy maximum %s", name, n.Risk.Severity, p.MaxSeverity), Locations: locs,
+				Message: fmt.Sprintf("%s severity %s exceeds policy maximum %s", name, n.Risk.Severity, p.MaxSeverity), Locations: locs, Tags: n.Tags,
 			})
 		}
 	}

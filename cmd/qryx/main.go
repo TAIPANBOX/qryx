@@ -17,6 +17,7 @@ import (
 	awscloud "github.com/TAIPANBOX/qryx/internal/cloud/aws"
 	azurecloud "github.com/TAIPANBOX/qryx/internal/cloud/azure"
 	gcpcloud "github.com/TAIPANBOX/qryx/internal/cloud/gcp"
+	"github.com/TAIPANBOX/qryx/internal/exporter"
 	"github.com/TAIPANBOX/qryx/internal/graph"
 	"github.com/TAIPANBOX/qryx/internal/imagescan"
 	"github.com/TAIPANBOX/qryx/internal/model"
@@ -64,6 +65,7 @@ func run(args []string) error {
 		signKey   = fs.String("sign-key", "", "sign --format evidence with this PKCS#8 PEM key (ed25519, ECDSA P-256, or ML-DSA -- for ML-DSA, generate with: openssl genpkey -algorithm ML-DSA-44 -provparam ml-dsa.output_formats=seed-only)")
 		failRegr  = fs.Bool("fail-on-regression", false, "with trend: exit 3 if the latest compliance score is below the previous (CI)")
 		htmlOut   = fs.Bool("html", false, "with trend: render a self-contained HTML chart instead of a text table")
+		eventsArg = fs.String("events", "", "append findings/drift/violations/signed-evidence as agent-event NDJSON to this file, for subjects with a real agent_id (agents source only; see agent-passport SPEC.md §6)")
 	)
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage:\n  qryx scan [flags] <path>\n  qryx fix [--write] [--open-pr [--branch NAME]] [--min-rsa-bits N] <path>\n  qryx trend <evidence-trail.jsonl>\n  qryx verify-evidence <evidence.json>\n  qryx tls [flags] <host:port>...\n  qryx bin [flags] <file|dir>...\n  qryx image [flags] <image.tar>...\n  qryx aws [flags]\n  qryx gcp --project <id> [flags]\n  qryx azure --vault-url <url> [flags]\n  qryx agents [flags] <path>\n\nflags:\n")
@@ -189,6 +191,23 @@ func run(args []string) error {
 		return runFix(res, fixOptions{minRSABits: *minRSA, write: *write, openPR: *openPR, branch: *branch})
 	}
 
+	// Opt-in agent-event emission: only ever fires for findings/nodes/
+	// violations carrying a real agent_id, which today means the agents
+	// source (internal/agentstack); every other source's Tags has no
+	// agent concept, so events.EmitFindings et al. correctly emit nothing
+	// for a code/tls/bin/image/cloud scan even with --events set.
+	var events *exporter.Exporter
+	if *eventsArg != "" {
+		events, err = exporter.Open(*eventsArg)
+		if err != nil {
+			return fmt.Errorf("open events log: %w", err)
+		}
+		defer events.Close()
+		if err := events.EmitFindings(res.Findings); err != nil {
+			return err
+		}
+	}
+
 	if *save != "" {
 		if err := openStore(*save).Save(store.Snap(res)); err != nil {
 			return fmt.Errorf("save snapshot: %w", err)
@@ -206,6 +225,11 @@ func run(args []string) error {
 			return fmt.Errorf("load baseline: %w", err)
 		default:
 			delta = store.Diff(base, store.Snap(res))
+		}
+	}
+	if events != nil && !delta.Empty() {
+		if err := events.EmitDrift(delta.Added); err != nil {
+			return err
 		}
 	}
 
@@ -243,8 +267,14 @@ func run(args []string) error {
 				return fmt.Errorf("load sign key: %w", err)
 			}
 		}
-		if err := report.Evidence(os.Stdout, res, version, signer); err != nil {
+		sig, err := report.Evidence(os.Stdout, res, version, signer)
+		if err != nil {
 			return err
+		}
+		if events != nil && sig != nil {
+			if err := events.EmitEvidenceSigned(res.Findings, sig.Alg, attest.Fingerprint(*sig)); err != nil {
+				return err
+			}
 		}
 	case "dashboard":
 		if err := report.Dashboard(os.Stdout, res, version); err != nil {
@@ -301,6 +331,14 @@ func run(args []string) error {
 		}
 		violations := policy.Evaluate(pol, nodes)
 		report.Violations(os.Stderr, label, violations)
+		if events != nil {
+			// Before os.Exit below: os.Exit skips deferred calls, including
+			// defer events.Close() above, so the emit itself must happen
+			// first regardless of the exit code that follows.
+			if err := events.EmitViolations(violations); err != nil {
+				return err
+			}
+		}
 		if len(violations) > 0 {
 			os.Exit(3)
 		}

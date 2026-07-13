@@ -34,6 +34,9 @@ func TestPassportSpiffeSVID(t *testing.T) {
 	if f.Tags["owner"] != "team-support@acme-bank.example" {
 		t.Errorf("owner tag = %q", f.Tags["owner"])
 	}
+	if want := "agent://acme-bank.example/support/tier1-bot"; f.Tags["agent_id"] != want {
+		t.Errorf("agent_id tag = %q, want %q", f.Tags["agent_id"], want)
+	}
 	if f.Location.File != "testdata/passport-spiffe.json" {
 		t.Errorf("location = %q", f.Location.File)
 	}
@@ -56,6 +59,9 @@ func TestPassportNoAttestation(t *testing.T) {
 	}
 	if f.Tags["owner"] != "team-platform@acme-bank.example" {
 		t.Errorf("owner tag = %q", f.Tags["owner"])
+	}
+	if want := "agent://acme-bank.example/eng/ci-fixer/instance-7"; f.Tags["agent_id"] != want {
+		t.Errorf("agent_id tag = %q, want %q", f.Tags["agent_id"], want)
 	}
 }
 
@@ -95,6 +101,9 @@ func TestPassportAttestationMethods(t *testing.T) {
 			if f.Tags["owner"] != "team@acme-bank.example" {
 				t.Errorf("owner tag = %q", f.Tags["owner"])
 			}
+			if f.Tags["agent_id"] != "agent://acme-bank.example/x" {
+				t.Errorf("agent_id tag = %q", f.Tags["agent_id"])
+			}
 		})
 	}
 }
@@ -110,6 +119,12 @@ func TestEventsChained(t *testing.T) {
 	}
 	if f.Risk.Class != "" {
 		t.Errorf("risk class = %q, want empty (sha256 is fine; centrally classified)", f.Risk.Class)
+	}
+	// An event-stream finding is about the stream/file, not any one agent
+	// within it -- it must carry no agent_id tag at all, never a fabricated
+	// one, so package exporter correctly skips it (see exporter.agentIDFromTags).
+	if _, ok := f.Tags["agent_id"]; ok {
+		t.Errorf("event-stream finding must not carry an agent_id tag, got %q", f.Tags["agent_id"])
 	}
 }
 
