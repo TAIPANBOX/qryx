@@ -58,6 +58,16 @@ flowchart TB
 
 The full stack is TokenFuse (spend), Wardryx (policy), Engram (memory), Idryx (access), Qryx (crypto), Verdryx (quality), Mockryx (pre-prod), on the shared Agent Passport + agent-event contract (agent-stack-go / agent-passport), configured via terraform-provider-taipan.
 
+## Live infrastructure validation
+
+Before any public launch, Qryx was run against 25,586 real Linux ELF binaries, a real container image,
+and a live TLS endpoint: no crashes, and a live scan of `api.anthropic.com` correctly flagged its
+certificate as quantum-vulnerable under the NCSC 2035 timeline.
+
+![Qryx crypto inventory: 4 real targets scanned, 20 assets in /usr/bin, live TLS handshake against api.anthropic.com flagged](assets/08-qryx.png)
+
+Full write-up and the two real bugs live testing found (and fixed): [`VALIDATION.md`](VALIDATION.md).
+
 ---
 
 ## Why now
