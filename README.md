@@ -5,7 +5,7 @@
 **Discover what's encrypted, where, and with which algorithm — then assess quantum risk and migrate.**
 
 [![CI](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml)
-![Go](https://img.shields.io/badge/go-1.26-00ADD8.svg)
+![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Status](https://img.shields.io/badge/phase-4%20(governance)-success.svg)
 
@@ -163,7 +163,7 @@ sha256sum -c SHA256SUMS --ignore-missing
 ./qryx version
 ```
 
-Or build from source (Go 1.26+):
+Or build from source (Go 1.27; the pinned go1.27rc2 toolchain auto-downloads on first build):
 
 ```bash
 make build   # → ./bin/qryx
