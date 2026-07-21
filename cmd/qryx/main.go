@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -66,6 +67,7 @@ func run(args []string) error {
 		failRegr  = fs.Bool("fail-on-regression", false, "with trend: exit 3 if the latest compliance score is below the previous (CI)")
 		htmlOut   = fs.Bool("html", false, "with trend: render a self-contained HTML chart instead of a text table")
 		eventsArg = fs.String("events", "", "append findings/drift/violations/signed-evidence as agent-event NDJSON to this file, for subjects with a real agent_id (agents source only; see agent-passport SPEC.md §6)")
+		withTests = fs.Bool("include-tests", false, "count crypto found in test code (_test.go, testdata/, conftest.py, ...) as part of the production inventory; by default it is reported on stderr and excluded from the graph, the verdict and every format")
 	)
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage:\n  qryx scan [flags] <path>\n  qryx fix [--write] [--open-pr [--branch NAME]] [--min-rsa-bits N] <path>\n  qryx trend <evidence-trail.jsonl>\n  qryx verify-evidence <evidence.json>\n  qryx tls [flags] <host:port>...\n  qryx bin [flags] <file|dir>...\n  qryx image [flags] <image.tar>...\n  qryx aws [flags]\n  qryx gcp --project <id> [flags]\n  qryx azure --vault-url <url> [flags]\n  qryx agents [flags] <path>\n\nflags:\n")
@@ -189,6 +191,22 @@ func run(args []string) error {
 
 	if cmd == "fix" {
 		return runFix(res, fixOptions{minRSABits: *minRSA, write: *write, openPR: *openPR, branch: *branch})
+	}
+
+	// Split test code out ONCE, here, before anything downstream reads
+	// res.Findings: the --save snapshot, --events, the policy gate, the
+	// compliance verdict and every --format then agree on what production
+	// means, instead of each reporter deciding for itself. A baseline that
+	// included fixtures would also make --fail-on-new fire on a new test, which
+	// is not what a drift gate is for.
+	//
+	// Never silently: findings set aside are counted and named on stderr, so
+	// nothing disappears without the operator being told where it went, and
+	// stdout stays clean for the machine formats.
+	if !*withTests {
+		var setAside []model.Finding
+		res.Findings, setAside = scan.PartitionTests(res.Findings)
+		reportSetAside(os.Stderr, setAside, res.Findings)
 	}
 
 	// Opt-in agent-event emission: only ever fires for findings/nodes/
@@ -433,6 +451,39 @@ func runBin(paths []string) (*scan.Result, error) {
 
 // openStore selects a snapshot backend by target: a postgres:// or postgresql://
 // URL uses Postgres, anything else is treated as a JSON file path.
+// reportSetAside tells the operator, on stderr, what was excluded as test code
+// and how much of it exists nowhere else.
+//
+// The "only in test code" count is the one that changes a decision: an asset
+// that also appears in production is still on the migration list and merely had
+// its occurrence count corrected, whereas one that exists ONLY in fixtures was
+// never production crypto debt at all and would have been inflating the number
+// an operator is trying to drive to zero.
+//
+// Identity comes from graph.AssetKey, never a locally invented key: that
+// identity deliberately includes risk class, and a hand-rolled one that omitted
+// it would fold two distinct assets into one and undercount.
+func reportSetAside(w io.Writer, setAside, production []model.Finding) {
+	if len(setAside) == 0 {
+		return
+	}
+	inProduction := map[string]bool{}
+	for _, n := range graph.Build(production) {
+		inProduction[graph.AssetKey(n.Asset, n.Risk.Class)] = true
+	}
+	onlyTest := 0
+	for _, n := range graph.Build(setAside) {
+		if !inProduction[graph.AssetKey(n.Asset, n.Risk.Class)] {
+			onlyTest++
+		}
+	}
+	fmt.Fprintf(w, "qryx: %d finding(s) in test code excluded from the production inventory", len(setAside))
+	if onlyTest > 0 {
+		fmt.Fprintf(w, "; %d asset(s) exist only there", onlyTest)
+	}
+	fmt.Fprintln(w, ". Pass --include-tests to count them.")
+}
+
 func openStore(target string) store.Store {
 	if strings.HasPrefix(target, "postgres://") || strings.HasPrefix(target, "postgresql://") {
 		return store.PostgresStore{ConnString: target}

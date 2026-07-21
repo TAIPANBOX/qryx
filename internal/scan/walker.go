@@ -96,11 +96,20 @@ func (s *Scanner) Scan(root string) (*Result, error) {
 		res.FilesWalked++
 
 		file := File{Path: rel, Content: content}
+		isTest := IsTestPath(rel)
 		for _, det := range s.detectors {
 			if !det.Wants(rel) {
 				continue
 			}
-			res.Findings = append(res.Findings, det.Detect(file)...)
+			found := det.Detect(file)
+			// Stamped here rather than in each detector: the walker is the one
+			// place that knows the path every finding in this batch came from,
+			// so no detector can forget to set it and quietly leak test
+			// findings into the production inventory.
+			for i := range found {
+				found[i].Location.IsTest = isTest
+			}
+			res.Findings = append(res.Findings, found...)
 		}
 		return nil
 	})

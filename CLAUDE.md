@@ -179,6 +179,21 @@ CBOM/CNSA -> policy gate (+drift) -> remediation (fix/PR) -> evidence
   `policy_violation` correctly emits only for the one violation with a
   real agent_id even when the human-readable report shows two.
 
+- Test/production separation: crypto found in test code (`_test.go`,
+  `testdata/`, `__tests__/`, `conftest.py`, `*.spec.ts`, ...) is classified at
+  walk time (`internal/scan/testpath.go`, stamped onto `model.Location.IsTest`
+  by the walker so no detector can forget) and split out ONCE in the shared
+  tail of `cmd/qryx/main.go` via `scan.PartitionTests`, before the graph,
+  `--save`, `--events`, the policy gate and every `--format` read the findings.
+  So they cannot disagree about what production means. Excluded by default,
+  `--include-tests` restores the old behaviour; a stderr line always says how
+  much was set aside and how many assets exist only there (identity via
+  `graph.AssetKey`, never a hand-rolled key, so risk class stays part of it).
+  Measured on this repo: 13 assets -> 5 and 40 occurrences -> 19, with 8 assets
+  existing only in fixtures. `examples/` is deliberately NOT test code: example
+  code is shipped and copied. Non-filesystem sources (tls/bin/image/cloud) are
+  always production, which is the correct zero value.
+
 **No remaining deliberate deferrals** -- both items tracked here (ML-DSA
 signing, agent-event export) are done. Revisit `go.mod`'s
 `toolchain go1.27rc2` pin once Go 1.27 GA ships, to drop the

@@ -119,6 +119,24 @@ Every asset is scored against a post-quantum and hygiene model:
 | `hardcoded` | private keys in source/config | secrets embedded in the tree |
 | `safe` | ML-KEM · ML-DSA · SLH-DSA | post-quantum (FIPS 203/204/205) |
 
+### Test code is not production crypto debt
+
+Crypto found in test code (`_test.go`, `testdata/`, `__tests__/`, `conftest.py`,
+`*.spec.ts`, and the rest of the language conventions) is scanned and counted,
+then **excluded from the production inventory**: from the asset graph, the
+compliance verdict, the policy gate, the `--save` baseline and every `--format`.
+One line on stderr says how much was set aside and how much of it exists nowhere
+else. `--include-tests` counts it as production instead.
+
+This is not cosmetic. Scanning this repository, 8 of 13 assets existed **only**
+in test fixtures, and 21 of 40 occurrences were test code. A hardcoded-key
+finding in a sibling repo reported three occurrences, two of which were fixtures
+in `tests/`. Counting those inflates the number an operator is trying to drive to
+zero and buries the findings they actually have to migrate.
+
+Test findings are never dropped silently, because a hardcoded key in a fixture is
+still a key on disk. They are separated, not hidden.
+
 ---
 
 ## Drift detection in CI

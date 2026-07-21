@@ -37,6 +37,17 @@ type Asset struct {
 type Location struct {
 	File string
 	Line int // 0 if not line-specific
+	// IsTest marks a location that is test code (a `_test.go`, a `testdata/`
+	// tree, a `conftest.py`), as decided by scan.IsTestPath. Findings here are
+	// reported, but kept out of the production inventory and out of the
+	// compliance verdict: counting a fixture key as production cryptography
+	// inflates the number an operator is trying to drive down, and buries the
+	// findings they actually have to migrate.
+	//
+	// False for every source that has no filesystem path to judge (a TLS probe,
+	// a cloud KMS inventory, a binary or image scan), which is the honest
+	// default: those are all production surfaces.
+	IsTest bool
 }
 
 // RiskClass categorizes why an asset is a concern.
