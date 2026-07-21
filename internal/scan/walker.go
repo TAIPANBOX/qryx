@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/TAIPANBOX/qryx/internal/model"
 	"github.com/TAIPANBOX/qryx/internal/risk"
@@ -97,6 +98,14 @@ func (s *Scanner) Scan(root string) (*Result, error) {
 
 		file := File{Path: rel, Content: content}
 		isTest := IsTestPath(rel)
+		// Rust hides its tests inside the production file (`#[cfg(test)] mod
+		// tests { ... }`), so a path check alone leaves fixture crypto in the
+		// production inventory. For a `.rs` that is not already test-by-path,
+		// find the test line ranges once and judge each finding by its line.
+		var rustTest map[int]bool
+		if !isTest && strings.HasSuffix(rel, ".rs") {
+			rustTest = rustTestLines(content)
+		}
 		for _, det := range s.detectors {
 			if !det.Wants(rel) {
 				continue
@@ -107,7 +116,7 @@ func (s *Scanner) Scan(root string) (*Result, error) {
 			// so no detector can forget to set it and quietly leak test
 			// findings into the production inventory.
 			for i := range found {
-				found[i].Location.IsTest = isTest
+				found[i].Location.IsTest = isTest || rustTest[found[i].Location.Line]
 			}
 			res.Findings = append(res.Findings, found...)
 		}

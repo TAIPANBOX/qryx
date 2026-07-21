@@ -82,3 +82,77 @@ func TestPartitionTestsWithNothingToSplit(t *testing.T) {
 		t.Errorf("empty input must produce two empty halves, got %v / %v", prod, test)
 	}
 }
+
+func TestRustTestLines(t *testing.T) {
+	// A production file with an inline #[cfg(test)] module, the dominant Rust
+	// idiom that a path check alone cannot see. Line 4's key is production;
+	// line 9's identical-looking key, inside the test module, is not.
+	src := []byte(`fn load() -> Key {
+    // real production key material would be a finding here
+    let embedded = "-----BEGIN EC PRIVATE KEY-----\nreal\n-----END EC PRIVATE KEY-----";
+    parse(embedded)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn rejects_garbage() {
+        assert!(parse("-----BEGIN EC PRIVATE KEY-----\nnope\n-----END EC PRIVATE KEY-----").is_none());
+    }
+}
+`)
+	tl := rustTestLines(src)
+
+	// Production lines must NOT be marked test.
+	for _, ln := range []int{1, 3, 4, 5} {
+		if tl[ln] {
+			t.Errorf("line %d is production but was marked test", ln)
+		}
+	}
+	// The #[cfg(test)] mod and everything inside it must be marked test.
+	for _, ln := range []int{7, 8, 9, 10, 11, 12, 13} {
+		if !tl[ln] {
+			t.Errorf("line %d is inside #[cfg(test)] but was not marked test", ln)
+		}
+	}
+}
+
+func TestRustTestLinesInnerAttributeMarksWholeFile(t *testing.T) {
+	src := []byte("#![cfg(test)]\nfn helper() {}\nconst K: &str = \"AKIAIOSFODNN7EXAMPLE\";\n")
+	tl := rustTestLines(src)
+	for ln := 1; ln <= 3; ln++ {
+		if !tl[ln] {
+			t.Errorf("line %d: #![cfg(test)] makes the whole module test-only", ln)
+		}
+	}
+}
+
+func TestRustTestLinesNoTestModuleMarksNothing(t *testing.T) {
+	// A pure production file: not one line may be classified as test, or real
+	// crypto debt would be hidden (the costly direction).
+	src := []byte("fn f() {\n    let k = \"-----BEGIN RSA PRIVATE KEY-----\";\n}\n")
+	tl := rustTestLines(src)
+	if len(tl) != 0 {
+		t.Fatalf("a file with no #[cfg(test)] must mark zero test lines, got %d", len(tl))
+	}
+}
+
+func TestRustTestLinesBraceInStringDoesNotEndRegionEarly(t *testing.T) {
+	// A brace living in a string inside the test module must not close the
+	// region: the later assertion is still test code.
+	src := []byte(`#[cfg(test)]
+mod tests {
+    fn t() {
+        let s = "a } brace in a string";
+        assert_eq!(bad_key(), "-----BEGIN PRIVATE KEY-----");
+    }
+}
+`)
+	tl := rustTestLines(src)
+	if !tl[5] {
+		t.Error("line 5 is still inside the test module; a string brace must not end the region")
+	}
+	if tl[8] {
+		t.Error("line 8 is after the module close and must be production")
+	}
+}
