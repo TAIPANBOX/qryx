@@ -137,6 +137,14 @@ remediation. Connectors differ, the engine is shared.
 - Compliance dashboards and evidence export.
 
 ## Monetization (open-core)
+
+> **Historical note (2026-07-22).** This section records the original open-core
+> monetization plan and is kept as an archive of that thinking. The current model
+> is simpler: everything in this repo is Apache-2.0, fully open source and free
+> to self-host, with no paid Qryx tiers. The only commercial product is a
+> separate secured, managed enterprise control room over the whole stack, not a
+> paid tier of Qryx.
+
 OSS: scanner + CBOM generator + basic risk (adoption, trust, self-hosting).
 Paid: cloud connectors, crypto-agility/migration, CI enforcement, governance
 dashboards, compliance reports, SaaS hosting. The check grows with inventory
