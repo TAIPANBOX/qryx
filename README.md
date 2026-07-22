@@ -17,7 +17,7 @@ qryx builds an organization-wide inventory of cryptography across code,
 binaries, container images, live TLS endpoints, certificates, dependencies and
 cloud KMS — normalizes it into a single **cryptographic asset graph**, scores
 each asset for post-quantum and hygiene risk, and emits a standard **CBOM**
-(CycloneDX). Open-core, dev-first, built for mid-market. See
+(CycloneDX). Open source, dev-first, built for mid-market. See
 [`qryx-plan.md`](./qryx-plan.md) for the full design and roadmap.
 
 ---
