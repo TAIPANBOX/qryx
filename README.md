@@ -58,6 +58,8 @@ flowchart TB
 
 The full stack is TokenFuse (spend), Wardryx (policy), Engram (memory), Idryx (access), Qryx (crypto), Verdryx (quality), Mockryx (pre-prod), on the shared Agent Passport + agent-event contract (agent-stack-go / agent-passport), configured via terraform-provider-taipan.
 
+Run the whole open stack locally with one command via [**stack-up**](https://github.com/TAIPANBOX/stack-up); the stack's home on the web is [**it-rat.com**](https://it-rat.com).
+
 ## Live infrastructure validation
 
 Before any public launch, Qryx was run against 25,586 real Linux ELF binaries, a real container image,
@@ -126,7 +128,10 @@ Crypto found in test code (`_test.go`, `testdata/`, `__tests__/`, `conftest.py`,
 then **excluded from the production inventory**: from the asset graph, the
 compliance verdict, the policy gate, the `--save` baseline and every `--format`.
 One line on stderr says how much was set aside and how much of it exists nowhere
-else. `--include-tests` counts it as production instead.
+else. `--include-tests` counts it as production instead. The classification is
+not only path-based: Rust's in-file `#[cfg(test)]` blocks are recognized too,
+so an inline test module inside a production `.rs` file is set aside just like
+a `_test.go` file, while the production code around it still counts.
 
 This is not cosmetic. Scanning this repository, 8 of 13 assets existed **only**
 in test fixtures, and 21 of 40 occurrences were test code. A hardcoded-key
@@ -506,6 +511,10 @@ qryx trend 'postgres://user:pass@host:5432/db'
   shipped `agent_id`-as-evidence-subject as a consumer); `crypto_finding`,
   `crypto_drift`, `policy_violation`, `evidence_signed` per SPEC.md §6.2,
   agent_id never fabricated; live-verified end to end for all four types
+- [x] Test/production separation: test-code findings (language path conventions
+  plus Rust's in-file `#[cfg(test)]` blocks) are counted and reported but
+  excluded from the production inventory by default; `--include-tests` restores
+  the old behaviour
 
 Roadmap and rationale: [`qryx-plan.md`](./qryx-plan.md).
 
