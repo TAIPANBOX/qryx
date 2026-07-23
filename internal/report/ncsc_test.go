@@ -182,6 +182,30 @@ func TestNCSCHTMLOutput(t *testing.T) {
 	}
 }
 
+// TestNCSCExcludesNonCryptographicAssetTypes pins that ai-usage findings
+// (model.TypeAIModel) never enter this report's coverage/total counts or
+// verdicts: this report is specifically about cryptography discovery and
+// PQC migration, so a scan containing only AI-SDK usage and zero
+// cryptography must read as "not-started", not "on-track": the verdict
+// must not flip just because non-cryptographic findings existed.
+func TestNCSCExcludesNonCryptographicAssetTypes(t *testing.T) {
+	res := &scan.Result{Root: "test", Findings: []model.Finding{
+		{
+			Asset:    model.Asset{Type: model.TypeAIModel, Algorithm: "OpenAI SDK (python)", Primitive: model.PrimitiveUnknown},
+			Location: model.Location{File: "agent.py", Line: 2},
+			Source:   "aiusage",
+			Risk:     model.Risk{Class: model.RiskNone, Severity: model.SeverityInfo},
+		},
+	}}
+	rep := buildNCSC(res)
+	if rep.Discovery2028.TotalInventoried != 0 {
+		t.Errorf("TotalInventoried = %d, want 0 (ai-usage excluded)", rep.Discovery2028.TotalInventoried)
+	}
+	if rep.Discovery2028.Verdict != verdictNotStarted {
+		t.Errorf("Discovery2028.Verdict = %q, want %q (a crypto-empty scan must not read on-track just because ai-usage findings exist)", rep.Discovery2028.Verdict, verdictNotStarted)
+	}
+}
+
 func TestNCSCHighestPriorityCriteriaDocumented(t *testing.T) {
 	res := &scan.Result{Root: "test"}
 	rep := buildNCSC(res)

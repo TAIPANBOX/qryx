@@ -1,7 +1,10 @@
 // Package model defines the core data types of the qryx cryptography graph.
 package model
 
-// AssetType is the kind of cryptographic asset discovered.
+// AssetType is the kind of asset discovered. Most values are cryptographic
+// assets in the strict sense (an algorithm, key, certificate, protocol, or
+// crypto library); TypeAIModel is a deliberate exception (see its doc comment
+// and IsCryptographic below).
 type AssetType string
 
 const (
@@ -10,7 +13,44 @@ const (
 	TypeCertificate AssetType = "certificate"
 	TypeProtocol    AssetType = "protocol"
 	TypeLibrary     AssetType = "library"
+
+	// TypeAIModel marks an AI/LLM usage inventory finding: an operator's own
+	// code declaring, importing, or calling out to an LLM SDK/provider
+	// (detected by internal/scan/detectors/aiusage.go). This is NOT a
+	// cryptographic asset: it shares the finding/graph/report pipeline for
+	// visibility (so an operator gets one inventory of their own code, not two
+	// tools), but it is deliberately kept off the parts of that pipeline that
+	// are specifically a cryptography grade (see IsCryptographic).
+	TypeAIModel AssetType = "ai-usage"
 )
+
+// IsCryptographic reports whether t is itself a cryptographic artifact, as
+// opposed to a non-cryptographic inventory fact (currently only TypeAIModel)
+// that rides the same finding/graph pipeline for visibility.
+//
+// Crypto-specific reports key on this to stay honest: a CycloneDX CBOM (a
+// "Cryptography Bill of Materials"), a CNSA 2.0 audit, and an NCSC PQC
+// migration readiness verdict are all specifically about cryptography, so
+// folding a non-cryptographic fact into them (an AI-SDK dependency rendering
+// as a CycloneDX "cryptographic-asset" component, or inflating a CNSA
+// "compliant" count, or flipping an NCSC discovery verdict from not-started
+// to on-track) would misrepresent both the finding and the report. See
+// internal/report/cbom.go's CBOM, cnsa.go's buildEntries, and ncsc.go's
+// buildNCSC. The general-purpose views (human, html, the raw JSON findings,
+// --save/--baseline drift) are unaffected: they show every asset type in the
+// graph and are not scoped to cryptography.
+//
+// New asset types default to non-cryptographic (false) until deliberately
+// reviewed and added to the switch below: the safer direction for a
+// compliance report is to under-include, not over-include, what it grades.
+func (t AssetType) IsCryptographic() bool {
+	switch t {
+	case TypeAlgorithm, TypeKey, TypeCertificate, TypeProtocol, TypeLibrary:
+		return true
+	default:
+		return false
+	}
+}
 
 // Primitive is what the asset is used for.
 type Primitive string
@@ -25,7 +65,9 @@ const (
 )
 
 // Asset is a single cryptographic primitive, key, certificate, protocol or
-// library identified in the scanned target.
+// library identified in the scanned target, or (when Type is TypeAIModel) an
+// AI/LLM usage inventory fact riding the same shape for visibility; see
+// AssetType.IsCryptographic for how the two are told apart downstream.
 type Asset struct {
 	Type      AssetType
 	Algorithm string // normalized, e.g. "RSA", "AES", "SHA-1"

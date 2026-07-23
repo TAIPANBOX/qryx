@@ -175,6 +175,37 @@ func TestCNSAJSONOutputSurfacesBothRisksOnExpiredQuantumVulnerableCert(t *testin
 	}
 }
 
+// TestCNSAExcludesNonCryptographicAssetTypes pins that an ai-usage finding
+// (model.TypeAIModel) never counts toward the CNSA 2.0 audit: it is not a
+// cryptography question, so it must not be graded "compliant" (which would
+// misleadingly imply CNSA 2.0 was consulted and found no issue) or dilute
+// the summary counts. A real, non-compliant MD5 finding alongside it must
+// still be reported normally.
+func TestCNSAExcludesNonCryptographicAssetTypes(t *testing.T) {
+	res := &scan.Result{Root: "test", Findings: []model.Finding{
+		{Asset: model.Asset{Type: model.TypeAlgorithm, Algorithm: "MD5"}, Location: model.Location{File: "a.go", Line: 1}, Risk: model.Risk{Class: model.RiskWeak, Severity: model.SeverityHigh}},
+		{Asset: model.Asset{Type: model.TypeAIModel, Algorithm: "Anthropic SDK (python)", Primitive: model.PrimitiveUnknown}, Location: model.Location{File: "requirements.txt", Line: 3}, Source: "aiusage", Risk: model.Risk{Class: model.RiskNone, Severity: model.SeverityInfo}},
+	}}
+
+	var buf bytes.Buffer
+	if err := CNSA(&buf, res); err != nil {
+		t.Fatal(err)
+	}
+	var rep cnsaReport
+	if err := json.Unmarshal(buf.Bytes(), &rep); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if rep.Summary.Total != 1 {
+		t.Fatalf("total=%d want 1 (ai-usage excluded)", rep.Summary.Total)
+	}
+	if rep.Summary.NonCompliant != 1 || rep.Summary.Compliant != 0 {
+		t.Errorf("compliant=%d nonCompliant=%d, want 0/1", rep.Summary.Compliant, rep.Summary.NonCompliant)
+	}
+	if len(rep.Assets) != 1 || rep.Assets[0].Algorithm != "MD5" {
+		t.Errorf("assets=%+v, want only MD5", rep.Assets)
+	}
+}
+
 func TestCNSAHTMLOutput(t *testing.T) {
 	res := &scan.Result{Root: "test", Findings: []model.Finding{
 		{Asset: model.Asset{Type: model.TypeAlgorithm, Algorithm: "RSA"}, Location: model.Location{File: "a.go", Line: 1}, Risk: model.Risk{Class: model.RiskQuantumVulnerable, Severity: model.SeverityHigh}},

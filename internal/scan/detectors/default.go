@@ -13,5 +13,6 @@ func Default() []scan.Detector {
 		NewHardcoded(),
 		NewDeps(),
 		NewTerraform(),
+		NewAIUsage(),
 	}
 }
