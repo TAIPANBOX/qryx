@@ -237,8 +237,25 @@ const remediationNote = "qryx does not track remediation state across runs withi
 
 // buildNCSC assembles the three milestones from a scan. Shared by the JSON
 // (NCSC) and HTML (NCSCHTML) renderers so they can never disagree.
+//
+// Nodes are filtered to cryptographic asset types first: this report is
+// specifically about "a full inventory of quantum-vulnerable cryptography"
+// (2028) through "all systems migrated" (2035). A non-cryptographic
+// inventory fact (e.g. an ai-usage finding) can never be quantum-vulnerable,
+// so it never reaches quantumNodes below either way, but left unfiltered it
+// would still inflate Discovery2028.TotalInventoried/CoverageBySource with
+// occurrences that were never a cryptography discovery question, which can
+// flip the 2028 verdict from not-started to on-track purely because
+// non-crypto findings existed in an otherwise crypto-empty scan. See
+// model.AssetType.IsCryptographic.
 func buildNCSC(res *scan.Result) ncscReport {
-	nodes := graph.Build(res.Findings)
+	all := graph.Build(res.Findings)
+	nodes := make([]graph.AssetNode, 0, len(all))
+	for _, n := range all {
+		if n.Asset.Type.IsCryptographic() {
+			nodes = append(nodes, n)
+		}
+	}
 
 	rep := ncscReport{
 		Standard:    ncscStandard,

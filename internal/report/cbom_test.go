@@ -117,3 +117,41 @@ func TestCBOMBomRefUniqueAcrossRiskClasses(t *testing.T) {
 		t.Errorf("bom-ref values collided across components (CycloneDX requires bom-ref to be unique): %+v", doc.Components)
 	}
 }
+
+// TestCBOMExcludesNonCryptographicAssetTypes pins that a CBOM, a
+// CycloneDX Cryptography Bill of Materials, stays scoped to actual
+// cryptography. An ai-usage finding (model.TypeAIModel) is an inventory
+// fact, not a cryptographic asset, so it must not appear as a
+// "cryptographic-asset" component; the real RSA finding alongside it must
+// still appear normally.
+func TestCBOMExcludesNonCryptographicAssetTypes(t *testing.T) {
+	res := &scan.Result{Root: "test", Findings: []model.Finding{
+		{
+			Asset:    model.Asset{Type: model.TypeAlgorithm, Algorithm: "RSA", KeySize: 2048, Primitive: model.PrimitiveSignature},
+			Location: model.Location{File: "a.go", Line: 5},
+			Source:   "goast",
+			Risk:     model.Risk{Class: model.RiskQuantumVulnerable, Severity: model.SeverityHigh},
+		},
+		{
+			Asset:    model.Asset{Type: model.TypeAIModel, Algorithm: "OpenAI SDK (python)", Primitive: model.PrimitiveUnknown},
+			Location: model.Location{File: "agent.py", Line: 2},
+			Source:   "aiusage",
+			Risk:     model.Risk{Class: model.RiskNone, Severity: model.SeverityInfo},
+		},
+	}}
+
+	var buf bytes.Buffer
+	if err := CBOM(&buf, res, "0.0.0-test"); err != nil {
+		t.Fatal(err)
+	}
+	var doc cbomDoc
+	if err := json.Unmarshal(buf.Bytes(), &doc); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(doc.Components) != 1 {
+		t.Fatalf("got %d components, want 1 (ai-usage excluded): %+v", len(doc.Components), doc.Components)
+	}
+	if doc.Components[0].Name != "RSA-2048" {
+		t.Errorf("surviving component = %q, want RSA-2048", doc.Components[0].Name)
+	}
+}

@@ -216,8 +216,22 @@ func CNSA(w io.Writer, res *scan.Result) error {
 
 // buildEntries classifies all graph nodes and sorts by deadline urgency then
 // occurrence count (descending).
+//
+// Nodes are filtered to cryptographic asset types first: CNSA 2.0 is a
+// cryptography standard, so grading a non-cryptographic inventory fact (e.g.
+// an ai-usage finding) against it and calling the result "compliant" would
+// misrepresent both the finding and the report, and, via buildEvidence and
+// the dashboard which both reuse this, would quietly dilute the CNSA
+// compliance score with something that was never a cryptography question in
+// the first place. See model.AssetType.IsCryptographic.
 func buildEntries(res *scan.Result) []cnsaEntry {
-	nodes := graph.Build(res.Findings)
+	all := graph.Build(res.Findings)
+	nodes := make([]graph.AssetNode, 0, len(all))
+	for _, n := range all {
+		if n.Asset.Type.IsCryptographic() {
+			nodes = append(nodes, n)
+		}
+	}
 	entries := make([]cnsaEntry, len(nodes))
 	for i, n := range nodes {
 		entries[i] = cnsaStatus(n)

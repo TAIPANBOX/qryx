@@ -98,7 +98,7 @@ deduplicated into a graph of unique assets, each carrying every place it occurs.
 | Stage | What it covers |
 |---|---|
 | **Sources** | source code (Go · Python · JS · TS), Terraform/HCL, binaries (ELF · PE · Mach-O), container images (`docker save` / OCI), live TLS endpoints, PEM/x509 certificates, dependency manifests, cloud KMS (AWS KMS + ACM · GCP KMS · Azure Key Vault), AI-agent infrastructure (Agent Passport identity docs + agent-event NDJSON streams) |
-| **Scan engine** | AST + parser detectors (`goast`, `cryptocall`, `certfile`, `tlsconfig`, `hardcoded`, `deps`, `terraform`), the binary/image/TLS/cloud connectors, and the risk classifier |
+| **Scan engine** | AST + parser detectors (`goast`, `cryptocall`, `certfile`, `tlsconfig`, `hardcoded`, `deps`, `terraform`, `aiusage`), the binary/image/TLS/cloud connectors, and the risk classifier |
 | **Asset graph** | one node per logical asset **and risk class** (algorithm + key size + risk class), deduplicated across all sources, with every occurrence attached |
 | **Outputs** | CycloneDX 1.6 CBOM · human · HTML · CNSA 2.0 audit · NCSC PQC readiness · migration plan · signed evidence attestation · governance dashboard · JSON/Postgres snapshots · CI drift, severity & policy gates |
 
@@ -141,6 +141,64 @@ zero and buries the findings they actually have to migrate.
 
 Test findings are never dropped silently, because a hardcoded key in a fixture is
 still a key on disk. They are separated, not hidden.
+
+---
+
+## AI usage inventory
+
+qryx also inventories an operator's own use of LLM/AI provider SDKs and
+endpoints across their own source tree: the `aiusage` detector. This is a
+defensive, self-inventory capability, not a scanner of someone else's code or
+systems. It exists so an operator can see, and govern, where their own systems
+already talk to a model, which is a precondition for the EU AI Act's
+code-inventory expectations around AI system usage.
+
+It detects three things, each with a file and line:
+
+- **Dependency-manifest entries**: `openai`, `anthropic`, `@anthropic-ai/sdk`,
+  `@ai-sdk/*`, `langchain`/`langgraph`, `google-generativeai`/`google-genai`,
+  `cohere`, `mistralai`, `litellm`, `ollama`, `groq`, `together`, `replicate`,
+  `huggingface_hub` in `go.mod` · `requirements.txt` · `package.json` ·
+  `Cargo.toml` · `pom.xml`. `transformers` is flagged too, but labeled "local
+  model runtime" rather than a hosted LLM call, since it is HuggingFace's
+  local inference library as much as an API client. `boto3` alone is never
+  flagged: it is AWS's general-purpose SDK, not an LLM SDK.
+- **Source-level imports/calls**: `import openai`, `from anthropic import`,
+  `require('openai')`, `import Anthropic from '@anthropic-ai/sdk'`, and the Go
+  import paths `github.com/sashabaranov/go-openai` /
+  `github.com/anthropics/anthropic-sdk-go`, across Python, JS/TS and Go.
+- **API endpoint literals**: `api.openai.com`, `api.anthropic.com`,
+  `generativelanguage.googleapis.com`, the AWS Bedrock runtime endpoint,
+  `api.mistral.ai`, `api.cohere.ai`/`api.cohere.com`, `api.groq.com`,
+  `api.together.xyz`, `openrouter.ai`, `api.perplexity.ai`,
+  `api.replicate.com`, anywhere they appear as a string literal, not only in
+  code recognized by the two passes above.
+
+**It is informational, never a cryptographic risk.** Every finding carries a
+new `ai-usage` asset type (`model.TypeAIModel`), not one of the cryptographic
+asset types, and an explicit `info`-severity, no-risk-class result. It shows
+up in `human`/`html` output and in `--save`/`--baseline` drift like anything
+else qryx finds, but it is deliberately excluded from the reports that are
+specifically a cryptography grade (CycloneDX CBOM, the CNSA 2.0 audit, and
+the NCSC PQC readiness verdict), so it can never render as a
+"cryptographic-asset" component, inflate a compliance score, or flip a
+migration verdict. It cannot trip `--fail-on`, `--fail-on-new`, or a
+`--policy` gate by itself, by design: those all key on a finding's risk class,
+and this one never carries one.
+
+**Honest limits.** Detection is regex-over-content, the same approach
+`cryptocall` uses for Python/JS/TS (a Go-AST resolution path, like `goast`
+uses for crypto imports, is a plausible future upgrade but not justified for
+this first version). That means it reliably catches declared imports, `require`
+calls, dependency-manifest entries, and literal endpoint strings, but it
+cannot see a dynamically constructed import name or an endpoint URL built at
+runtime from configuration, and matching an import or an endpoint string does
+not prove an LLM is actually called: the code might reference it in a
+disabled branch, a comment, or a code path never exercised. This detector is
+the static, code-side half of the inventory; confirming that a call actually
+happens at runtime is a different source (idryx's eBPF network view), and
+correlating the two (declared-but-never-called, or called-but-undeclared) is
+a future step, not something this detector does today.
 
 ---
 

@@ -89,6 +89,14 @@ func CBOM(w io.Writer, res *scan.Result, version string) error {
 	}
 
 	for _, node := range graph.Build(res.Findings) {
+		// A CBOM is specifically a Cryptography Bill of Materials: every
+		// component here is typed "cryptographic-asset" below. A
+		// non-cryptographic inventory fact (e.g. an ai-usage finding) would
+		// misrepresent the document if it rode along, so it is excluded
+		// rather than mislabeled. See model.AssetType.IsCryptographic.
+		if !node.Asset.Type.IsCryptographic() {
+			continue
+		}
 		doc.Components = append(doc.Components, toComponent(node))
 	}
 
