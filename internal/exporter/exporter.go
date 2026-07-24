@@ -38,16 +38,16 @@ const (
 	TypeEvidenceSigned  = "evidence_signed"
 )
 
-// Exporter wraps an agent-stack-go event.Writer. The zero value is not
-// usable; construct with Open.
+// Exporter wraps an agent-stack-go event.ChainedWriter. The zero value is
+// not usable; construct with Open.
 type Exporter struct {
-	w *event.Writer
+	w *event.ChainedWriter
 }
 
 // Open opens path for append (creating it if it does not already exist)
 // and returns an Exporter. Callers must Close when done.
 func Open(path string) (*Exporter, error) {
-	w, err := event.NewWriter(path)
+	w, err := event.NewChainedWriter(path)
 	if err != nil {
 		return nil, err
 	}
@@ -56,6 +56,22 @@ func Open(path string) (*Exporter, error) {
 
 // Close closes the underlying event log file.
 func (e *Exporter) Close() error { return e.w.Close() }
+
+// ResumedFrom reports the chain hash this Exporter's writer resumed from at
+// Open, or "" when it started a fresh chain (an empty or malformed file
+// tail).
+func (e *Exporter) ResumedFrom() string { return e.w.ResumedFrom() }
+
+// ChainPreview returns a short, log-safe preview of a SPEC 6.5 chain hash
+// ("sha256:" plus its first 12 hex characters): enough for cmd/qryx to note
+// a resume across restarts without printing the full digest.
+func ChainPreview(hash string) string {
+	const n = len(event.ChainHashPrefix) + 12
+	if len(hash) <= n {
+		return hash
+	}
+	return hash[:n]
+}
 
 // agentIDFromTags returns tags["agent_id"] and whether it was present and
 // non-empty -- the one place this package decides whether a real subject

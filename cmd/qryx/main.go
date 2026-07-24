@@ -221,6 +221,11 @@ func run(args []string) error {
 			return fmt.Errorf("open events log: %w", err)
 		}
 		defer events.Close()
+		if resumed := events.ResumedFrom(); resumed != "" {
+			fmt.Fprintf(os.Stderr, "qryx: resumed the event chain in %s from %s\n", *eventsArg, exporter.ChainPreview(resumed))
+		} else {
+			fmt.Fprintf(os.Stderr, "qryx: starting a fresh event chain in %s\n", *eventsArg)
+		}
 		if err := events.EmitFindings(res.Findings); err != nil {
 			return err
 		}
