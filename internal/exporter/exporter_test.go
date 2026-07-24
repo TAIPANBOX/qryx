@@ -269,3 +269,87 @@ func TestEmittedLinesAreValidNDJSON(t *testing.T) {
 		}
 	}
 }
+
+// ------------------------------------------------------------------
+// SPEC 6.5 prev_hash chain (agent-stack-go event.ChainedWriter). Proves the
+// chain is actually wired through Exporter, not just present in
+// agent-stack-go: three real events via EmitFindings, a reopen (simulating
+// qryx running again against the same --events path) that must CONTINUE
+// the chain rather than start a second head, and a final event.VerifyChain
+// over the whole file.
+// ------------------------------------------------------------------
+
+func TestExportedEventsChainAcrossEmitsAndResume(t *testing.T) {
+	e, path := mustOpen(t)
+	if e.ResumedFrom() != "" {
+		t.Fatalf("fresh file must start a fresh chain, got %q", e.ResumedFrom())
+	}
+	findings := []model.Finding{
+		{Tags: map[string]string{"agent_id": "agent://acme.example/a"}, Risk: model.Risk{Severity: model.SeverityHigh}},
+		{Tags: map[string]string{"agent_id": "agent://acme.example/b"}, Risk: model.Risk{Severity: model.SeverityLow}},
+		{Tags: map[string]string{"agent_id": "agent://acme.example/c"}, Risk: model.Risk{Severity: model.SeverityMedium}},
+	}
+	if err := e.EmitFindings(findings); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	got := readEvents(t, path)
+	if len(got) != 3 {
+		t.Fatalf("events = %d, want 3", len(got))
+	}
+	if got[0].PrevHash != "" {
+		t.Fatalf("head event must carry no prev_hash, got %q", got[0].PrevHash)
+	}
+	wantH1, err := event.ChainHash(got[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[1].PrevHash != wantH1 {
+		t.Fatalf("event[1].PrevHash = %q, want %q (hash of event[0])", got[1].PrevHash, wantH1)
+	}
+
+	// Reopen against the same file: the chain must CONTINUE from the last
+	// written event's hash (got[2]), not restart a second head.
+	wantH2, err := event.ChainHash(got[2])
+	if err != nil {
+		t.Fatal(err)
+	}
+	e2, err := Open(path)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	t.Cleanup(func() { _ = e2.Close() })
+	if e2.ResumedFrom() != wantH2 {
+		t.Fatalf("resume: got %q want %q", e2.ResumedFrom(), wantH2)
+	}
+	if err := e2.EmitFindings([]model.Finding{
+		{Tags: map[string]string{"agent_id": "agent://acme.example/d"}, Risk: model.Risk{Severity: model.SeverityInfo}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e2.Close(); err != nil {
+		t.Fatalf("close 2: %v", err)
+	}
+
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	report, err := event.VerifyChain(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.Ok() {
+		t.Fatalf("VerifyChain reported a break: %+v", report)
+	}
+	if len(report.HeadLines) != 1 {
+		t.Fatalf("expected exactly 1 chain head (no restart across the reopen), got %+v", report.HeadLines)
+	}
+	if report.Chained != 3 {
+		t.Fatalf("expected 3 chained events, got %+v", report)
+	}
+}

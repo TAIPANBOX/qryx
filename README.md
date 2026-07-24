@@ -325,7 +325,9 @@ no-op for them by design, not an oversight. `crypto_drift` and
 `policy_violation` reuse the exact same `--baseline`/`--policy` results the
 human report prints, filtered to the subset with a real agent_id;
 `evidence_signed` fires once per distinct agent covered by a signed
-`--format evidence` document, not once per finding.
+`--format evidence` document, not once per finding. Events now carry the
+SPEC §6.5 `prev_hash` chain; verify a stream with `agent-conform -chain
+<file>`.
 
 **Asset graph** — findings from every source collapse into one node per logical
 asset **and risk class**, deduplicated across files and sources: the same
