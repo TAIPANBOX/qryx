@@ -1,8 +1,8 @@
 <div align="center">
 
-# qryx — Cryptography Security Graph
+# qryx - Cryptography Security Graph
 
-**Discover what's encrypted, where, and with which algorithm — then assess quantum risk and migrate.**
+**Discover what's encrypted, where, and with which algorithm - then assess quantum risk and migrate.**
 
 [![CI](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
@@ -15,7 +15,7 @@
 
 qryx builds an organization-wide inventory of cryptography across code,
 binaries, container images, live TLS endpoints, certificates, dependencies and
-cloud KMS — normalizes it into a single **cryptographic asset graph**, scores
+cloud KMS - normalizes it into a single **cryptographic asset graph**, scores
 each asset for post-quantum and hygiene risk, and emits a standard **CBOM**
 (CycloneDX). Open source, dev-first, built for mid-market. See
 [`qryx-plan.md`](./qryx-plan.md) for the full design and roadmap.
@@ -70,6 +70,25 @@ certificate as quantum-vulnerable under the NCSC 2035 timeline.
 
 Full write-up and the two real bugs live testing found (and fixed): [`VALIDATION.md`](VALIDATION.md).
 
+
+
+### Running it on a Kubernetes cluster
+
+The whole stack was deployed as a five-node k3s cluster on Hetzner, AWS and GCP
+between 25 and 27 July 2026 (six clusters, all destroyed afterwards). The
+manifests, the traps and the evidence are public in
+[stack-k8s](https://github.com/TAIPANBOX/stack-k8s). Qryx runs in two shapes there, and neither is a long-running service.
+The console **executes** it to scan a path, so the binary ships inside the
+console image rather than as its own pod. Separately it runs as a nightly
+`CronJob` (`crypto-trend`, 03:17) over a mounted scan target, which is the
+shape worth copying: crypto posture is a trend, and a scan that only happens
+when somebody remembers to run it has no trend in it.
+
+To be clear about scope: those runs verified the deployment shape and the
+service coming up correctly on three clouds. They did not scan anything larger than the cluster's own mounted
+path. The 25,586-binary scan in this file is still the load-bearing evidence
+for the scanner itself.
+
 ---
 
 ## Why now
@@ -82,9 +101,9 @@ NIST standardized post-quantum algorithms in 2024 (FIPS 203/204/205) and
 **CNSA 2.0** fixes the deadlines: new systems on PQC by 2027, legacy migration
 by 2030, complete by 2035. **"Harvest now, decrypt later"** means data encrypted
 with quantum-vulnerable crypto today can be captured now and decrypted once a
-cryptographically relevant quantum computer exists — so the exposure is already
+cryptographically relevant quantum computer exists - so the exposure is already
 real. Migration starts with **discovery**, and organizations consistently find
-**3–5× more cryptographic assets than expected**. You can't migrate what you
+**3-5× more cryptographic assets than expected**. You can't migrate what you
 can't see.
 
 ---
@@ -209,7 +228,7 @@ a future step, not something this detector does today.
 </div>
 
 Snapshot the asset graph, then fail the build when a **new** weak or
-quantum-vulnerable asset is introduced — the "don't add new weak crypto" gate.
+quantum-vulnerable asset is introduced - the "don't add new weak crypto" gate.
 
 ```bash
 qryx scan --save base.json <path>                              # 1. baseline
@@ -226,8 +245,8 @@ against every dependency and `gosec` static analysis on every push to `main`;
 both are clean. Every gosec finding was either fixed (scoped file reads via
 `os.Root`, tightened file/dir permissions, explicit handling of best-effort
 cleanup errors) or is a deliberate pattern annotated inline with a
-`#nosec Gxxx -- reason` comment on the exact offending line — e.g. `qryx tls`'s
-`InsecureSkipVerify` (it inspects TLS posture, it doesn't trust it) — never a
+`#nosec Gxxx -- reason` comment on the exact offending line - e.g. `qryx tls`'s
+`InsecureSkipVerify` (it inspects TLS posture, it doesn't trust it) - never a
 blanket CI exclude.
 
 ---
@@ -296,7 +315,7 @@ qryx scan --baseline base.json <path>  # report drift vs the baseline
 ```
 
 > Flags must precede the positional path/targets (`qryx scan [flags] <path>`).
-> `qryx tls` connects only to the exact `host:port` arguments you pass — no port
+> `qryx tls` connects only to the exact `host:port` arguments you pass - no port
 > ranges, no host discovery. Probe only endpoints you are authorized to test.
 
 Run against the bundled fixtures with `make scan`.
@@ -305,7 +324,7 @@ Run against the bundled fixtures with `make scan`.
 
 ## What works today
 
-**Code scan** (`qryx scan`) — 7 detectors:
+**Code scan** (`qryx scan`) - 7 detectors:
 
 | Detector | Covers |
 |---|---|
@@ -317,10 +336,10 @@ Run against the bundled fixtures with `make scan`.
 | `deps` | crypto libraries in dependency manifests |
 | `terraform` | key material in HCL via the hashicorp/hcl parser (`tls_private_key`, `aws_kms_key`, `azurerm_key_vault_key`, `google_kms_crypto_key`) |
 
-**TLS probing** (`qryx tls`) — negotiated TLS version, insecure cipher suites,
+**TLS probing** (`qryx tls`) - negotiated TLS version, insecure cipher suites,
 and the leaf certificate's public-key algorithm, size and expiry.
 
-**Binary scanning** (`qryx bin`) — ELF/PE/Mach-O via `debug/elf|pe|macho`,
+**Binary scanning** (`qryx bin`) - ELF/PE/Mach-O via `debug/elf|pe|macho`,
 mapping needed crypto libraries and imported symbols to assets: both the
 legacy flat OpenSSL API (`MD5_*`, `RSA_*`, …) and OpenSSL 3.x's `EVP_*`
 interface (`EVP_aes_*`, `EVP_sha256`, `EVP_PKEY_CTX_set_rsa_*`, …), since
@@ -339,24 +358,24 @@ equivalent fallback implemented yet: both stay invisible to this scanner
 regardless of stripping. Treat a "clear" `qryx bin` result on a statically-
 linked binary as limited assurance, not proof there is no crypto in it.
 
-**Container images** (`qryx image`) — extracts a local image tarball
+**Container images** (`qryx image`) - extracts a local image tarball
 (`docker save` / OCI) with stdlib tar/gzip, hardened against path traversal and
 tar bombs, then runs the code and binary scanners over the layers.
 
-**AWS cloud** (`qryx aws --region <r>`) — KMS keys (by key spec) and ACM
+**AWS cloud** (`qryx aws --region <r>`) - KMS keys (by key spec) and ACM
 certificates (algorithm + expiry) via the default credential chain. The SDK sits
 behind an interface seam so the connector logic is unit-tested without an account.
 
-**GCP cloud** (`qryx gcp --project <id>`) — Cloud KMS key versions mapped by
+**GCP cloud** (`qryx gcp --project <id>`) - Cloud KMS key versions mapped by
 algorithm (RSA/EC/AES/HMAC, and PQC ML-DSA/ML-KEM/SLH-DSA as safe) via
 Application Default Credentials, behind the same lister seam.
 
-**Azure cloud** (`qryx azure --vault-url <url>`) — Key Vault keys mapped by JSON
+**Azure cloud** (`qryx azure --vault-url <url>`) - Key Vault keys mapped by JSON
 Web Key type (EC/EC-HSM → ECDSA, RSA/RSA-HSM → RSA with size from modulus,
 oct/oct-HSM → AES) via DefaultAzureCredential. Expired keys are flagged
 separately.
 
-**AI-agent infrastructure** (`qryx agents <path>`) — inventories the
+**AI-agent infrastructure** (`qryx agents <path>`) - inventories the
 agent-governance stack's own trust surface: Agent Passport `attestation.method`
 (mTLS/SPIFFE → certificate-based, enclave key → hardware-backed and safe, OIDC
 → token-based, none → a `misconfig` finding) and agent-event NDJSON
@@ -367,7 +386,7 @@ every event is linked and no hash is suspiciously reused, but it does not
 recompute each event's canonical hash to verify a prev_hash equals the actual
 predecessor. Passport/event files are told apart by their `schema` field, not
 extension; malformed files are counted and skipped, never fatal. Identity and
-privilege stay Idryx's job — this connector stays strictly on the crypto axis.
+privilege stay Idryx's job - this connector stays strictly on the crypto axis.
 
 **Agent-event export** (`--events <path>`, `internal/exporter`): appends
 findings, drift, policy violations, and signed-evidence records as agent-event
@@ -387,7 +406,7 @@ human report prints, filtered to the subset with a real agent_id;
 SPEC §6.5 `prev_hash` chain; verify a stream with `agent-conform -chain
 <file>`.
 
-**Asset graph** — findings from every source collapse into one node per logical
+**Asset graph** - findings from every source collapse into one node per logical
 asset **and risk class**, deduplicated across files and sources: the same
 algorithm and key size but two orthogonal risks (say, a certificate that is
 both expired **and** quantum-vulnerable) become two nodes, not one, so neither
@@ -397,7 +416,7 @@ with 112 occurrences, not 112 rows, though a physical asset carrying two risk
 classes shows up as two rows, one per risk); `--format html` renders the same
 graph as a static page.
 
-**Persistence** — behind a `Store` interface with two backends: a JSON file (any
+**Persistence** - behind a `Store` interface with two backends: a JSON file (any
 path) and **Postgres** (a `postgres://` URL), persisting the graph into
 normalized `scans`/`assets`/`occurrences` tables.
 
@@ -406,11 +425,11 @@ qryx scan --save 'postgres://user:pass@host:5432/db' <path>
 qryx scan --baseline 'postgres://user:pass@host:5432/db' --fail-on-new high <path>
 ```
 
-**Compliance & governance reports** — five reports form a compliance pack for
+**Compliance & governance reports** - five reports form a compliance pack for
 regulated orgs, all computed from the same asset graph and the same risk
 classification so they can never disagree with one another:
 
-**CNSA 2.0 audit** (`--format cnsa`/`cnsa-html`) — classifies every asset
+**CNSA 2.0 audit** (`--format cnsa`/`cnsa-html`) - classifies every asset
 against the NSA's CNSA 2.0 suite: ML-KEM/ML-DSA/SLH-DSA and AES-256/SHA-384+
 are compliant; RSA/ECDSA/ECC/DSA/DH are non-compliant with a 2030 migration
 deadline; MD5/SHA-1/DES/3DES/RC4 and sub-floor keys are non-compliant
@@ -420,44 +439,44 @@ score, and a per-asset remediation action, sorted by deadline urgency.
 `--policy cnsa` enforces the same standard as a CI gate (see Policy
 enforcement below); this report is the audit view, in JSON or HTML.
 
-**NCSC PQC readiness** (`--format ncsc`/`ncsc-html`) — tracks the same graph
+**NCSC PQC readiness** (`--format ncsc`/`ncsc-html`) - tracks the same graph
 against the UK NCSC's three-milestone PQC migration timeline: complete
 discovery by 2028, migrate the highest-priority systems by 2031, migrate
 everything by 2035. Each milestone gets a deterministic
-`on-track`/`at-risk`/`not-started` verdict — 2028 is at-risk if any
+`on-track`/`at-risk`/`not-started` verdict - 2028 is at-risk if any
 quantum-vulnerable asset has no recognized migration target; the 2031
 "highest-priority" subset is quantum-vulnerable **and** either
 externally-facing (seen via a live TLS probe or an AWS ACM certificate) or
 long-lived data (an encryption/key-exchange primitive, i.e. exposed to
-harvest-now-decrypt-later) — the exact predicate is embedded as a criteria
+harvest-now-decrypt-later) - the exact predicate is embedded as a criteria
 string in both outputs, so the report documents its own rules. The migrated
 count is honestly reported as 0 within a single scan (qryx doesn't persist
 remediation state across runs); track real progress with `--baseline` drift
 or the evidence trail (`--save-evidence` / `qryx trend`) below.
 
-**Migration plan** (`--format migration`) — scores each non-compliant asset's
+**Migration plan** (`--format migration`) - scores each non-compliant asset's
 *agility* (how hard it is to change: `high` for managed KMS keys you rotate via
 API, `medium` for config/cert/dependency changes, `low` for code that needs a
 redeploy) and emits a risk-prioritized plan. Each entry carries a recommended
 PQC/strong target (RSA→ML-DSA/ML-KEM, ECDSA/DSA/Ed25519→ML-DSA, MD5/SHA-1→SHA-256,
-etc.), a rationale and the occurrence locations. Quick wins — high-agility,
-high/critical severity — are counted in the summary. Works on any source,
+etc.), a rationale and the occurrence locations. Quick wins - high-agility,
+high/critical severity - are counted in the summary. Works on any source,
 including cloud: a KMS RSA key reports `high` agility, the same algorithm in
 source reports `low`.
 
-**Remediation** (`qryx fix`) — turns findings into reviewable source patches,
+**Remediation** (`qryx fix`) - turns findings into reviewable source patches,
 but only for transforms that are *provably safe*. Today that is raising a
-sub-floor RSA key size — in Go (`rsa.GenerateKey(rand, 1024)` → `3072`) and in
+sub-floor RSA key size - in Go (`rsa.GenerateKey(rand, 1024)` → `3072`) and in
 Terraform (`rsa_bits = 1024` → `3072`), configurable via `--min-rsa-bits`: a
 single integer-literal change that stays valid and compiles. By default it
 prints a unified diff; `--write` applies it in place. Algorithm swaps
 (MD5→SHA-256) and hybrid schemes change semantics and break downstream
 consumers, so they stay as migration *guidance* and are never auto-applied.
 With `--open-pr` the fix is applied on a fresh branch and opened as a GitHub
-pull request (via `git` + `gh`), with the rationale and diff in the PR body —
+pull request (via `git` + `gh`), with the rationale and diff in the PR body - 
 guarded by a clean-working-tree check so it never mixes in unrelated edits.
 
-**Policy enforcement** (`--policy`) — gate CI on a declarative crypto policy.
+**Policy enforcement** (`--policy`) - gate CI on a declarative crypto policy.
 Pass a builtin (`cnsa`) or a JSON file; qryx evaluates the deduped asset graph
 and, on any violation, prints a report to stderr and exits **3** (distinct from
 `--fail-on`'s severity gate, exit 2, so CI can tell them apart). The builtin
@@ -480,17 +499,17 @@ CNSA deadline is 2030. A custom policy is plain JSON:
 ```
 
 `--policy` writes only to stderr, so `--format cbom`/`html` output on stdout
-stays valid. Add `--baseline <snapshot> --policy-new-only` to gate on *drift* —
+stays valid. Add `--baseline <snapshot> --policy-new-only` to gate on *drift* - 
 only assets new since the baseline are evaluated, so a clean policy can be
 adopted on a legacy codebase without blocking on pre-existing debt while still
 failing any newly introduced weak crypto.
 
-**Evidence export** (`--format evidence`) — a self-describing, tamper-evident
+**Evidence export** (`--format evidence`) - a self-describing, tamper-evident
 compliance attestation for audit/GRC: tool + version, UTC timestamp, scan root,
 a CNSA 2.0 compliance summary (compliant / non-compliant / issues, score, and a
 breakdown by severity), the per-asset records, and a `sha256:` content digest
 over the document with the digest field blanked. A verifier recomputes the hash
-the same way to confirm the artifact is unmodified — integrity without key
+the same way to confirm the artifact is unmodified - integrity without key
 management. Reuses the same CNSA classification as `--format cnsa`, so the two
 never disagree. Commit `evidence.json` as a CI artifact for a dated audit trail.
 
@@ -517,15 +536,15 @@ compare against your trusted signer. ed25519 and ECDSA P-256 remain
 classically strong but quantum-vulnerable; ML-DSA is the quantum-resistant
 option, requiring Go 1.27+ (`crypto/mldsa`).
 
-**Governance dashboard** (`--format dashboard`) — one self-contained HTML page
+**Governance dashboard** (`--format dashboard`) - one self-contained HTML page
 for a security lead: the CNSA compliance score, the risk profile by severity,
 the evidence integrity digest, and the **top remediation priorities** (the
-compliance × agility ranking — which assets to fix first and what to migrate
+compliance × agility ranking - which assets to fix first and what to migrate
 them to). It aggregates the CNSA, migration and evidence views that are
 otherwise separate; numbers come from the same computations, so it can't
 disagree with them.
 
-**Evidence trail** (`--save-evidence` + `qryx trend`) — append one compact,
+**Evidence trail** (`--save-evidence` + `qryx trend`) - append one compact,
 digest-stamped record per run to a JSON-Lines trail (date, score, non-compliant
 count, integrity digest). `qryx trend <trail>` renders the history and the
 latest score delta (improved / regressed / unchanged), so a team can prove
