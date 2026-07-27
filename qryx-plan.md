@@ -138,12 +138,12 @@ remediation. Connectors differ, the engine is shared.
 
 ## Monetization (open-core)
 
-> **Historical note (2026-07-22).** This section records the original open-core
-> monetization plan and is kept as an archive of that thinking. The current model
-> is simpler: everything in this repo is Apache-2.0, fully open source and free
-> to self-host, with no paid Qryx tiers. The only commercial product is a
-> separate secured, managed enterprise control room over the whole stack, not a
-> paid tier of Qryx.
+> **Historical note, updated 2026-07-27.** This section records the original
+> open-core thinking and is kept as an archive of it, not as a plan. What is
+> true now: every repository in this stack is Apache-2.0 and self-hosted,
+> including the Genaryx console, which was closed until 2026-07-27 and is open
+> since. Read what follows as a record of a direction that was considered and
+> not taken.
 
 OSS: scanner + CBOM generator + basic risk (adoption, trust, self-hosting).
 Paid: cloud connectors, crypto-agility/migration, CI enforcement, governance
