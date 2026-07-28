@@ -20,6 +20,14 @@ each asset for post-quantum and hygiene risk, and emits a standard **CBOM**
 (CycloneDX). Open source, dev-first, built for mid-market. See
 [`qryx-plan.md`](./qryx-plan.md) for the full design and roadmap.
 
+<div align="center">
+
+<img src="assets/diagram.svg" alt="Qryx architecture: binaries, containers, live TLS, cloud KMS and source are swept into one crypto graph, deduplicated by risk class, graded against CNSA and NCSC, and emitted as a CBOM with evidence" width="960">
+
+<sub>The same service as its room on <a href="https://it-rat.com/services/qryx.html">it-rat.com</a> draws it, where the diagram sits next to a simulation you can scrub back and forth.</sub>
+
+</div>
+
 ---
 
 ## Where this fits in the stack
