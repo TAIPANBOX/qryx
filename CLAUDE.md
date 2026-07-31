@@ -1,203 +1,29 @@
-# CLAUDE.md — working instructions for qryx
+# CLAUDE.md, working instructions for qryx
 
-These instructions apply to any model working in this repo. They encode the
-process and patterns the project was built with so work stays consistent
-regardless of which model is active. Read this before starting a task.
+These instructions apply to any model working in this repo. Read this file
+before starting a task. It holds process and invariants only: **no status.**
+Status goes stale, and a stale instruction file is worse than none, because the
+reader trusts the whole document on the strength of the half that is still
+correct. Where the code actually is lives in `PROGRESS.md`.
+
+## Read before you change anything
+
+1. `qryx-plan.md`, the product plan and roadmap.
+2. `PROGRESS.md`, for what is built.
+3. The **Hard invariants** section below, before touching the graph, the asset
+   identity, or anything with a security guard in it.
 
 ## What qryx is
+
 A CLI that inventories cryptography across sources (code, binaries, container
 images, live TLS, certs, dependencies, cloud KMS), normalizes it into one
-**cryptographic asset graph**, scores post-quantum + hygiene risk, and emits
-CycloneDX CBOM / human / HTML reports with JSON/Postgres persistence and CI
-drift gating. Pure-Go bias; stdlib first. Product plan and roadmap:
-[`qryx-plan.md`](./qryx-plan.md).
+**cryptographic asset graph**, scores post-quantum and hygiene risk, and emits
+CycloneDX CBOM, human and HTML reports with JSON/Postgres persistence and CI
+drift gating. Pure-Go bias, stdlib first.
 
-## Current status (as of 2026-07-13)
-
-**Done:**
-- Phase 0: static code scan (goast/cryptocall/certfile/tlsconfig/hardcoded/deps)
-- Phase 1: TLS probing, ELF/PE/Mach-O binaries, container images, asset graph,
-  CycloneDX CBOM, HTML report, Postgres + JSON persistence, CI drift gate
-- Phase 2: `qryx aws`/`gcp`/`azure` connectors (interface seams, unit-tested
-  without creds); owner-mapping via tags/labels; CNSA 2.0 audit (`--format cnsa`)
-- Phase 3 increment 1: crypto-agility scoring (`internal/agility`) + risk-ranked
-  migration plan (`--format migration`)
-- Phase 3 increment 2: safe code remediation (`internal/remediate`, `qryx fix`) —
-  raises sub-floor RSA key sizes via AST literal rewrite; dry-run diff by default,
-  `--write` to apply. Only provably-safe transforms; algorithm swaps stay guidance.
-- Phase 3 increment 3: `qryx fix --open-pr` — applies on a fresh branch and opens
-  a GitHub PR via git+gh, guarded by a clean-tree check. git/gh behind a `Runner`
-  interface seam, orchestration table-tested with a fake; the live git/gh path is
-  unverified by design (don't run `--open-pr` against this repo — it makes a real PR).
-
-- Terraform: `terraform` detector (`.tf`: `tls_private_key`, `aws_kms_key`,
-  `azurerm_key_vault_key`, `google_kms_crypto_key`) feeds the shared graph;
-  `tf-rsa-bits` remediation rule raises weak `rsa_bits` via `qryx fix`. Uses the
-  `hashicorp/hcl/v2` parser (hclsyntax): reads well-known crypto attributes,
-  evaluates only static expressions, treats variables/interpolation as unknown
-  (size 0) rather than guessing. Heredoc/string text no longer false-matches.
-- Phase 4 increment 1: policy engine (`internal/policy`) + `--policy <name|file>`
-  CI gate. Builtin `cnsa` + JSON files; evaluates the deduped graph, prints
-  violations to stderr, exits 3 (distinct from `--fail-on`'s 2). stdout format
-  output stays clean. Pure `Evaluate`, table-tested.
-- Phase 4 increment 2: drift-gated policy — `--policy ... --baseline X
-  --policy-new-only` evaluates only `delta.Added` (new assets vs the baseline),
-  so existing debt is grandfathered while new weak crypto still fails CI.
-- Phase 4 increment 3: evidence export — `--format evidence` emits a CNSA 2.0
-  compliance attestation (metadata + summary + per-asset + sha256 content digest
-  with the digest field blanked, verifiable without keys). Reuses cnsa.go's
-  `buildEntries`; counts match `--format cnsa`.
-- Phase 4 increment 4: governance dashboard — `--format dashboard` (self-contained
-  HTML) aggregates compliance score + severity profile + evidence digest + top
-  remediation priorities. Reuses extracted `buildEvidence` (evidence.go) and
-  `rankedSteps` (migration.go) so it can't disagree with cnsa/migration/evidence.
-- Phase 4 increment 5: evidence trail — `--save-evidence <file.jsonl>` appends a
-  compact digest-stamped record (via `report.Attest` + `store.JSONLTrail`,
-  append-only `Trail` interface); `qryx trend <file>` renders history + score
-  delta. report->store already exists, so the record is built in main to avoid
-  an import cycle.
-- Phase 4 increment 6: Postgres evidence trail — `store.PostgresTrail` (evidence
-  table, shared `pgConnect`) behind the same `Trail` interface; `openTrail`
-  picks JSONL vs Postgres by `postgres://`. Integration-tested under the
-  `integration` build tag (CI postgres:16). Local run needs DATABASE_URL/docker.
-- Phase 4 increment 7: evidence signing — `internal/attest` (stdlib ed25519 /
-  ECDSA P-256, PKCS#8). `--format evidence --sign-key key.pem` adds a detached
-  signature over the digest (embeds SPKI public key); `qryx verify-evidence`
-  recomputes the digest and verifies. Pure attest pkg table-tested; live
-  openssl keys verified end-to-end.
-
-- Phase 4 increment 8: trend monitoring — `qryx trend --html` renders a
-  self-contained SVG score chart (`report.TrendHTML`); `qryx trend
-  --fail-on-regression` exits 3 when the latest score is below the previous run
-  (CI monitor). html/template escapes `+` to `&#43;` — assert on unescaped text.
-
-**Status: Phases 0-4 complete.** Governance is end-to-end: discover -> graph ->
-CBOM/CNSA -> policy gate (+drift) -> remediation (fix/PR) -> evidence
-(export/sign/verify/dashboard/trail/trend).
-
-- Phase 4 increment 9: HCL-accurate Terraform detector — rewrote
-  `internal/scan/detectors/terraform.go` onto `hashicorp/hcl/v2` (hclsyntax);
-  added `google_kms_crypto_key`. The zero-dep bias was relaxed for this with the
-  user's explicit approval (HCL parsing can't be done correctly with regex).
-
-- Phase 4 increment 10: NCSC PQC readiness report — `--format ncsc|ncsc-html`
-  (internal/report/ncsc.go) tracks the NCSC migration timeline (2028 discovery /
-  2031 highest-priority / 2035 full) against the shared asset graph, with
-  deterministic on-track/at-risk/not-started verdicts. 2031 subset = quantum-
-  vulnerable AND (externally-facing via tls-probe/aws-acm OR long-lived-data via
-  encryption/key-exchange primitives); criteria string embedded in both outputs.
-  Migrated-count honestly stubbed at 0 (no per-scan remediation state; trail/
-  trend is the progress mechanism).
-
-- Phase 4 increment 11: `agility.target()` gained an Ed25519 case (maps to
-  ML-DSA (FIPS 204), same as ECDSA/DSA — signature-to-signature) so Ed25519
-  now counts as "planned" in the migration/NCSC reports. The NCSC at-risk
-  fixture that used to lean on the Ed25519 gap (`ncsc_test.go`,
-  `TestNCSCVerdicts`) now uses a synthetic SM2 finding (Risk set directly,
-  bypassing risk.Classify) to keep exercising the "quantum-vulnerable with no
-  agility target" branch.
-
-- Phase 4 increment 12: `qryx agents` — `internal/agentstack` connector
-  inventories the agent-governance stack's own trust surface (Agent Passport
-  attestation crypto + agent-event NDJSON hash-chain integrity), per
-  `agent-passport/SPEC.md` §4/§6; identity/privilege stays Idryx's job.
-
-- `binscan`: ELF detector now resolves OpenSSL 3.x's primary `EVP_*` API
-  (`EVP_aes_*`, `EVP_des_*`, `EVP_md5/sha1/sha224/256/384/512` fetch names,
-  `EVP_PKEY_CTX_set_*` asymmetric keygen setters), not just the legacy flat
-  API (`RSA_new`, `MD5_Init`, ...). Scanning a modern `/usr/bin/openssl`
-  found almost nothing before this fix; verified against the real symbol
-  set via `nm -D`. Added libgcrypt to the known crypto-library list
-  (commit ce21060).
-
-- Graph dedup fix: `graph.AssetNode`'s identity (`key`, and the exported
-  `graph.AssetKey`) now includes risk class alongside type/algo/key size, so
-  a physical asset carrying two orthogonal risks (e.g. a certificate that is
-  both expired and quantum-vulnerable) produces two nodes instead of one
-  silently overwriting the other. Verified live against
-  `expired.badssl.com`: `qryx tls` was reporting "0 expired" even though the
-  finding existed, its evidence folded into the RSA node instead of getting
-  its own risk class. `internal/store`'s baseline/drift diffing updated to
-  match the new `AssetKey` signature (commit e06d605).
-
-- README: added a "Where this fits in the stack" section (shared TAIPANBOX
-  cross-service diagram plus this repo's consumes/produces/talks-to card),
-  so a reader landing on this repo gets the whole agent-governance workflow
-  from one service README (commit f6ed691).
-
-- `agentstack`: `qryx agents` now accepts agent-event schema `v0.2`
-  (Wardryx/Mockryx/Verdryx's emitted schema, differing from `v0.1` only in
-  the `source` field per `agent-passport/SPEC.md` §6.4) alongside `v0.1`.
-  Before this fix, any file containing only `v0.2` events parsed to zero
-  events and was silently skipped as unrecognized (commit ef364ba).
-
-- README: stack diagram now shows Mockryx's and Verdryx's bus-emission
-  edges (both emit agent-event `v0.2` to the shared bus), matching what the
-  services actually do (commit d8f5fbe).
-
-- ML-DSA (FIPS 204) signing: `internal/attest` gained a third case (ed25519 /
-  ECDSA P-256 / ML-DSA) using stdlib `crypto/mldsa`, which shipped its API
-  frozen in Go 1.27rc2 well ahead of GA (expected ~August 2026). `go.mod`
-  bumped to `go 1.27` / `toolchain go1.27rc2` -- a deliberate, user-approved
-  call to build against the RC now rather than wait weeks for GA or pull in
-  a third-party bridge library, since RC2 only takes bug/security fixes
-  before GA, not API changes. All three security levels (`ML-DSA-44/65/87`)
-  accepted, unlike the single P-256 curve ECDSA is restricted to -- they are
-  equally standardized, safe choices, not one recommended option among
-  weaker alternatives. Live end-to-end verified against real
-  `openssl genpkey -algorithm ML-DSA-44` keys, including one real
-  interoperability gotcha caught only by that live test: OpenSSL's default
-  PKCS#8 output encodes both the seed and the expanded key, which Go's
-  `x509.ParsePKCS8PrivateKey` rejects; generating with
-  `-provparam ml-dsa.output_formats=seed-only` is required and is now
-  documented in both the `--sign-key` flag help and the README.
-
-- Agent-event export: `internal/exporter` (new package, wraps
-  `github.com/TAIPANBOX/agent-stack-go/event`) emits `crypto_finding` /
-  `crypto_drift` / `policy_violation` / `evidence_signed`
-  (agent-passport SPEC.md §6.2's qryx row) as `taipanbox.dev/agent-event/
-  v0.1` NDJSON, `source: "qryx"` -- qryx is one of the spec's original four
-  (closed source enum), not a wave-2 service, so it stays on v0.1 rather
-  than moving to v0.2 like Wardryx/Verdryx/Mockryx. This is the emitter
-  half of SPEC.md §9's Qryx adoption row; `qryx agents`
-  (`internal/agentstack`) already shipped the consumer half
-  (`agent_id`-as-evidence-subject). New `--events <path>` flag; wired into
-  the existing `res.Findings` / `delta.Added` / `policy.Evaluate`
-  / `report.Evidence` call sites already computed for other output, not
-  new detection logic. `agent_id` comes from `Tags["agent_id"]`,
-  set only by `internal/agentstack`'s passport findings (`findingTags`,
-  renamed from `ownerTags`) -- every other source's Tags has no agent
-  concept, so `--events` is correctly a no-op there, never a fabricated
-  subject. `policy.Violation` gained a `Tags` field (threaded through from
-  the `graph.AssetNode` each violation was scored against) so
-  `policy_violation` events can find their subject the same way;
-  `report.Evidence`'s signature changed to also return the resulting
-  `*attest.Signature`, so `evidence_signed` doesn't need to re-sign the
-  digest a second time. Live end-to-end verified for all four event types
-  against the real `internal/agentstack/testdata` fixtures via the actual
-  compiled CLI, not just unit tests -- including confirming
-  `policy_violation` correctly emits only for the one violation with a
-  real agent_id even when the human-readable report shows two.
-
-- Test/production separation: crypto found in test code (`_test.go`,
-  `testdata/`, `__tests__/`, `conftest.py`, `*.spec.ts`, ...) is classified at
-  walk time (`internal/scan/testpath.go`, stamped onto `model.Location.IsTest`
-  by the walker so no detector can forget) and split out ONCE in the shared
-  tail of `cmd/qryx/main.go` via `scan.PartitionTests`, before the graph,
-  `--save`, `--events`, the policy gate and every `--format` read the findings.
-  So they cannot disagree about what production means. Excluded by default,
-  `--include-tests` restores the old behaviour; a stderr line always says how
-  much was set aside and how many assets exist only there (identity via
-  `graph.AssetKey`, never a hand-rolled key, so risk class stays part of it).
-  Measured on this repo: 13 assets -> 5 and 40 occurrences -> 19, with 8 assets
-  existing only in fixtures. `examples/` is deliberately NOT test code: example
-  code is shipped and copied. Non-filesystem sources (tls/bin/image/cloud) are
-  always production, which is the correct zero value.
-
-**No remaining deliberate deferrals** -- both items tracked here (ML-DSA
-signing, agent-event export) are done. Revisit `go.mod`'s
-`toolchain go1.27rc2` pin once Go 1.27 GA ships, to drop the
-release-candidate requirement.
+This tool is defensive: it inventories an organization's own cryptography so it
+can find its own weak spots. Never describe it as tooling for probing anyone
+else's infrastructure.
 
 ## The working loop (follow every time)
 1. **Plan Mode first** for anything touching multiple files or making an
@@ -205,7 +31,7 @@ release-candidate requirement.
    then implement. Small single-file fixes can skip it.
 2. **Implement** one logical increment. Match surrounding style; comments only
    where the *why* is non-obvious.
-3. **Gates — all must pass before saying done:**
+3. **Gates - all must pass before saying done:**
    `go build ./... && gofmt -l . && go vet ./... && go test -race ./...`
 4. **Verify end-to-end** when possible: build `/tmp/qryx` and run the real
    command on fixtures or a real target.
@@ -215,7 +41,7 @@ release-candidate requirement.
 7. **Check CI**: `gh run list --branch main --limit 1`; wait for it; both `build`
    and `integration` jobs must be green. Fix forward if red.
 
-## Architecture & conventions (reuse these — do not reinvent)
+## Architecture & conventions (reuse these - do not reinvent)
 - **One model:** every connector produces `model.Finding` (internal/model).
   Risk left empty → classified centrally by `risk.Classify`/`risk.Apply`;
   context findings (TLS misconfig, expiry, hardcoded) set their own `Risk`.
@@ -228,7 +54,7 @@ release-candidate requirement.
 - **Interface seam for external SDKs** (cloud, anything needing creds): define a
   tiny interface the real client satisfies, put the mapping logic behind it, and
   unit-test with a fake. The pure algorithm→asset mapper is always table-tested.
-  Only the thin real-SDK wiring stays unverified when no account is available —
+  Only the thin real-SDK wiring stays unverified when no account is available -
   say so explicitly.
 - **Graph:** findings dedup into `graph.AssetNode` by `graph.AssetKey`
   (type + normalized algo + key size + risk class). Risk class is part of
@@ -248,15 +74,96 @@ release-candidate requirement.
 - **Detector philosophy:** signal quality over recall. Resolve real imports/
   symbols (AST, ELF dynsyms), don't scrape strings; keep false positives low.
 
+## Hard invariants
+
+Each one carries how it is held today. Use `(gate: ...)`, `(test: ...)`,
+`(partly gated: ...)` or `(not enforced)`, and use the weakest one that is
+true. An invariant with no check, written as though it had one, is worse than
+an absent invariant.
+
+1. **Risk class is part of asset-node identity, not an attribute of it.**
+   `graph.AssetKey` is type plus normalized algorithm plus key size plus risk
+   class. An algorithm property (RSA is quantum-vulnerable) and a validity or
+   hygiene state (this certificate is expired) are orthogonal, so one physical
+   asset legitimately becomes two nodes rather than one silently overwriting
+   the other. **Any code deriving its own identity or hash from asset fields
+   must include risk class**, or two distinct nodes collide back into one and
+   the report quietly under-counts. This has already happened once, in
+   `internal/report/cbom.go`'s `bomRef()`. *(not enforced)*
+2. **Reporters consume the graph, never raw findings.** The dedup and the risk
+   classification happen once, centrally. A reporter that reaches back to
+   findings is re-implementing both and will disagree with the others.
+   *(not enforced)*
+3. **Stdlib first.** A new dependency needs a justification in the plan and the
+   user's agreement, not a commit. The current justified set is pgx, the cloud
+   SDKs, and `hashicorp/hcl/v2` for correct Terraform parsing. *(not enforced)*
+4. **External SDKs sit behind an interface seam, and the pure mapper is
+   table-tested.** Only the thin real-SDK wiring may stay unverified when no
+   account is available, and when it does, **say so explicitly** rather than
+   letting a green test suite imply coverage it does not have.
+   *(not enforced)*
+5. **`InsecureSkipVerify` and the low `MinVersion` in `internal/probe` are
+   deliberate.** The prober inspects TLS posture, it does not trust it. Do not
+   "fix" them. A future hardening sweep that removes them breaks the tool's
+   only job. *(not enforced)*
+6. **A clean scan is not proof of absence, and must not be reported as one.**
+   `binscan` sees only what has a symbol to read. A stripped, statically linked
+   binary has neither crypto in `.dynsym` nor a `.symtab` fallback, and is
+   invisible here; PE and Mach-O have no `.symtab`-style fallback at all. When
+   this is relevant to a result, state it. *(not enforced)*
+7. **The extraction guards in `imagescan` stay.** Path traversal, symlink
+   escape and tar-bomb protection, and never following a link out of the temp
+   root. These exist because the tool unpacks images it did not build.
+   *(not enforced)*
+8. **Never derive a stable order from map iteration.** Go randomizes it. Sort
+   into a slice. This flaked CI once already, in pagination fakes.
+   *(partly gated: `go test -race -count=5` on the affected packages, which
+   only catches it where somebody remembered to run it that way)*
+
+## Decisions that have no gate yet
+
+This list is debt, and it is here to stay visible rather than to be tidy.
+**Seven of the eight invariants above are held by this file alone**, and the
+eighth only partly. That is the honest state of this repo.
+
+Three of them are mechanically checkable, in rough order of value:
+
+- **Invariant 1** deserves a test more than anything else here, because its
+  failure mode is a silently smaller report, which looks like good news. A test
+  that builds two assets differing only in risk class and asserts every
+  identity-deriving function keeps them apart would have caught the `bomRef()`
+  bug at the time.
+- **Invariant 3** is a dependency allow-list check, the same shape as the one
+  in `agent-stack-go`. Perhaps thirty lines.
+- **Invariant 5** can be pinned by a test asserting the prober's TLS config
+  still has the deliberately permissive settings, so a hardening sweep has to
+  argue with a red build instead of a code comment.
+
+Invariants 2, 4, 6 and 7 are judgement, and 6 in particular is about how a
+result is described, which no script can read.
+
+## Standing rule
+
+An approved architecture decision is **not finished** until it is two things: a
+numbered invariant in this file, and a gate in a script or a test if it can be
+checked structurally. Until then it is a document, and documents do not stop
+code.
+
+When the user approves a decision, add it here in the same session. Do not
+defer it, because later is where the drift lives.
+
 ## Known pitfalls (already cost us once)
 - **Map order in fakes/pagination:** Go randomizes map iteration; never derive a
   stable order from `range map` across calls. Sort into a slice. Run
-  `go test -race -count=5 ./pkg/` on pagination fakes — this flaked CI once.
+  `go test -race -count=5 ./pkg/` on pagination fakes - this flaked CI once.
 - `InsecureSkipVerify` + low `MinVersion` in `internal/probe` are **intentional**
   (it inspects TLS posture, doesn't trust it). Don't "fix" them.
 - CLI flags must precede positionals (`qryx scan [flags] <path>`); Go `flag`
   stops at the first positional.
-- The repo is **private**; README badges/images only render for users with access.
+- The repo is **public** (Apache-2.0). Anything written here, including code
+  comments and commit messages, is published. This line previously said
+  private, which was true once and stopped being true; if you catch another
+  claim like it, fix it rather than working around it.
 - Security extraction (`imagescan`): keep the path-traversal/symlink/tar-bomb
   guards; never follow links out of the temp root.
 - **binscan sees only what has a symbol to read:** dynamic imports (`.dynsym`
@@ -269,11 +176,12 @@ release-candidate requirement.
   fallback at all yet. Don't read a "clear" scan of a statically-linked
   binary as proof of absence. Say so if it comes up.
 
-## Escalate to Opus 4.8 — tell the user, don't just push through
+## Escalate, tell the user, do not just push through
 You (any model) cannot switch models. When a task hits the high-stakes criteria
 below, **stop and print this line, then wait** for the user to switch or say go:
 
-> `MODEL CHECK: recommend Opus 4.8 — <one-line reason>. Switch now, or proceed on the current model?`
+> `MODEL CHECK: recommend the strongest available model - <one-line reason>.
+> Switch now, or proceed on the current one?`
 
 Escalate when the task involves:
 - A real architectural fork with expensive rollback (new persistence layer, new
@@ -284,7 +192,7 @@ Escalate when the task involves:
   (risk-classification edge cases, dedup/graph identity, security guards).
 - A multi-step debugging session where the root cause isn't obvious.
 
-Routine increments are fine on Sonnet 4.6: a new connector following the
+Routine increments are fine on a cheaper model: a new connector following the
 established pattern, PE/Mach-O-style symmetric extensions, tests, docs, CLI
 wiring, dependency bumps. The Plan-Mode-then-approve loop already puts a human
 gate in front of the risky decisions, which keeps quality high on any model.
