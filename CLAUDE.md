@@ -100,8 +100,14 @@ an absent invariant.
    findings is re-implementing both and will disagree with the others.
    *(not enforced)*
 3. **Stdlib first.** A new dependency needs a justification in the plan and the
-   user's agreement, not a commit. The current justified set is pgx, the cloud
-   SDKs, and `hashicorp/hcl/v2` for correct Terraform parsing. *(not enforced)*
+   user's agreement, not a commit. The justified set is pgx, the AWS, Google and
+   Azure SDKs, `hashicorp/hcl/v2` for correct Terraform parsing with `go-cty`
+   arriving with it, and `agent-stack-go` for the shared wire contract. Note that
+   this is NOT genaryx's rule, which forbids cloud SDKs outright: reaching a
+   provider's KMS is this tool's job.
+   *(gate: `scripts/declared-deps.sh`, where every allowed entry carries its
+   reason, so adding one means writing a justification rather than appending a
+   name)*
 4. **External SDKs sit behind an interface seam, and the pure mapper is
    table-tested.** Only the thin real-SDK wiring may stay unverified when no
    account is available, and when it does, **say so explicitly** rather than
@@ -144,9 +150,15 @@ open the test and check it asserts what the invariant claims.
 **Held by this file alone: invariants 2, 3, 4 and 6.** Invariants 7 and 8 are
 half held.
 
-Of those, only **invariant 3** is mechanically checkable: a dependency
-allow-list, the same shape as the one in `agent-stack-go`, perhaps thirty
-lines. Invariant 5 could be pinned by a test asserting the prober's TLS config
+Invariant 3 is now `scripts/declared-deps.sh`. Writing it corrected the
+invariant's own prose, which listed "pgx, the cloud SDKs, and hcl/v2" and
+omitted `agent-stack-go` and `go-cty`, both of which are direct dependencies and
+both of which are justified. A list kept in prose drifts from the manifest
+exactly this way.
+
+Each allowed entry carries its reason in the script, so adding one means writing
+a justification. It fails in both directions, so a dependency disappearing is
+caught too. Invariant 5 could be pinned by a test asserting the prober's TLS config
 still carries its deliberately permissive settings, so a hardening sweep has to
 argue with a red build rather than a code comment.
 
