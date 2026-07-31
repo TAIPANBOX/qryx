@@ -314,3 +314,30 @@ func TestAIUsageRiskSurvivesCentralClassification(t *testing.T) {
 	applied := risk.Apply(got)
 	assertAIFinding(t, applied[0], "OpenAI SDK (python)")
 }
+
+// A manifest is matched by substring, which is right for a dependency name and
+// wrong for prose. The needle list is full of ordinary English words, and a real
+// Cargo.toml whose comment ended "...pins the two independent token readers
+// together" was reported as depending on the Together AI SDK, in a repository with
+// no network dependencies at all.
+func TestAIUsageIgnoresManifestComments(t *testing.T) {
+	manifest := []byte("[dev-dependencies]\n" +
+		"trailryx-verify = { path = \"../trailryx-verify\" }\n" +
+		"# pins the two independent token readers together, and is cohere-nt about it\n")
+	got := NewAIUsage().Detect(scan.File{Path: "Cargo.toml", Content: manifest})
+	if len(got) != 0 {
+		t.Fatalf("a comment was read as a dependency: %+v", got)
+	}
+}
+
+// The other half: stripping comments must not stop a real dependency being seen.
+func TestAIUsageStillSeesARealManifestDependency(t *testing.T) {
+	manifest := []byte("# an ordinary comment\n[dependencies]\nasync-openai = \"0.20\"\n")
+	got := NewAIUsage().Detect(scan.File{Path: "Cargo.toml", Content: manifest})
+	if len(got) != 1 {
+		t.Fatalf("expected the OpenAI dependency, got %+v", got)
+	}
+	if got[0].Location.Line != 3 {
+		t.Errorf("line %d, want 3: blanking must keep positions", got[0].Location.Line)
+	}
+}

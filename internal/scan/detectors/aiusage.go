@@ -176,7 +176,7 @@ func (a *AIUsage) detectManifest(f scan.File) []model.Finding {
 	if !aiManifestBases[base] {
 		return nil
 	}
-	lower := strings.ToLower(string(f.Content))
+	lower := strings.ToLower(string(stripManifestComments(base, f.Content)))
 	var out []model.Finding
 	for _, n := range aiManifestNeedles {
 		idx := strings.Index(lower, n.needle)
@@ -377,6 +377,49 @@ func dedupeSameLine(findings []model.Finding) []model.Finding {
 		}
 		seen[key] = true
 		out = append(out, f)
+	}
+	return out
+}
+
+// stripManifestComments blanks comment text in a dependency manifest, keeping
+// every byte's position so a reported line number still points at the right line.
+//
+// A manifest is matched by substring, which is right for a dependency name and
+// wrong for prose. A real `Cargo.toml` carrying the comment "pins the two
+// independent token readers together" was reported as depending on the Together AI
+// SDK, in a repository with no network dependencies at all. The needle list is full
+// of ordinary English: `together`, `cohere`, `groq`, `replicate`, `transformers`.
+func stripManifestComments(base string, content []byte) []byte {
+	var marker string
+	switch base {
+	case "Cargo.toml", "requirements.txt", "go.mod":
+		marker = "#"
+	case "package.json":
+		// Not valid JSON, but common enough in hand-edited manifests, and a
+		// comment is never a dependency wherever it appears.
+		marker = "//"
+	default:
+		// pom.xml uses <!-- --> which can span lines; left alone rather than
+		// half-handled, since a wrong strip hides real dependencies.
+		return content
+	}
+
+	out := make([]byte, len(content))
+	copy(out, content)
+	inComment := false
+	for i := 0; i < len(out); i++ {
+		switch {
+		case out[i] == '\n':
+			inComment = false
+		case inComment:
+			out[i] = ' '
+		case !inComment && i+len(marker) <= len(out) && string(out[i:i+len(marker)]) == marker:
+			inComment = true
+			for k := i; k < i+len(marker); k++ {
+				out[k] = ' '
+			}
+			i += len(marker) - 1
+		}
 	}
 	return out
 }

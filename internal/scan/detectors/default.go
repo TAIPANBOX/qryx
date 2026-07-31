@@ -9,6 +9,7 @@ func Default() []scan.Detector {
 		NewCertFile(),
 		NewGoAST(),
 		NewCryptoCall(),
+		NewRust(),
 		NewTLSConfig(),
 		NewHardcoded(),
 		NewDeps(),
