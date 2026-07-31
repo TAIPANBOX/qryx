@@ -89,7 +89,12 @@ an absent invariant.
    the other. **Any code deriving its own identity or hash from asset fields
    must include risk class**, or two distinct nodes collide back into one and
    the report quietly under-counts. This has already happened once, in
-   `internal/report/cbom.go`'s `bomRef()`. *(not enforced)*
+   `internal/report/cbom.go`'s `bomRef()`.
+   *(test: `TestCBOMBomRefUniqueAcrossRiskClasses` is the regression test for
+   that exact bug; `TestBuildPreservesOrthogonalRisksOnSameAsset` holds the
+   graph-identity half; `TestCnsaStatusContextRiskWinsOverAlgorithmCompliance`
+   and `TestCNSAJSONOutputSurfacesBothRisksOnExpiredQuantumVulnerableCert` hold
+   the reporting half)*
 2. **Reporters consume the graph, never raw findings.** The dedup and the risk
    classification happen once, centrally. A reporter that reaches back to
    findings is re-implementing both and will disagree with the others.
@@ -114,7 +119,9 @@ an absent invariant.
 7. **The extraction guards in `imagescan` stay.** Path traversal, symlink
    escape and tar-bomb protection, and never following a link out of the temp
    root. These exist because the tool unpacks images it did not build.
-   *(not enforced)*
+   *(partly gated: `TestExtractRejectsPathTraversal` covers traversal. The
+   symlink-escape and tar-bomb guards have no test of their own, and are the
+   ones a hardening sweep would remove first.)*
 8. **Never derive a stable order from map iteration.** Go randomizes it. Sort
    into a slice. This flaked CI once already, in pagination fakes.
    *(partly gated: `go test -race -count=5` on the affected packages, which
@@ -123,24 +130,28 @@ an absent invariant.
 ## Decisions that have no gate yet
 
 This list is debt, and it is here to stay visible rather than to be tidy.
-**Seven of the eight invariants above are held by this file alone**, and the
-eighth only partly. That is the honest state of this repo.
+**A correction. This section previously said seven of the eight invariants were
+held by this file alone, and singled out invariant 1 as deserving a test "more
+than anything else here". Invariant 1 has four tests**, including
+`TestCBOMBomRefUniqueAcrossRiskClasses`, which is the regression test written
+for the exact `bomRef()` bug the invariant describes. The claim was made by
+reading the code and never opening the suite.
 
-Three of them are mechanically checkable, in rough order of value:
+The rule that follows: set a marker from evidence, both ways. Before writing
+`(not enforced)`, grep the suite for the property. Before writing `(test: ...)`,
+open the test and check it asserts what the invariant claims.
 
-- **Invariant 1** deserves a test more than anything else here, because its
-  failure mode is a silently smaller report, which looks like good news. A test
-  that builds two assets differing only in risk class and asserts every
-  identity-deriving function keeps them apart would have caught the `bomRef()`
-  bug at the time.
-- **Invariant 3** is a dependency allow-list check, the same shape as the one
-  in `agent-stack-go`. Perhaps thirty lines.
-- **Invariant 5** can be pinned by a test asserting the prober's TLS config
-  still has the deliberately permissive settings, so a hardening sweep has to
-  argue with a red build instead of a code comment.
+**Held by this file alone: invariants 2, 3, 4 and 6.** Invariants 7 and 8 are
+half held.
 
-Invariants 2, 4, 6 and 7 are judgement, and 6 in particular is about how a
-result is described, which no script can read.
+Of those, only **invariant 3** is mechanically checkable: a dependency
+allow-list, the same shape as the one in `agent-stack-go`, perhaps thirty
+lines. Invariant 5 could be pinned by a test asserting the prober's TLS config
+still carries its deliberately permissive settings, so a hardening sweep has to
+argue with a red build rather than a code comment.
+
+Invariants 2, 4 and 6 are judgement, and 6 in particular is about how a result
+is described, which no script can read.
 
 ## Standing rule
 
