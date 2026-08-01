@@ -7,6 +7,23 @@ on:
 permissions:
   contents: write
 
+# go.mod requires `go 1.27` with `toolchain go1.27rc2`, because `crypto/mldsa`
+# (FIPS 204) exists only in the pre-release toolchain and taking it over a
+# third-party crypto library was a decision the user approved directly.
+#
+# setup-go cannot install that: its manifest stops at 1.26.5, and Go names the
+# release candidate `go1.27rc2` rather than the `1.27.0-rc.2` the action's
+# direct-download fallback expects. So the step below installs the newest stable
+# as a bootstrap and Go's own toolchain mechanism fetches what go.mod names.
+#
+# GOTOOLCHAIN is set here rather than left to default ON PURPOSE. That fetch is
+# exactly what happened before, silently, while every job reported it was
+# testing on 1.26.5. setup-go v6 began pinning GOTOOLCHAIN=local, which turned
+# the silent disagreement into a hard failure and is how it was found. Written
+# down, it is a decision; left to a default, it was a lie in the config.
+env:
+  GOTOOLCHAIN: auto
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -14,7 +31,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version-file: go.mod
+          go-version: "1.26.5"  # bootstrap; go.mod upgrades this to go1.27rc2
           cache: true
 
       - name: build matrix
