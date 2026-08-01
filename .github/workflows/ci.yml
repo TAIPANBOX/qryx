@@ -22,6 +22,8 @@ jobs:
         run: go test -race ./...
       - name: build
         run: go build ./...
+      - name: every direct dependency is declared with a reason
+        run: ./scripts/declared-deps.sh
 
   security:
     runs-on: ubuntu-latest
