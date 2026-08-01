@@ -7,14 +7,30 @@ on:
 permissions:
   contents: write
 
+
+# `go.mod` requires `go 1.27` with `toolchain go1.27rc2`: `crypto/mldsa` (FIPS
+# 204) exists only in the pre-release toolchain, and taking it over a
+# third-party crypto library was a decision the user approved directly.
+#
+# The version below is that same release candidate written the way setup-go
+# wants it. Go calls it `go1.27rc2`; the action takes a semver spec and maps
+# `1.27.0-rc.2` onto it. Passing Go's own spelling (which is what
+# `go-version-file: go.mod` hands over) fails: the action looks for a manifest
+# entry, finds none, and its direct download rejects the string.
+#
+# Until 1 August 2026 this said `1.26.5` while go.mod said 1.27, and Go quietly
+# downloaded the RC underneath every job. setup-go v6 began pinning
+# GOTOOLCHAIN=local, which turned that silent disagreement into a hard failure
+# and is the only reason it was found.
+
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
-          go-version: "1.26.5"
+          go-version: "1.27.0-rc.2"
           cache: true
 
       - name: build matrix
