@@ -20,6 +20,16 @@
 # GOTOOLCHAIN=auto below fetches that toolchain during the build. It is the
 # same mechanism the stack's own build has used for this service all along:
 # the base image stays on a stable tag and Go arranges the rest.
+#
+# NEEDS BUILDKIT. `$BUILDPLATFORM` is a BuildKit variable, so `docker build`
+# with the legacy builder expands it to nothing and fails with
+# "failed to parse platform : \"\" is an invalid OS component". BuildKit is the
+# default in Docker 23+ and in Docker Desktop; a host without it needs
+# `docker buildx build`, or drop the `--platform=` from the line below and lose
+# only the cross-compile (arm64 then builds under emulation, which is roughly
+# fifteen times slower).
+#
+# Measured 2026-08-03 on an Ubuntu node whose docker had no buildx.
 ARG GO_VERSION=1.26
 
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS build
