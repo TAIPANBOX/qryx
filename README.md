@@ -60,12 +60,13 @@ flowchart TB
   ASG -.->|imported by| MX
   ASG -.->|imported by| TFP
   ASG -.->|imported by| HX
+  ASG -.->|imported by| QX
   SPEC[["agent-passport: the spec"]] -.->|governs| BUS
 ```
 
 - **Consumes**: Agent Passports and agent-event NDJSON (`qryx agents` checks attestation and `prev_hash` chains), plus real crypto artifacts (code, binaries, TLS, cloud KMS).
 - **Produces**: NCSC/CNSA/CycloneDX crypto posture reports.
-- **Talks to**: **agent-passport** (the passport and event schema it scans), fed by the same agent-event bus that **TokenFuse**, **Wardryx**, and **Engram** write to.
+- **Talks to**: **agent-passport** (the passport and event schema it scans), fed by the same agent-event bus that **TokenFuse**, **Wardryx**, and **Engram** write to. Imports **agent-stack-go** for that contract rather than re-implementing it, like the other Go services in the stack.
 
 The full stack is TokenFuse (spend), Wardryx (policy), Engram (memory), Idryx (access), Qryx (crypto), Verdryx (quality), Mockryx (pre-prod), on the shared Agent Passport + agent-event contract (agent-stack-go / agent-passport), configured via terraform-provider-taipan.
 
