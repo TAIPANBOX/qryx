@@ -128,8 +128,8 @@ deduplicated into a graph of unique assets, each carrying every place it occurs.
 
 | Stage | What it covers |
 |---|---|
-| **Sources** | source code (Go · Python · JS · TS), Terraform/HCL, binaries (ELF · PE · Mach-O), container images (`docker save` / OCI), live TLS endpoints, PEM/x509 certificates, dependency manifests, cloud KMS (AWS KMS + ACM · GCP KMS · Azure Key Vault), AI-agent infrastructure (Agent Passport identity docs + agent-event NDJSON streams) |
-| **Scan engine** | AST + parser detectors (`goast`, `cryptocall`, `certfile`, `tlsconfig`, `hardcoded`, `deps`, `terraform`, `aiusage`), the binary/image/TLS/cloud connectors, and the risk classifier |
+| **Sources** | source code (Go · Python · JS · TS · Rust), Terraform/HCL, binaries (ELF · PE · Mach-O), container images (`docker save` / OCI), live TLS endpoints, PEM/x509 certificates, dependency manifests, cloud KMS (AWS KMS + ACM · GCP KMS · Azure Key Vault), AI-agent infrastructure (Agent Passport identity docs + agent-event NDJSON streams) |
+| **Scan engine** | AST + parser detectors (`goast`, `cryptocall`, `rust`, `certfile`, `tlsconfig`, `hardcoded`, `deps`, `terraform`, `aiusage`), the binary/image/TLS/cloud connectors, and the risk classifier |
 | **Asset graph** | one node per logical asset **and risk class** (algorithm + key size + risk class), deduplicated across all sources, with every occurrence attached |
 | **Outputs** | CycloneDX 1.6 CBOM · human · HTML · CNSA 2.0 audit · NCSC PQC readiness · migration plan · signed evidence attestation · governance dashboard · JSON/Postgres snapshots · CI drift, severity & policy gates |
 
@@ -252,9 +252,12 @@ qryx scan --baseline base.json --fail-on-new high <path>       # 2. diff → exi
 ## Supply-chain hygiene
 
 qryx is a security tool, so its own build is held to the standard it audits
-others against. A dedicated `security` CI job (Go 1.26.5) runs `govulncheck`
+others against. A dedicated `security` CI job runs `govulncheck`
 against every dependency and `gosec` static analysis on every push to `main`;
-both are clean. Every gosec finding was either fixed (scoped file reads via
+both are clean. Every job in CI pins the same toolchain `go.mod` asks for
+(`1.27.0-rc.2`), because until 1 August 2026 the workflows said `1.26.5` while
+`go.mod` said 1.27, and Go quietly downloaded the newer toolchain rather than
+failing: the pin said one thing and the build did another. Every gosec finding was either fixed (scoped file reads via
 `os.Root`, tightened file/dir permissions, explicit handling of best-effort
 cleanup errors) or is a deliberate pattern annotated inline with a
 `#nosec Gxxx -- reason` comment on the exact offending line - e.g. `qryx tls`'s
@@ -336,17 +339,19 @@ Run against the bundled fixtures with `make scan`.
 
 ## What works today
 
-**Code scan** (`qryx scan`) - 7 detectors:
+**Code scan** (`qryx scan`) - 9 detectors:
 
 | Detector | Covers |
 |---|---|
 | `goast` | crypto usage in Go via AST import resolution (no regex false positives) |
 | `cryptocall` | crypto API usage in Python / JS / TS source |
+| `rust` | crypto primitives in Rust: the `ring`/`aws-lc-rs` constants, the RustCrypto crate paths, and a hand-written implementation naming its own type. Comments and string literals are stripped before matching, so a doc comment explaining that ECDSA is quantum-vulnerable is not counted as a use of ECDSA |
 | `certfile` | PEM certificate parsing (algorithm, key size, expiry) |
 | `tlsconfig` | legacy TLS/SSL in code and nginx/apache config |
 | `hardcoded` | private keys embedded in source/config |
 | `deps` | crypto libraries in dependency manifests |
 | `terraform` | key material in HCL via the hashicorp/hcl parser (`tls_private_key`, `aws_kms_key`, `azurerm_key_vault_key`, `google_kms_crypto_key`) |
+| `aiusage` | the operator's own LLM/AI provider SDKs, imports and endpoint literals, informational and never a crypto risk (see [AI usage inventory](#ai-usage-inventory)) |
 
 **TLS probing** (`qryx tls`) - negotiated TLS version, insecure cipher suites,
 and the leaf certificate's public-key algorithm, size and expiry.
