@@ -70,7 +70,7 @@ func run(args []string) error {
 		withTests = fs.Bool("include-tests", false, "count crypto found in test code (_test.go, testdata/, conftest.py, ...) as part of the production inventory; by default it is reported on stderr and excluded from the graph, the verdict and every format")
 	)
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage:\n  qryx scan [flags] <path>\n  qryx fix [--write] [--open-pr [--branch NAME]] [--min-rsa-bits N] <path>\n  qryx trend <evidence-trail.jsonl>\n  qryx verify-evidence <evidence.json>\n  qryx tls [flags] <host:port>...\n  qryx bin [flags] <file|dir>...\n  qryx image [flags] <image.tar>...\n  qryx aws [flags]\n  qryx gcp --project <id> [flags]\n  qryx azure --vault-url <url> [flags]\n  qryx agents [flags] <path>\n\nflags:\n")
+		fmt.Fprintf(os.Stderr, "usage:\n  qryx scan [flags] <path>\n  qryx fix [--write] [--open-pr [--branch NAME]] [--min-rsa-bits N] <path>\n  qryx trend <evidence-trail.jsonl>\n  qryx verify-evidence <evidence.json>\n  qryx tls [flags] <host:port>...\n  qryx bin [flags] <file|dir>...\n  qryx image [flags] <image.tar>...\n  qryx aws [flags]\n  qryx gcp --project <id> [flags]\n  qryx azure --vault-url <url> [flags]\n  qryx agents [flags] <path>\n  qryx version\n\nflags:\n")
 		fs.PrintDefaults()
 	}
 
@@ -79,6 +79,24 @@ func run(args []string) error {
 		return fmt.Errorf("no command given")
 	}
 	cmd := args[0]
+
+	// version prints the tag this binary was built from, and it is answered here,
+	// before the flag set is parsed, because asking a tool what it is should not
+	// depend on the rest of its command line being valid.
+	//
+	// It exists because the release assets are named WITHOUT a version, so that
+	// releases/latest/download/<name> is a permanent address that it-rat.com and
+	// anybody else can link to. That trade is only honest if the binary can say
+	// which build it is: the version moves out of the filename, which anyone
+	// between us and the reader can change, and into the bytes, which they
+	// cannot. Until 2026-08-05 this binary could not say. `version` was stamped
+	// by -ldflags and had no way out, and the README told people to run a command
+	// that exited 1.
+	if cmd == "version" {
+		fmt.Fprintf(os.Stdout, "qryx %s\n", version)
+		return nil
+	}
+
 	if cmd != "scan" && cmd != "fix" && cmd != "trend" && cmd != "verify-evidence" && cmd != "tls" && cmd != "bin" && cmd != "image" && cmd != "aws" && cmd != "gcp" && cmd != "azure" && cmd != "agents" {
 		fs.Usage()
 		return fmt.Errorf("unknown command %q", cmd)

@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-182-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-184-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Status](https://img.shields.io/badge/phase-4%20(governance)-success.svg)
 
@@ -273,11 +273,27 @@ Prebuilt binaries (Linux, macOS, Windows) are published on the
 [Releases page](https://github.com/TAIPANBOX/qryx/releases) for every `v*` tag,
 with a `SHA256SUMS` file for verification:
 
+**The asset names carry no version**, so `releases/latest/download/<name>` is a
+permanent address for the current build. You never look up a version number,
+and a link to one of these does not rot.
+
 ```bash
-tar -xzf qryx_v*_$(uname -s | tr A-Z a-z)_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz
+P=$(uname -s | tr A-Z a-z)_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+U=https://github.com/TAIPANBOX/qryx/releases/latest/download
+
+curl -fsSLO $U/qryx_$P.tar.gz
+curl -fsSLO $U/SHA256SUMS
 sha256sum -c SHA256SUMS --ignore-missing
-./qryx version
+
+tar -xzf qryx_$P.tar.gz
+./qryx_$P/qryx version
 ```
+
+The version is still there, in the binary rather than in the filename:
+`qryx version` prints the tag it was built from. That is the harder of the two
+places to fake, since anything between us and you can rename a file. That
+command is new in this release: it was named in this README, was missing from
+the binary, and exited 1.
 
 Or build from source (Go 1.27; the pinned go1.27rc2 toolchain auto-downloads on first build):
 
@@ -292,11 +308,49 @@ and effort. **They produce an identical file**, so you can take the fast path an
 still have somebody verify it later.
 
 ```bash
-git checkout v0.3.0
+# ours: the latest release, at an address that never changes
+mkdir -p /tmp/verify && cd /tmp/verify
+curl -fsSLO https://github.com/TAIPANBOX/qryx/releases/latest/download/qryx_darwin_arm64.tar.gz
+tar -xzf qryx_darwin_arm64.tar.gz
+TAG=$(./qryx_darwin_arm64/qryx version | awk '{print $2}')     # what those bytes claim to be
+
+# yours, from a clean tree at exactly that tag
+cd /path/to/your/qryx
+git checkout "$TAG"
+git status --porcelain      # must print nothing at all
 CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath \
-  -ldflags "-s -w -X main.version=v0.3.0" -o mine ./cmd/qryx
-sha256sum mine        # compare with SHA256SUMS from the release page
+  -ldflags "-s -w -X main.version=$TAG" -o /tmp/verify/mine ./cmd/qryx
+
+sha256sum /tmp/verify/mine /tmp/verify/qryx_darwin_arm64/qryx
+# macOS ships shasum -a 256 rather than sha256sum, and this example builds for
+# darwin, so that is probably the one you want
 ```
+
+Two identical digests, and note what the recipe does NOT contain: a version
+number. It reads the tag out of the binary it is checking, so the instruction
+cannot go stale and the check is stronger for it, since a build that lies about
+its own version now fails the comparison it invited.
+
+**Build from a clean tree, and do not unpack our archive inside it.** Go stamps
+`vcs.modified` into the binary, and **one untracked file anywhere in the
+checkout flips it to true**, which changes the bytes. The release is built from
+a clean CI checkout, so it carries `vcs.modified=false`. Unpacking the download
+into the repository before building is enough to break the comparison on its
+own. `git status --porcelain` is in the recipe for that reason and is not
+decoration.
+
+**The same trap has a second door.** Building from a `git archive` extraction or
+a detached `git worktree` leaves Go unable to read the VCS at all, so it records
+the module as `(devel)` rather than the tag. Both doors lead to a binary that
+legitimately differs from the release, and the difference looks enormous because
+a version string one byte shorter shifts everything after it. It is one field,
+not a different program.
+
+**Compare the binaries, not the archives.** `SHA256SUMS` on the release page
+lists the `.tar.gz` and `.zip` files, and it answers a different question: did
+your download arrive intact. It cannot answer this one, because `tar` and
+`gzip` stamp times into the archive, so the archive is not reproducible even
+when every byte of the binary inside it is.
 
 Measured on 5 August 2026, against the real published artifact rather than in
 principle: `qryx_v0.3.0_darwin_arm64` from the Releases page, built on a Linux
