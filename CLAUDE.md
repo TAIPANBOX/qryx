@@ -133,6 +133,24 @@ an absent invariant.
    *(partly gated: `go test -race -count=5` on the affected packages, which
    only catches it where somebody remembered to run it that way)*
 
+9. **A released binary can be rebuilt, by somebody who does not trust us, from
+   the tag it claims to come from.** This tool asks to be believed about another
+   organisation's cryptography, so its own supply chain is the first thing a
+   security team will look at, and "the source is open" is not an answer to
+   them: it always was. The answer is that they can build it and compare the
+   checksum. Three flags hold it, `CGO_ENABLED=0`, `-trimpath` and `-s -w`, and
+   they must stay identical in `scripts/reproducible-build.sh` and in
+   `.github/workflows/release.yml`. Any one of them going missing breaks the
+   property in **silence**: the build still succeeds, the binaries simply stop
+   matching, and the only person who ever finds out is the one who tried to
+   verify us.
+   *(gate: `scripts/reproducible-build.sh`, which builds the same source in two
+   directories of deliberately different lengths and refuses if a byte differs;
+   verified by deleting `-trimpath`, which fails it. Measured against the real
+   published artifact on 2026-08-05: `qryx_v0.3.0_darwin_arm64` from the release
+   page and a local build of that tag on a different host OS are both
+   `0864315d…3c2b`.)*
+
 ## Decisions that have no gate yet
 
 This list is debt, and it is here to stay visible rather than to be tidy.
@@ -147,8 +165,9 @@ The rule that follows: set a marker from evidence, both ways. Before writing
 `(not enforced)`, grep the suite for the property. Before writing `(test: ...)`,
 open the test and check it asserts what the invariant claims.
 
-**Held by this file alone: invariants 2, 3, 4 and 6.** Invariants 7 and 8 are
-half held.
+**Held by this file alone: invariants 2, 4 and 6.** Invariants 7 and 8 are
+half held. Invariant 3 is `scripts/declared-deps.sh` and invariant 9 is
+`scripts/reproducible-build.sh`.
 
 Invariant 3 is now `scripts/declared-deps.sh`. Writing it corrected the
 invariant's own prose, which listed "pgx, the cloud SDKs, and hcl/v2" and

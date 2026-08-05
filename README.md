@@ -284,6 +284,40 @@ Or build from source (Go 1.27; the pinned go1.27rc2 toolchain auto-downloads on 
 make build   # → ./bin/qryx
 ```
 
+### The two paths give the same bytes, and you can check that
+
+Downloading our binary and building it yourself are not a choice between trust
+and effort. **They produce an identical file**, so you can take the fast path and
+still have somebody verify it later.
+
+```bash
+git checkout v0.3.0
+CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath \
+  -ldflags "-s -w -X main.version=v0.3.0" -o mine ./cmd/qryx
+sha256sum mine        # compare with SHA256SUMS from the release page
+```
+
+Measured on 5 August 2026, against the real published artifact rather than in
+principle: `qryx_v0.3.0_darwin_arm64` from the Releases page, built on a Linux
+runner cross-compiling to darwin/arm64, and a local build of that same tag on
+macOS are both
+
+```
+0864315d02b8580b56cb997e31b2bcef1bb804f4713981c0fae424ace3303c2b
+```
+
+Different machine, different host OS, identical bytes.
+
+Three flags make that work, `CGO_ENABLED=0`, `-trimpath` and `-s -w`, and losing
+any one of them would break it **silently**: the build would still succeed and
+only somebody trying to verify us would ever find out. So CI builds the same
+source in two directories of different lengths on every push and refuses if a
+byte differs (`scripts/reproducible-build.sh`).
+
+What this does not claim: a different Go version will not give the same bytes.
+`go.mod` pins the toolchain, and a digest is only meaningful next to the
+compiler that produced it.
+
 > Maintainers: a release is cut automatically by CI on `git tag vX.Y.Z && git push --tags`.
 
 ## Quick start
