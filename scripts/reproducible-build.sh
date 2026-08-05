@@ -38,12 +38,23 @@
 # directly against the published artifact. This gate holds the property that
 # makes that possible, on every push, without the network.
 #
-# That distinction is not pedantry. On 2026-08-05 the same measurement was run
-# against idryx, whose release workflow has the identical flags, and its
-# published binary did NOT reproduce: same commit, same Go 1.26.5, same size,
-# 4.4 MB of differing bytes. Whatever causes that, this check would have passed
-# there too, because idryx builds identically twice on one machine. A gate that
-# holds one property must not be read as evidence for the other.
+# HOW TO MEASURE THE STRONGER CLAIM, and the trap in doing it.
+#
+# Build in a real checkout at the tag: `git checkout v0.3.0 && go build ...`.
+# NOT in a `git worktree --detach`, and NOT from a `git archive` extraction.
+# Both of those leave Go unable to read the VCS, so it stamps no revision and
+# records the module as `(devel)` instead of `v0.3.0`. The binary is then
+# legitimately different from the release, and the difference looks enormous:
+# `cmp -l` counts POSITIONS, so a version string one byte shorter shifts
+# everything after it and reports megabytes of "differing bytes" for what is one
+# changed field.
+#
+# That is worth writing down because it cost an afternoon and produced a wrong
+# conclusion first. idryx was measured with the archive method, failed to match,
+# and was written up as not reproducible. Built in a checkout at its tag it is
+# byte-identical to its published artifact:
+# 8c968574341f48775e898770e98cb586b620101668b86edec24428612e979a80. Both
+# services reproduce. The method was broken, not the build.
 #
 # It cannot prove a different toolchain produces the same bytes. Go's output is
 # tied to its compiler version, `go.mod` pins one, and a digest is only
