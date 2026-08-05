@@ -228,6 +228,9 @@ func run(args []string) error {
 		reportSetAside(os.Stderr, setAside, res.Findings)
 	}
 
+	// Same principle, one step earlier: what the scan could not look at at all.
+	reportUnexamined(os.Stderr, res)
+
 	// Opt-in agent-event emission: only ever fires for findings/nodes/
 	// violations carrying a real agent_id, which today means the agents
 	// source (internal/agentstack); every other source's Tags has no
@@ -525,6 +528,37 @@ func reportSetAside(w io.Writer, setAside, production []model.Finding) {
 		fmt.Fprintf(w, "; %d asset(s) exist only there", onlyTest)
 	}
 	fmt.Fprintln(w, ". Pass --include-tests to count them.")
+}
+
+// reportUnexamined tells the operator, on stderr, how much of the target the
+// scan could not look at: entries it could not read, files past the size cap,
+// files a detector could not parse.
+//
+// It is the same rule as the test-code line above it. A file qryx could not
+// open produces no findings, and so does a file with no cryptography in it: on
+// stdout the two results are identical. This line is the only thing that makes
+// a scan which walked files and examined none look different from a clean one,
+// which matters most where nobody is reading, in CI.
+//
+// Silent on a scan that read everything: a counter that prints zeros teaches
+// the reader to skip the line that will one day be non-zero.
+func reportUnexamined(w io.Writer, res *scan.Result) {
+	total := res.Unreadable + res.Oversize + res.Unparsed
+	if total == 0 {
+		return
+	}
+	var parts []string
+	if res.Unreadable > 0 {
+		parts = append(parts, fmt.Sprintf("%d unreadable", res.Unreadable))
+	}
+	if res.Oversize > 0 {
+		parts = append(parts, fmt.Sprintf("%d over the %d-byte size cap", res.Oversize, int64(scan.MaxFileSize)))
+	}
+	if res.Unparsed > 0 {
+		parts = append(parts, fmt.Sprintf("%d unparsable", res.Unparsed))
+	}
+	fmt.Fprintf(w, "qryx: %d file(s) were not examined: %s. This scan says nothing about them.\n",
+		total, strings.Join(parts, ", "))
 }
 
 func openStore(target string) store.Store {

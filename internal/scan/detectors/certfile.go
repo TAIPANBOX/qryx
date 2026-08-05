@@ -15,11 +15,19 @@ import (
 // CertFile parses PEM certificates and reports the signature algorithm, public
 // key, and expiry. This is the highest-signal Phase 0 detector: real assets,
 // no guessing.
-type CertFile struct{}
+type CertFile struct {
+	// unparsed counts files holding at least one CERTIFICATE block x509
+	// rejected. Counted per file, not per block, so it can be added to the
+	// walker's other per-file counts.
+	unparsed int
+}
 
 func NewCertFile() *CertFile { return &CertFile{} }
 
 func (c *CertFile) Name() string { return "certfile" }
+
+// Unparsed implements scan.UnparsedReporter.
+func (c *CertFile) Unparsed() int { return c.unparsed }
 
 func (c *CertFile) Wants(path string) bool {
 	switch filepath.Ext(path) {
@@ -31,6 +39,7 @@ func (c *CertFile) Wants(path string) bool {
 
 func (c *CertFile) Detect(f scan.File) []model.Finding {
 	var out []model.Finding
+	rejected := false
 	rest := f.Content
 	for {
 		var block *pem.Block
@@ -43,9 +52,15 @@ func (c *CertFile) Detect(f scan.File) []model.Finding {
 		}
 		cert, err := x509.ParseCertificate(block.Bytes)
 		if err != nil {
+			// A certificate qryx could not parse is not a certificate with
+			// nothing wrong in it; the walker reports the difference.
+			rejected = true
 			continue
 		}
 		out = append(out, c.findingsForCert(f.Path, cert)...)
+	}
+	if rejected {
+		c.unparsed++
 	}
 	return out
 }

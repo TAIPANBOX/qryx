@@ -58,3 +58,23 @@ func g() {
 		t.Errorf("RSA key size = %d, want 2048", size)
 	}
 }
+
+// A Go file that does not parse yields no findings, which is byte for byte the
+// result of a Go file with no cryptography in it. The detector is the only
+// place that knows which of the two happened, so it has to say.
+func TestGoASTCountsAFileItCouldNotParse(t *testing.T) {
+	g := NewGoAST()
+	if got := g.Detect(scan.File{Path: "broken.go", Content: []byte("package x\n\nfunc f( {\n")}); len(got) != 0 {
+		t.Fatalf("expected no findings from a file that does not parse, got %d", len(got))
+	}
+	if g.Unparsed() != 1 {
+		t.Errorf("Unparsed() = %d, want 1: the parse failure was swallowed", g.Unparsed())
+	}
+
+	if got := g.Detect(scan.File{Path: "fine.go", Content: []byte("package x\n")}); len(got) != 0 {
+		t.Fatalf("expected no findings from a file with no crypto, got %d", len(got))
+	}
+	if g.Unparsed() != 1 {
+		t.Errorf("Unparsed() = %d after a file that parses cleanly, want 1", g.Unparsed())
+	}
+}

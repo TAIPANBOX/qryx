@@ -21,3 +21,19 @@ type Detector interface {
 	// Detect returns findings for the file.
 	Detect(f File) []model.Finding
 }
+
+// UnparsedReporter is implemented by detectors that can be handed a file they
+// cannot read: goast on Go source with a syntax error, certfile on a PEM block
+// x509 rejects. Both return no findings for it, which is indistinguishable from
+// finding nothing in it, and the walker is the only place that can tell an
+// operator the difference.
+//
+// The count is cumulative over the detector's lifetime; the walker takes the
+// difference across one walk, so a Scanner used twice does not inherit the
+// first scan's total. Optional by design: nothing in Detector changes, and a
+// detector that cannot fail to parse simply does not implement this.
+type UnparsedReporter interface {
+	// Unparsed reports how many files this detector was given and could not
+	// parse.
+	Unparsed() int
+}

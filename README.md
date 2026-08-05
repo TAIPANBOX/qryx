@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-188-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-195-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Status](https://img.shields.io/badge/phase-4%20(governance)-success.svg)
 
@@ -181,6 +181,17 @@ zero and buries the findings they actually have to migrate.
 
 Test findings are never dropped silently, because a hardcoded key in a fixture is
 still a key on disk. They are separated, not hidden.
+
+### A scan that could not look is not a clean scan
+
+"No findings" and "could not look" produce identical output on stdout, so the
+scan counts what it could not examine and says so on stderr, next to the line
+above: entries it could not read, files past the 4 MiB read cap, and files a
+detector could not parse (Go source with a syntax error, a PEM block `x509`
+rejects). A scan that walked a tree and examined none of it now looks different
+from a scan of a tree with no cryptography in it. Nothing is printed when
+everything was read, since a counter that prints zeros teaches the reader to
+skip the line that will one day be non-zero.
 
 ---
 
