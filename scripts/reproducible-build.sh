@@ -30,6 +30,21 @@
 # length would hide a length-dependent embedding, which is the exact failure
 # -trimpath exists to prevent.
 #
+# It proves PATH INDEPENDENCE, which is not the same statement as "this matches
+# the release", and the two are worth keeping apart. It builds from `git
+# archive`, so there is no `.git` and Go stamps no VCS metadata; the release is
+# built in a checkout and IS stamped. The stamp is deterministic given the
+# commit, so the release-matching claim in the README holds and was measured
+# directly against the published artifact. This gate holds the property that
+# makes that possible, on every push, without the network.
+#
+# That distinction is not pedantry. On 2026-08-05 the same measurement was run
+# against idryx, whose release workflow has the identical flags, and its
+# published binary did NOT reproduce: same commit, same Go 1.26.5, same size,
+# 4.4 MB of differing bytes. Whatever causes that, this check would have passed
+# there too, because idryx builds identically twice on one machine. A gate that
+# holds one property must not be read as evidence for the other.
+#
 # It cannot prove a different toolchain produces the same bytes. Go's output is
 # tied to its compiler version, `go.mod` pins one, and a digest is only
 # meaningful next to the version that made it, so both are printed.
