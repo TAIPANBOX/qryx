@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-184-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-188-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Status](https://img.shields.io/badge/phase-4%20(governance)-success.svg)
 
@@ -256,6 +256,28 @@ qryx scan --save base.json <path>                              # 1. baseline
 qryx scan --baseline base.json --fail-on-new high <path>       # 2. diff → exit 2 on new high-risk
 ```
 
+### A baseline that is not there is not a baseline with no drift in it
+
+Both drift gates (`--fail-on-new`, and `--policy` together with
+`--policy-new-only`) read their verdict out of the comparison against the
+baseline. If the baseline cannot be loaded there is no comparison, so **qryx
+exits non-zero and names the path it could not find** rather than gating on an
+empty set of new assets and reporting a pass. A typo in a CI path, a cache miss
+or a first run on a new branch would otherwise turn a blocking gate into a green
+build, and nothing on stdout would say so.
+
+The first run is the exception, and it has to be stated:
+
+```bash
+qryx scan --baseline base.json --fail-on-new high --allow-missing-baseline <path>
+```
+
+`--allow-missing-baseline` restores skip-and-continue: the missing baseline is
+reported on stderr and the gate passes. Use it for the run that creates the
+baseline, not as a permanent flag in the pipeline, since it opts back out of the
+thing the gate is for. `--baseline` on its own is unaffected: with no gate
+depending on it, a missing snapshot stays a warning and an exit 0.
+
 ---
 
 ## Supply-chain hygiene
@@ -424,6 +446,7 @@ qryx agents --events events.ndjson ./passports  # ...and append findings as agen
 
 qryx scan --save base.json <path>      # snapshot the asset graph
 qryx scan --baseline base.json <path>  # report drift vs the baseline
+qryx scan --baseline base.json --fail-on-new high --allow-missing-baseline <path>  # ...first run, before the baseline exists
 ```
 
 > Flags must precede the positional path/targets (`qryx scan [flags] <path>`).
@@ -616,7 +639,10 @@ CNSA deadline is 2030. A custom policy is plain JSON:
 stays valid. Add `--baseline <snapshot> --policy-new-only` to gate on *drift* - 
 only assets new since the baseline are evaluated, so a clean policy can be
 adopted on a legacy codebase without blocking on pre-existing debt while still
-failing any newly introduced weak crypto.
+failing any newly introduced weak crypto. A baseline that cannot be loaded is an
+error under this combination rather than an empty set of new assets and a pass
+(see [Drift detection in CI](#drift-detection-in-ci) and
+`--allow-missing-baseline`).
 
 **Evidence export** (`--format evidence`) - a self-describing, tamper-evident
 compliance attestation for audit/GRC: tool + version, UTC timestamp, scan root,
