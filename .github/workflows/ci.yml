@@ -41,6 +41,20 @@ jobs:
       - name: every direct dependency is declared with a reason
         run: ./scripts/declared-deps.sh
 
+      # A scanner asks to be believed about somebody else's cryptography. The
+      # honest answer to "why should I trust your binary" is not that the source
+      # is open, which it always was, but that you can rebuild the release and
+      # get the same bytes. Measured 2026-08-05: the published
+      # qryx_v0.3.0_darwin_arm64, built on a runner, and a local build of the
+      # same tag on macOS are both
+      # 0864315d02b8580b56cb997e31b2bcef1bb804f4713981c0fae424ace3303c2b.
+      #
+      # That holds because of CGO_ENABLED=0, -trimpath and -s -w in the release
+      # workflow, and any one of them going missing breaks it in silence: the
+      # build still succeeds and only the person trying to verify us finds out.
+      - name: a release can be rebuilt byte for byte
+        run: ./scripts/reproducible-build.sh
+
   security:
     runs-on: ubuntu-latest
     steps:
