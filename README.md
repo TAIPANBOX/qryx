@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-195-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-197-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Status](https://img.shields.io/badge/phase-4%20(governance)-success.svg)
 
@@ -508,7 +508,12 @@ linked binary as limited assurance, not proof there is no crypto in it.
 
 **Container images** (`qryx image`) - extracts a local image tarball
 (`docker save` / OCI) with stdlib tar/gzip, hardened against path traversal and
-tar bombs, then runs the code and binary scanners over the layers.
+tar bombs, then runs the code and binary scanners over the layers. Layers are
+streamed rather than buffered, so layer size is not a limit on what can be
+scanned, and **an image that cannot be extracted is an error naming that image**
+rather than an empty finding list and exit 0. Individual files inside a layer
+above the 32 MiB per-file cap are skipped, counted, and reported on stderr:
+skipped, because half a binary scans as a binary with no crypto in it.
 
 **AWS cloud** (`qryx aws --region <r>`) - KMS keys (by key spec) and ACM
 certificates (algorithm + expiry) via the default credential chain. The SDK sits
