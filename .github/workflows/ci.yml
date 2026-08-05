@@ -41,6 +41,13 @@ jobs:
       - name: every direct dependency is declared with a reason
         run: ./scripts/declared-deps.sh
 
+      # A number in a README is a claim with no owner: it is right the day it
+      # is written and the suite grows in a commit that never opens the file.
+      # On 2026-08-05 four of seven such figures on it-rat.com were found
+      # stale against these repositories. This is the same check at the source.
+      - name: the README's numbers are true
+        run: ./scripts/readme-numbers.sh
+
       # A scanner asks to be believed about somebody else's cryptography. The
       # honest answer to "why should I trust your binary" is not that the source
       # is open, which it always was, but that you can rebuild the release and
