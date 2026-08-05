@@ -67,6 +67,7 @@ func run(args []string) error {
 		failRegr  = fs.Bool("fail-on-regression", false, "with trend: exit 3 if the latest compliance score is below the previous (CI)")
 		htmlOut   = fs.Bool("html", false, "with trend: render a self-contained HTML chart instead of a text table")
 		eventsArg = fs.String("events", "", "append findings/drift/violations/signed-evidence as agent-event NDJSON to this file, for subjects with a real agent_id (agents source only; see agent-passport SPEC.md §6)")
+		allowNoBL = fs.Bool("allow-missing-baseline", false, "treat a missing --baseline as a pass for the drift gates: the legitimate first run. Without it, --fail-on-new and --policy --policy-new-only are an error when the baseline is not there, rather than a gate that passes without comparing anything")
 		withTests = fs.Bool("include-tests", false, "count crypto found in test code (_test.go, testdata/, conftest.py, ...) as part of the production inventory; by default it is reported on stderr and excluded from the graph, the verdict and every format")
 	)
 	fs.Usage = func() {
@@ -227,6 +228,9 @@ func run(args []string) error {
 		reportSetAside(os.Stderr, setAside, res.Findings)
 	}
 
+	// Same principle, one step earlier: what the scan could not look at at all.
+	reportUnexamined(os.Stderr, res)
+
 	// Opt-in agent-event emission: only ever fires for findings/nodes/
 	// violations carrying a real agent_id, which today means the agents
 	// source (internal/agentstack); every other source's Tags has no
@@ -256,11 +260,28 @@ func run(args []string) error {
 	}
 
 	// Compute drift against the baseline, if one is given and exists.
+	//
+	// A baseline that is not there is not the same result as a baseline with no
+	// drift against it, and until 2026-08-05 this could not tell them apart:
+	// both produced an empty delta, --fail-on-new iterated nothing and passed,
+	// and --policy --policy-new-only gated an empty node set and exited 0. A
+	// typo in a CI path, a cache miss, or a first run on a new branch turned a
+	// blocking gate into a green build, and the only thing that said so was the
+	// warning below, which no CI system reads.
+	//
+	// So a missing baseline is now an error whenever a gate depends on the
+	// comparison, and --allow-missing-baseline is how an operator says the first
+	// run is genuinely the first run. Without a gate flag, --baseline only
+	// reports drift and nothing fails open, so the warning is still the right
+	// answer there.
 	var delta store.Delta
 	if *baseline != "" {
 		base, err := openStore(*baseline).Load()
 		switch {
 		case errors.Is(err, store.ErrNotFound):
+			if gate := driftGate(*failOnNew, *policyArg, *policyNew); gate != "" && !*allowNoBL {
+				return fmt.Errorf("baseline %s not found, and %s gates on the comparison against it: pass --allow-missing-baseline if this is genuinely the first run", *baseline, gate)
+			}
 			fmt.Fprintf(os.Stderr, "qryx: baseline %s not found; skipping drift\n", *baseline)
 		case err != nil:
 			return fmt.Errorf("load baseline: %w", err)
@@ -365,8 +386,10 @@ func run(args []string) error {
 			if *baseline == "" {
 				return fmt.Errorf("--policy-new-only requires --baseline")
 			}
-			// delta.Added is empty when the baseline is missing or unchanged, so
-			// only genuinely new assets are gated.
+			// delta.Added is empty when nothing changed since the baseline, so
+			// only genuinely new assets are gated. A baseline that could not be
+			// loaded produces the same empty set and is refused above, unless
+			// --allow-missing-baseline said the first run is the first run.
 			nodes = delta.Added
 			label += " (new vs baseline)"
 		}
@@ -507,6 +530,37 @@ func reportSetAside(w io.Writer, setAside, production []model.Finding) {
 	fmt.Fprintln(w, ". Pass --include-tests to count them.")
 }
 
+// reportUnexamined tells the operator, on stderr, how much of the target the
+// scan could not look at: entries it could not read, files past the size cap,
+// files a detector could not parse.
+//
+// It is the same rule as the test-code line above it. A file qryx could not
+// open produces no findings, and so does a file with no cryptography in it: on
+// stdout the two results are identical. This line is the only thing that makes
+// a scan which walked files and examined none look different from a clean one,
+// which matters most where nobody is reading, in CI.
+//
+// Silent on a scan that read everything: a counter that prints zeros teaches
+// the reader to skip the line that will one day be non-zero.
+func reportUnexamined(w io.Writer, res *scan.Result) {
+	total := res.Unreadable + res.Oversize + res.Unparsed
+	if total == 0 {
+		return
+	}
+	var parts []string
+	if res.Unreadable > 0 {
+		parts = append(parts, fmt.Sprintf("%d unreadable", res.Unreadable))
+	}
+	if res.Oversize > 0 {
+		parts = append(parts, fmt.Sprintf("%d over the %d-byte size cap", res.Oversize, int64(scan.MaxFileSize)))
+	}
+	if res.Unparsed > 0 {
+		parts = append(parts, fmt.Sprintf("%d unparsable", res.Unparsed))
+	}
+	fmt.Fprintf(w, "qryx: %d file(s) were not examined: %s. This scan says nothing about them.\n",
+		total, strings.Join(parts, ", "))
+}
+
 func openStore(target string) store.Store {
 	if strings.HasPrefix(target, "postgres://") || strings.HasPrefix(target, "postgresql://") {
 		return store.PostgresStore{ConnString: target}
@@ -606,6 +660,20 @@ func runTLS(targets []string, timeout time.Duration) (*scan.Result, error) {
 	}
 	res.Findings = risk.Apply(res.Findings)
 	return res, nil
+}
+
+// driftGate names the flag whose verdict is read out of the baseline
+// comparison, or "" when nothing is gated on it. Only these two ever consume
+// delta.Added, so only these two can pass by comparing against a baseline that
+// was never loaded; --baseline on its own merely reports drift.
+func driftGate(failOnNew, policyArg string, policyNewOnly bool) string {
+	switch {
+	case failOnNew != "":
+		return "--fail-on-new"
+	case policyArg != "" && policyNewOnly:
+		return "--policy with --policy-new-only"
+	}
+	return ""
 }
 
 // policyName is the label shown in the violations report: the policy's own name

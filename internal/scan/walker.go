@@ -10,9 +10,11 @@ import (
 	"github.com/TAIPANBOX/qryx/internal/risk"
 )
 
-// maxFileSize caps how large a file we read into memory (4 MiB). Larger files
+// MaxFileSize caps how large a file we read into memory (4 MiB). Larger files
 // are skipped; crypto findings in multi-megabyte blobs are not the Phase 0 case.
-const maxFileSize = 4 << 20
+// It is exported because a skipped file is counted and reported, and the report
+// has to be able to name the cap it hit.
+const MaxFileSize = 4 << 20
 
 // skipDirs are never descended into.
 var skipDirs = map[string]bool{
@@ -42,6 +44,15 @@ type Result struct {
 	Root        string
 	FilesWalked int
 	Findings    []model.Finding
+
+	// What the scan could NOT look at. FilesWalked counts only files that were
+	// read successfully, so on its own it cannot tell a tree with no crypto in
+	// it from a tree qryx never opened: both report zero findings. These three
+	// are that difference, and they are reported to the operator rather than
+	// dropped.
+	Unreadable int // a directory entry, stat or read that failed
+	Oversize   int // wanted by a detector, but larger than MaxFileSize
+	Unparsed   int // read, but a detector could not parse it
 }
 
 // Scan walks root, runs detectors, classifies risk, and returns findings.
@@ -58,9 +69,16 @@ func (s *Scanner) Scan(root string) (*Result, error) {
 	}
 	defer rootDir.Close()
 
+	// The detectors carry their own unparsed counts and outlive a single walk,
+	// so this scan's share is the difference across it, not the total.
+	unparsedBefore := s.unparsed()
+
 	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return nil // skip unreadable entries, keep walking
+			// Keep walking, but never silently: one unreadable directory can
+			// hide a whole subtree, and this is the only place that knows.
+			res.Unreadable++
+			return nil
 		}
 		if d.IsDir() {
 			if skipDirs[d.Name()] {
@@ -85,13 +103,21 @@ func (s *Scanner) Scan(root string) (*Result, error) {
 			return nil
 		}
 
+		// From here on the file is one a detector asked for, so every way of
+		// not examining it is a gap in the result and is counted as one.
 		info, statErr := d.Info()
-		if statErr != nil || info.Size() > maxFileSize {
+		if statErr != nil {
+			res.Unreadable++
+			return nil
+		}
+		if info.Size() > MaxFileSize {
+			res.Oversize++
 			return nil
 		}
 
 		content, readErr := rootDir.ReadFile(rel)
 		if readErr != nil {
+			res.Unreadable++
 			return nil
 		}
 		res.FilesWalked++
@@ -125,9 +151,23 @@ func (s *Scanner) Scan(root string) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	res.Unparsed = s.unparsed() - unparsedBefore
 
 	// Asset-level dedup happens in package graph, which the reporters build
 	// from the raw findings; the walker keeps findings flat.
 	res.Findings = risk.Apply(res.Findings)
 	return res, nil
+}
+
+// unparsed totals the files this Scanner's detectors have reported themselves
+// unable to parse. A detector that cannot fail to parse does not implement
+// UnparsedReporter and contributes nothing.
+func (s *Scanner) unparsed() int {
+	n := 0
+	for _, det := range s.detectors {
+		if u, ok := det.(UnparsedReporter); ok {
+			n += u.Unparsed()
+		}
+	}
+	return n
 }

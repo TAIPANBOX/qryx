@@ -196,6 +196,31 @@ CBOM/CNSA -> policy gate (+drift) -> remediation (fix/PR) -> evidence
   code is shipped and copied. Non-filesystem sources (tls/bin/image/cloud) are
   always production, which is the correct zero value.
 
+- 2026-08-05, "could not look" is no longer reported as "found nothing" (branch
+  `fix/no-silent-clean-results`): three defects from a read-only audit, all the
+  same disease. (1) Both drift gates failed open when the baseline was missing:
+  a baseline that could not be loaded produced an empty delta, so
+  `--fail-on-new` iterated nothing and `--policy --policy-new-only` gated an
+  empty node set, both exiting 0. Now an error naming the path whenever a gate
+  reads the comparison, with `--allow-missing-baseline` as the explicit opt-in
+  for a first run. (2) The walker returned bare `nil` for unreadable entries,
+  failed `Info()` calls, files over `scan.MaxFileSize` and failed reads, and
+  `FilesWalked` counted only the survivors; `goast` and `certfile` swallowed
+  parse failures the same way. `scan.Result` now carries `Unreadable`,
+  `Oversize` and `Unparsed`, the last via the optional
+  `scan.UnparsedReporter` seam, and `cmd/qryx` prints them on stderr beside the
+  test-code line, silently when they are all zero. (3) `qryx image` buffered
+  each outer tar entry to a 32 MiB cap before sniffing it as a layer, so any
+  realistic image was truncated into `io.ErrUnexpectedEOF` and reported as
+  clean with exit 0; layers now stream through the tar reader (the cap no
+  longer bounds a layer at all, only a single file inside one, which is skipped
+  and counted rather than truncated), and a failed extraction is fatal and
+  names the image. `maxFileBytes` became a package var purely so a test can
+  drive a layer past the cap with kilobytes instead of 32 MiB in CI.
+  *(@measured: `go test -race ./...`, the three gate scripts, and the real
+  binary against a synthetic 40 MiB image that scans as 0 findings on
+  567c2ce and reports its MD5 finding after, 2026-08-05)*
+
 **No remaining deliberate deferrals** -- both items tracked here (ML-DSA
 signing, agent-event export) are done. Revisit `go.mod`'s
 `toolchain go1.27rc2` pin once Go 1.27 GA ships, to drop the

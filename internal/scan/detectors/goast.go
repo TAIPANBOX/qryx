@@ -38,7 +38,12 @@ var goCryptoPkgs = map[string]goPkg{
 // GoAST detects cryptographic usage in Go source via the standard go/ast
 // parser: it resolves imported crypto packages and reports each call site,
 // extracting the RSA key size from rsa.GenerateKey when it is a literal.
-type GoAST struct{}
+type GoAST struct {
+	// unparsed counts files this detector was handed and could not parse. It
+	// returns no findings for them, which reads exactly like finding nothing,
+	// so the count is what lets the walker say which one happened.
+	unparsed int
+}
 
 func NewGoAST() *GoAST { return &GoAST{} }
 
@@ -46,11 +51,17 @@ func (g *GoAST) Name() string { return "goast" }
 
 func (g *GoAST) Wants(path string) bool { return filepath.Ext(path) == ".go" }
 
+// Unparsed implements scan.UnparsedReporter.
+func (g *GoAST) Unparsed() int { return g.unparsed }
+
 func (g *GoAST) Detect(f scan.File) []model.Finding {
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, f.Path, f.Content, 0)
 	if err != nil {
-		return nil // a parse error in one file must not break the scan
+		// A parse error in one file must not break the scan, but it must not
+		// pass for a clean file either.
+		g.unparsed++
+		return nil
 	}
 
 	// Resolve local import alias -> crypto package metadata.

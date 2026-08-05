@@ -42,3 +42,38 @@ Disposable Hetzner VPS boxes (deleted after each run) with real system binaries 
 code delivered as a `git archive` tarball (no secrets, no `.git`, no token); the tool bound to
 `127.0.0.1` where it ran any local service. Nothing from these runs was ever exposed publicly, and no
 infrastructure or secret from the campaign persists today.
+
+## Bugs a read-only audit found (2026-08-05)
+
+Three of them, all the same disease and none of them visible from the output: qryx could not tell
+"found nothing" from "could not look", and reported the clean result either way. None was found by a
+live run, because every one of them makes a run look successful.
+
+1. **Both drift gates failed open on a missing baseline** (`cmd/qryx/main.go`) - a baseline that could
+   not be loaded produced an empty delta, so `--fail-on-new` iterated nothing and passed, and
+   `--policy --policy-new-only` evaluated an empty set of new assets, found zero violations and exited
+   0. A typo in a CI path, a cache miss or a first run on a new branch turned a blocking gate into a
+   green build. Fixed: a missing baseline is an error naming the path whenever a gate reads the
+   comparison, with `--allow-missing-baseline` as the explicit opt-in for the genuine first run.
+   *(@measured: `qryx scan --baseline <absent> --fail-on-new high <tree>` exits 1 and names the path;
+   the same command with `--allow-missing-baseline` exits 0; `--baseline` alone still exits 0,
+   2026-08-05)*
+2. **Every read and parse failure in the scan path was silent** (`internal/scan/walker.go`,
+   `detectors/goast.go`, `detectors/certfile.go`) - unreadable directory entries, failed `Info()`
+   calls, files over the 4 MiB read cap, failed reads and files no detector could parse each returned
+   with no counter, and `FilesWalked` only counted files that survived all of them. A tree qryx never
+   opened reported exactly like a tree with no cryptography in it. Fixed: the three counts are carried
+   on `scan.Result` and printed on stderr next to the test-code exclusion line.
+   *(@measured: a tree with one unreadable file, one over the cap and one that does not parse reports
+   `3 file(s) were not examined: 1 unreadable, 1 over the 4194304-byte size cap, 1 unparsable`, while
+   a fully readable tree prints nothing, 2026-08-05)*
+3. **`qryx image` reported zero findings for any realistic container image** (`internal/imagescan/
+   image.go`) - each outer tar entry was buffered whole and capped at 32 MiB before being sniffed as a
+   layer, so a larger layer was truncated, `tar.Next` returned `io.ErrUnexpectedEOF`, and `Scan`
+   swallowed the error to one stderr line. The operator saw "No cryptographic assets detected" and
+   exit 0. Every Debian- and Ubuntu-based image has layers past that cap. The two existing tests built
+   a few-hundred-byte layer in memory, so nothing covered it. Fixed: layers stream through the tar
+   reader instead of being buffered, and an image that cannot be extracted is a fatal error naming it.
+   *(@measured: a synthetic 40 MiB layer containing one `hashlib.md5()` call scanned as
+   "0 findings, exit 0" on `main` at 567c2ce and reports the MD5 finding after the fix; an image with
+   a layer cut mid-file exits 1 instead of 0, 2026-08-05)*

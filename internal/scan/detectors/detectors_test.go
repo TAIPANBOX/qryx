@@ -220,3 +220,18 @@ func TestTLSConfigCleanModernConfig(t *testing.T) {
 		t.Fatalf("expected 0 findings, got %d: %+v", len(got), got)
 	}
 }
+
+// The same rule for certificates: a PEM block x509 rejects is skipped, and a
+// skipped certificate must not be indistinguishable from a file that held no
+// certificate at all.
+func TestCertFileCountsAPEMBlockItCouldNotParse(t *testing.T) {
+	c := NewCertFile()
+	garbage := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: []byte("not a certificate")})
+
+	if got := c.Detect(scan.File{Path: "broken.pem", Content: garbage}); len(got) != 0 {
+		t.Fatalf("expected no findings from an unparsable certificate, got %d", len(got))
+	}
+	if c.Unparsed() != 1 {
+		t.Errorf("Unparsed() = %d, want 1: the rejected certificate was swallowed", c.Unparsed())
+	}
+}

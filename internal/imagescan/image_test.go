@@ -77,12 +77,12 @@ func TestExtractRejectsPathTraversal(t *testing.T) {
 		"../escape.txt": "pwned",
 		"good.txt":      "ok",
 	})
-	tr, err := asTarReader(layer)
+	tr, err := asTarReader(bytes.NewReader(layer))
 	if err != nil || tr == nil {
 		t.Fatalf("expected a tar reader, got tr=%v err=%v", tr, err)
 	}
-	var total int64
-	if err := extractLayer(tr, root, &total); err != nil {
+	var st extractStats
+	if err := extractLayer(tr, root, &st); err != nil {
 		t.Fatal(err)
 	}
 
@@ -93,4 +93,56 @@ func TestExtractRejectsPathTraversal(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "good.txt")); err != nil {
 		t.Errorf("legitimate file was not extracted: %v", err)
 	}
+}
+
+// `qryx image` on a container image it could not extract used to print one line
+// on stderr, return no findings and no error, and let the CLI report a clean
+// result with exit 0. Every layer of a Debian- or Ubuntu-based image is larger
+// than the 32 MiB entry cap that produced exactly this failure, so the common
+// case was an image that scanned as having no cryptography in it.
+func TestScanReportsAnImageItCouldNotExtractAsAnError(t *testing.T) {
+	// A layer tar cut in the middle of a file's data: the header parses, the
+	// body ends early, and tar.Next reports the stream as unexpectedly over.
+	layer := writeTar(t, map[string]string{"usr/bin/thing": strings.Repeat("x", 4096)})
+	cut := string(layer[:1024])
+	path := filepath.Join(t.TempDir(), "broken-image.tar")
+	if err := os.WriteFile(path, writeTar(t, map[string]string{
+		"manifest.json": `[{"Layers":["layer.tar"]}]`,
+		"layer.tar":     cut,
+	}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	findings, err := Scan([]string{path})
+	if err == nil {
+		t.Fatalf("Scan returned nil error and %d finding(s) for an image it could not extract: a failed extraction reported as a clean image", len(findings))
+	}
+	if !strings.Contains(err.Error(), path) {
+		t.Errorf("error %q does not name the image, so an operator scanning several cannot tell which one failed", err)
+	}
+}
+
+// The cap that caused it. The seam exists so the test can drive a realistic
+// image shape (a layer bigger than the per-file cap) with a few kilobytes
+// instead of writing 32 MiB of zeroes in CI on every run.
+func TestScanReadsALayerLargerThanTheFileCap(t *testing.T) {
+	restore := maxFileBytes
+	maxFileBytes = 512
+	t.Cleanup(func() { maxFileBytes = restore })
+
+	img := dockerSaveTar(t, map[string]string{
+		"app/main.py": "import hashlib\nh = hashlib.md5()\n",
+		"var/pad.bin": strings.Repeat("x", 4096), // pushes the layer past the cap
+	})
+
+	findings, err := Scan([]string{img})
+	if err != nil {
+		t.Fatalf("Scan returned %v for a layer larger than the per-file cap", err)
+	}
+	for _, f := range findings {
+		if f.Asset.Algorithm == "MD5" {
+			return
+		}
+	}
+	t.Fatalf("no MD5 finding: the layer was truncated at the %d-byte cap and the image scanned clean", maxFileBytes)
 }
