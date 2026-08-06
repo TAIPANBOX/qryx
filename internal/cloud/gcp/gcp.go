@@ -27,29 +27,42 @@ type keyVersion struct {
 	Labels    map[string]string // inherited from CryptoKey.Labels
 }
 
-// keyLister enumerates enabled KMS key versions in a project/location.
+// AllLocations is the Cloud KMS wildcard: `projects/<p>/locations/-` lists key
+// rings in every location the caller can see, and it is what `qryx gcp` asks
+// for unless --location narrows it.
+//
+// It used to default to "global". Cloud KMS key rings are overwhelmingly
+// regional, so a plain `qryx gcp --project X` inventoried one location out of
+// dozens, found almost nothing in a real project, and reported that as a clean
+// result. The single-location scope was a choice, not an API constraint.
+const AllLocations = "-"
+
+// keyLister enumerates enabled KMS key versions in a project/location, and
+// names what it could not read (see the AWS connector's Scan for why that is a
+// return value rather than an error).
 type keyLister interface {
-	list(ctx context.Context, project, location string) ([]keyVersion, error)
+	list(ctx context.Context, project, location string) ([]keyVersion, []string, error)
 }
 
 // Scan inventories Cloud KMS key versions using Application Default Credentials.
-func Scan(ctx context.Context, project, location string) ([]model.Finding, error) {
-	if location == "" {
-		location = "global"
-	}
+func Scan(ctx context.Context, project, location string) ([]model.Finding, []string, error) {
 	client, err := kms.NewKeyManagementClient(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("kms client: %w", err)
+		return nil, nil, fmt.Errorf("kms client: %w", err)
 	}
 	defer client.Close()
 	return scanWith(ctx, gcpLister{client}, project, location)
 }
 
-// scanWith is the testable core: it maps every version the lister returns.
-func scanWith(ctx context.Context, l keyLister, project, location string) ([]model.Finding, error) {
-	versions, err := l.list(ctx, project, location)
+// scanWith is the testable core: it resolves the scope and maps every version
+// the lister returns.
+func scanWith(ctx context.Context, l keyLister, project, location string) ([]model.Finding, []string, error) {
+	if location == "" {
+		location = AllLocations
+	}
+	versions, skipped, err := l.list(ctx, project, location)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var out []model.Finding
 	for _, v := range versions {
@@ -65,7 +78,7 @@ func scanWith(ctx context.Context, l keyLister, project, location string) ([]mod
 			Tags:     v.Labels,
 		})
 	}
-	return out, nil
+	return out, skipped, nil
 }
 
 // gcpLister drains the real KMS iterators (KeyRings → CryptoKeys → versions).
@@ -73,8 +86,20 @@ type gcpLister struct {
 	client *kms.KeyManagementClient
 }
 
-func (g gcpLister) list(ctx context.Context, project, location string) ([]keyVersion, error) {
+// list drains the real KMS iterators. A failure enumerating one ring's keys,
+// or one key's versions, skips that resource and is reported; only the
+// top-level ring listing is fatal, since without it there is nothing to walk.
+// This matters more now that the default scope is every location: a project
+// where one location or one ring is out of reach used to lose the whole
+// inventory to it.
+//
+// Per CLAUDE.md invariant 4, this is the thin real-SDK wiring, and it is the
+// part no test covers: the fake in gcp_test.go satisfies keyLister above this
+// code, and no account was used. The skip-and-report shape is verified there;
+// that these particular iterator errors arrive this way is not.
+func (g gcpLister) list(ctx context.Context, project, location string) ([]keyVersion, []string, error) {
 	var out []keyVersion
+	var skipped []string
 	parent := fmt.Sprintf("projects/%s/locations/%s", project, location)
 	rings := g.client.ListKeyRings(ctx, &kmspb.ListKeyRingsRequest{Parent: parent})
 	for {
@@ -83,7 +108,7 @@ func (g gcpLister) list(ctx context.Context, project, location string) ([]keyVer
 			break
 		}
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		keys := g.client.ListCryptoKeys(ctx, &kmspb.ListCryptoKeysRequest{Parent: ring.Name})
 		for {
@@ -92,7 +117,8 @@ func (g gcpLister) list(ctx context.Context, project, location string) ([]keyVer
 				break
 			}
 			if err != nil {
-				return nil, err
+				skipped = append(skipped, fmt.Sprintf("kms key ring %s: %v", ring.Name, err))
+				break
 			}
 			versions := g.client.ListCryptoKeyVersions(ctx, &kmspb.ListCryptoKeyVersionsRequest{Parent: key.Name})
 			for {
@@ -101,7 +127,8 @@ func (g gcpLister) list(ctx context.Context, project, location string) ([]keyVer
 					break
 				}
 				if err != nil {
-					return nil, err
+					skipped = append(skipped, fmt.Sprintf("kms key %s: %v", key.Name, err))
+					break
 				}
 				if v.State != kmspb.CryptoKeyVersion_ENABLED {
 					continue
@@ -110,7 +137,7 @@ func (g gcpLister) list(ctx context.Context, project, location string) ([]keyVer
 			}
 		}
 	}
-	return out, nil
+	return out, skipped, nil
 }
 
 var rsaSizeRE = regexp.MustCompile(`_(\d{3,4})_`)

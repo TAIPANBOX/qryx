@@ -11,6 +11,15 @@ import (
 
 // EvidenceRecord is one compact, digest-stamped compliance data point, appended
 // to a trail per run so posture can be tracked over time.
+//
+// The four status counts add up to Total, and NotAssessed is the one that says
+// how much of the inventory qryx never graded against CNSA 2.0. It is in the
+// denominator of ScorePct, so a trail that omitted it would state a whole whose
+// parts do not add up and make a reader recover the remainder by subtraction.
+//
+// notAssessed is absent from every record written before the field existed.
+// Those decode fine and report zero, which is what they meant: at the time,
+// every asset was graded one of the other three ways.
 type EvidenceRecord struct {
 	CreatedAt    time.Time `json:"createdAt"`
 	Root         string    `json:"root"`
@@ -19,6 +28,7 @@ type EvidenceRecord struct {
 	Compliant    int       `json:"compliant"`
 	NonCompliant int       `json:"nonCompliant"`
 	Issues       int       `json:"issues"`
+	NotAssessed  int       `json:"notAssessed"`
 	Total        int       `json:"total"`
 	Digest       string    `json:"digest"`
 }

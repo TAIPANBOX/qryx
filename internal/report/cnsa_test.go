@@ -3,12 +3,17 @@ package report
 import (
 	"bytes"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/TAIPANBOX/qryx/internal/agentstack"
 	"github.com/TAIPANBOX/qryx/internal/graph"
 	"github.com/TAIPANBOX/qryx/internal/model"
+	"github.com/TAIPANBOX/qryx/internal/risk"
 	"github.com/TAIPANBOX/qryx/internal/scan"
+	"github.com/TAIPANBOX/qryx/internal/scan/detectors"
 )
 
 func makeNode(algo string, keySize int, riskClass model.RiskClass, sev model.Severity) graph.AssetNode {
@@ -89,6 +94,123 @@ func TestCnsaStatusContextRiskWinsOverAlgorithmCompliance(t *testing.T) {
 				t.Errorf("deadline=%q want %q", e.Deadline, tc.wantDeadline)
 			}
 		})
+	}
+}
+
+// TestCnsaMisconfigRemediationFollowsTheFinding pins that the remediation text
+// is chosen by what the finding is, not only by its risk class. cnsaStatus
+// branched on n.Risk.Class alone, so every misconfig finding was told to
+// "enforce TLS 1.3 per CNSA 2.0" -- including an Agent Passport with no
+// attestation method and an agent-event stream with no prev_hash chain, which
+// are the two findings `qryx agents` exists to produce and neither of which
+// has anything to do with TLS.
+func TestCnsaMisconfigRemediationFollowsTheFinding(t *testing.T) {
+	tests := []struct {
+		name    string
+		node    graph.AssetNode
+		want    string // substring the action must contain
+		notWant string // substring the action must not contain
+	}{
+		{
+			name:    "passport with no attestation method",
+			node:    misconfigNode(model.TypeProtocol, "no-attestation", "agent identity has no cryptographic attestation"),
+			want:    "attestation",
+			notWant: "TLS 1.3",
+		},
+		{
+			name:    "event stream with no prev_hash chain",
+			node:    misconfigNode(model.TypeProtocol, "no-hash-chain", "agent event stream is not tamper-evident (no hash chain)"),
+			want:    "prev_hash",
+			notWant: "TLS 1.3",
+		},
+		{
+			name: "real TLS misconfiguration from the config detector",
+			node: misconfigNode(model.TypeProtocol, "TLS 1.0", "TLS 1.0 is deprecated"),
+			want: "TLS 1.3",
+		},
+		{
+			name: "real TLS misconfiguration from a live probe",
+			node: misconfigNode(model.TypeProtocol, "TLS", "TLS 1.1 is deprecated"),
+			want: "TLS 1.3",
+		},
+		{
+			name: "legacy SSL from a server config",
+			node: misconfigNode(model.TypeProtocol, "SSL 3.0", "SSL 3.0 is broken (POODLE)"),
+			want: "TLS 1.3",
+		},
+		{
+			// The same trap one connector later: a misconfig this report has
+			// never seen must not inherit the TLS line by default.
+			name:    "a misconfiguration this report has no rule for",
+			node:    misconfigNode(model.TypeKey, "kms-key-rotation-disabled", "automatic key rotation is off"),
+			notWant: "TLS 1.3",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e := cnsaStatus(tc.node)
+			if e.Status != "issue" {
+				t.Fatalf("status=%q want %q", e.Status, "issue")
+			}
+			if tc.want != "" && !strings.Contains(e.Action, tc.want) {
+				t.Errorf("action %q does not mention %q", e.Action, tc.want)
+			}
+			if tc.notWant != "" && strings.Contains(e.Action, tc.notWant) {
+				t.Errorf("action %q wrongly prescribes %q", e.Action, tc.notWant)
+			}
+		})
+	}
+}
+
+// misconfigNode builds a context-risk node the way a connector emits one: the
+// risk class is set by the detector, not derived from the algorithm.
+func misconfigNode(typ model.AssetType, algo, reason string) graph.AssetNode {
+	return graph.AssetNode{
+		Asset:       model.Asset{Type: typ, Algorithm: algo},
+		Risk:        model.Risk{Class: model.RiskMisconfig, Severity: model.SeverityMedium, Reason: reason},
+		Occurrences: []graph.Occurrence{{Location: model.Location{File: "x"}, Source: "agentstack"}},
+	}
+}
+
+// TestCnsaRemediationForRealAgentstackFindings runs the real connector over
+// the real fixtures, so a rename on either side of this contract fails here:
+// internal/agentstack decides the algorithm strings ("no-attestation",
+// "no-hash-chain") and internal/report keys the remediation on them.
+func TestCnsaRemediationForRealAgentstackFindings(t *testing.T) {
+	findings, err := agentstack.Scan(filepath.Join("..", "agentstack", "testdata"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := &scan.Result{Root: "agents://testdata", Findings: risk.Apply(findings)}
+
+	var buf bytes.Buffer
+	if err := CNSA(&buf, res); err != nil {
+		t.Fatal(err)
+	}
+	var rep cnsaReport
+	if err := json.Unmarshal(buf.Bytes(), &rep); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	want := map[string]string{"no-attestation": "attestation", "no-hash-chain": "prev_hash"}
+	seen := map[string]bool{}
+	for _, a := range rep.Assets {
+		w, ok := want[a.Algorithm]
+		if !ok {
+			continue
+		}
+		seen[a.Algorithm] = true
+		if !strings.Contains(a.Action, w) {
+			t.Errorf("%s: action %q does not mention %q", a.Algorithm, a.Action, w)
+		}
+		if strings.Contains(a.Action, "TLS 1.3") {
+			t.Errorf("%s: the compliance pack tells an operator to %q", a.Algorithm, a.Action)
+		}
+	}
+	for algo := range want {
+		if !seen[algo] {
+			t.Errorf("no %q entry in the CNSA report: %+v", algo, rep.Assets)
+		}
 	}
 }
 
@@ -203,6 +325,356 @@ func TestCNSAExcludesNonCryptographicAssetTypes(t *testing.T) {
 	}
 	if len(rep.Assets) != 1 || rep.Assets[0].Algorithm != "MD5" {
 		t.Errorf("assets=%+v, want only MD5", rep.Assets)
+	}
+}
+
+// TestCnsaStatusUnrecognisedAlgorithmIsNotAssessed pins the third state. The
+// final branch of cnsaStatus used to return "compliant" with "No CNSA 2.0
+// restriction identified" for every RiskNone asset the algorithm switch did
+// not recognize, which is not what CNSA 2.0 says about any of them: SHA-256 is
+// not on the CNSA 2.0 list, and bcrypt, HMAC, ChaCha20, X509, OIDC and the
+// enclave-key pseudo-asset `qryx agents` emits were never graded at all. The
+// compliance score is compliant*100/total, so a scan full of crypto this tool
+// does not recognize scored high, and that number is what `--format evidence`
+// signs and what `qryx trend --fail-on-regression` gates on.
+//
+// Not knowing is its own answer, and it has to be visible as one.
+func TestCnsaStatusUnrecognisedAlgorithmIsNotAssessed(t *testing.T) {
+	tests := []struct {
+		algo       string
+		keySize    int
+		wantStatus string
+	}{
+		// Never graded by any rule in cnsaStatus: these must not read as a pass.
+		{"SHA-256", 0, "not-assessed"},
+		{"bcrypt", 0, "not-assessed"},
+		{"HMAC", 0, "not-assessed"},
+		{"ChaCha20", 0, "not-assessed"},
+		{"X509", 0, "not-assessed"},         // agentstack mtls-cert/spiffe-svid passport
+		{"OIDC", 0, "not-assessed"},         // agentstack oidc passport
+		{"enclave-key", 0, "not-assessed"},  // agentstack enclave-key passport
+		{"SM2", 0, "not-assessed"},          // an algorithm risk.Classify does not know
+		{"cryptography", 0, "not-assessed"}, // a dependency-manifest library name
+		// AES with no size read this table as a positive control until
+		// 2026-08-06, on the reading that AES is in the CNSA 2.0 suite so an
+		// AES asset passes. The suite's AES entry is AES-256 specifically, and
+		// size 0 means qryx never saw a size, so grading it compliant asserts
+		// the one fact that is missing. See
+		// TestCnsaStatusUnknownSizeAESIsNotAssessed for the whole argument.
+		{"AES", 0, "not-assessed"},
+		// Positive controls: the CNSA 2.0 suite itself still passes.
+		{"ML-KEM", 0, "compliant"},
+		{"ML-DSA", 0, "compliant"},
+		{"SLH-DSA", 0, "compliant"},
+		{"AES", 256, "compliant"},
+		{"SHA-384", 0, "compliant"},
+		{"SHA-512", 0, "compliant"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.algo, func(t *testing.T) {
+			e := cnsaStatus(makeNode(tc.algo, tc.keySize, model.RiskNone, model.SeverityNone))
+			if e.Status != tc.wantStatus {
+				t.Errorf("status=%q want %q (action was %q)", e.Status, tc.wantStatus, e.Action)
+			}
+		})
+	}
+}
+
+// TestCnsaStatusUnknownSizeAESIsNotAssessed is the same defect as the test
+// above, reaching the score through a size rather than through a name.
+//
+// The AES branch read `KeySize == 0 || KeySize >= 256` as compliant, so an AES
+// asset with no size was graded a pass and told the reader "AES-256 is the
+// CNSA 2.0 approved symmetric cipher". Size 0 does not mean 256, it means qryx
+// never saw a size, and CNSA 2.0 approves AES only at 256: AES-128 and AES-192
+// are not compliant. Grading the unknown as a pass therefore asserted the one
+// fact the scan was missing, and asserted it in the operator's favour.
+//
+// The unknown is real, not theoretical, and it is the common case rather than
+// the edge one. Eight of the twelve places that build an AES asset leave the
+// size at zero: Azure Key Vault oct and oct-HSM keys (internal/cloud/azure,
+// whose own comment says the length is not derivable from public metadata,
+// while Key Vault and Managed HSM both accept 128 and 192-bit oct keys), the
+// same key declared in Terraform (internal/scan/detectors/terraform.go), a
+// `crypto/aes` import, the `AES_` and `EVP_aes_` symbol rules in binscan, and
+// the three identifier patterns in the rust and cryptocall detectors. The four
+// that do supply 256 all read a provider's symmetric default: AWS KMS, GCP
+// KMS, and Terraform's aws and google equivalents.
+//
+// Two of those six match text that says 128 on the very line they matched, so
+// the report did not merely pass an unknown, it printed a specific wrong
+// number: see TestUnknownSizeAESIsNeverReportedAsAES256.
+func TestCnsaStatusUnknownSizeAESIsNotAssessed(t *testing.T) {
+	tests := []struct {
+		name       string
+		keySize    int
+		wantStatus string
+	}{
+		{"size never determined", 0, "not-assessed"},
+		{"AES-128 is below the CNSA 2.0 minimum", 128, "non-compliant"},
+		{"AES-192 is below the CNSA 2.0 minimum", 192, "non-compliant"},
+		{"AES-256 is the approved cipher", 256, "compliant"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e := cnsaStatus(makeNode("AES", tc.keySize, model.RiskNone, model.SeverityNone))
+			if e.Status != tc.wantStatus {
+				t.Errorf("AES keySize=%d status=%q want %q (action was %q)",
+					tc.keySize, e.Status, tc.wantStatus, e.Action)
+			}
+		})
+	}
+
+	// The status is half the fix. An operator reads the action, and the action
+	// must not name a key length that nothing in the scan established.
+	e := cnsaStatus(makeNode("AES", 0, model.RiskNone, model.SeverityNone))
+	if strings.Contains(e.Action, "256") && !strings.Contains(e.Action, "not determine") {
+		t.Errorf("action for unknown-size AES claims a size qryx never read: %q", e.Action)
+	}
+	if !strings.Contains(strings.ToLower(e.Action), "size") {
+		t.Errorf("action for unknown-size AES does not say the size is the problem: %q", e.Action)
+	}
+}
+
+// TestUnknownSizeAESIsNeverReportedAsAES256 is the defect measured where it is
+// published, through the real detectors over the real fixture rather than
+// through hand-built findings, which would only pin what this test believes.
+//
+// testdata/aes-unknown-size holds the three shapes that produce a sizeless AES
+// asset in the field: an Azure Key Vault `oct` key in Terraform, whose size
+// genuinely cannot be known, and a rust `Aes128Gcm` and a node
+// `createCipheriv('aes-128-cbc', ...)`, whose size is sitting in the matched
+// text and is still not read, because both patterns anchor on the cipher name.
+//
+// Before this fix that tree scored 100% CNSA 2.0 compliant and printed
+// "AES-256 is the CNSA 2.0 approved symmetric cipher" about both of the 128-bit
+// lines. That number is what `--format evidence` signs, what the dashboard
+// prints and what `qryx trend --fail-on-regression` gates on.
+func TestUnknownSizeAESIsNeverReportedAsAES256(t *testing.T) {
+	res, err := scan.New(detectors.Default()...).Scan("../../testdata/aes-unknown-size")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := CNSA(&buf, res); err != nil {
+		t.Fatal(err)
+	}
+	var rep cnsaReport
+	if err := json.Unmarshal(buf.Bytes(), &rep); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	// The fixture exists to carry AES. If a detector stops finding it, this
+	// test must fail loudly rather than pass on an empty inventory.
+	var aes []cnsaAssetJSON
+	for _, a := range rep.Assets {
+		if strings.HasPrefix(strings.ToUpper(a.Algorithm), "AES") {
+			aes = append(aes, a)
+		}
+	}
+	if len(aes) == 0 {
+		t.Fatalf("no AES asset found in the fixture; the detectors or the fixture changed: %+v", rep.Assets)
+	}
+
+	for _, a := range aes {
+		if a.Status == "compliant" {
+			t.Errorf("%s at %v graded compliant: no size was ever read, so nothing established it is 256 (%q)",
+				a.Algorithm, a.Locations, a.Action)
+		}
+		if strings.Contains(a.Action, "AES-256 is the CNSA 2.0 approved symmetric cipher") {
+			t.Errorf("%s at %v is told it is AES-256; two of these locations say 128 on the matched line (%q)",
+				a.Algorithm, a.Locations, a.Action)
+		}
+	}
+
+	if rep.Summary.Compliant != 0 {
+		t.Errorf("compliant=%d want 0: nothing in this tree had its key size established (%+v)",
+			rep.Summary.Compliant, rep.Assets)
+	}
+	if rep.Summary.NotAssessed == 0 {
+		t.Errorf("notAssessed=0: the AES keys are still in the inventory, ungraded (%+v)", rep.Assets)
+	}
+}
+
+// TestCNSAScoreDoesNotFlatterUnrecognisedCrypto is the same defect measured
+// where it is published: the percentage. A scan whose entire inventory is
+// crypto this tool never graded must not report a high compliance score, and a
+// scan that is genuinely CNSA 2.0 compliant must still report 100.
+func TestCNSAScoreDoesNotFlatterUnrecognisedCrypto(t *testing.T) {
+	unrecognised := &scan.Result{Root: "test", Findings: []model.Finding{
+		{Asset: model.Asset{Type: model.TypeAlgorithm, Algorithm: "SHA-256", Primitive: model.PrimitiveHash},
+			Location: model.Location{File: "a.py", Line: 3}, Source: "cryptocall",
+			Risk: model.Risk{Class: model.RiskNone, Severity: model.SeverityNone}},
+	}}
+	ev, err := buildEvidence(unrecognised, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ev.Summary.ScorePct == 100 {
+		t.Errorf("a scan containing only SHA-256 scored %d%% CNSA 2.0 compliant; SHA-256 is not on the CNSA 2.0 list", ev.Summary.ScorePct)
+	}
+	if ev.Summary.Compliant != 0 {
+		t.Errorf("compliant=%d want 0: nothing in this scan was graded compliant", ev.Summary.Compliant)
+	}
+
+	compliant := &scan.Result{Root: "test", Findings: []model.Finding{
+		{Asset: model.Asset{Type: model.TypeAlgorithm, Algorithm: "ML-KEM", Primitive: model.PrimitiveKeyExch},
+			Location: model.Location{File: "a.rs", Line: 1}, Source: "rust",
+			Risk: model.Risk{Class: model.RiskNone, Severity: model.SeverityNone}},
+		{Asset: model.Asset{Type: model.TypeAlgorithm, Algorithm: "AES", KeySize: 256, Primitive: model.PrimitiveEncryption},
+			Location: model.Location{File: "b.rs", Line: 2}, Source: "rust",
+			Risk: model.Risk{Class: model.RiskNone, Severity: model.SeverityNone}},
+		{Asset: model.Asset{Type: model.TypeAlgorithm, Algorithm: "SHA-384", Primitive: model.PrimitiveHash},
+			Location: model.Location{File: "c.rs", Line: 3}, Source: "rust",
+			Risk: model.Risk{Class: model.RiskNone, Severity: model.SeverityNone}},
+	}}
+	ev, err = buildEvidence(compliant, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ev.Summary.ScorePct != 100 {
+		t.Errorf("a genuinely CNSA 2.0 compliant scan scored %d%%, want 100 (%+v)", ev.Summary.ScorePct, ev.Summary)
+	}
+}
+
+// TestCNSAReportsAllFourCounts pins the split being visible rather than merely
+// correct. A reader who cannot see how much of the inventory was never graded
+// cannot judge the score: 60% compliant out of assets that were all assessed
+// and 60% out of an inventory half of which nothing looked at are different
+// facts. The counts are read by their wire names, so the JSON contract is what
+// is pinned, not a Go field name.
+func TestCNSAReportsAllFourCounts(t *testing.T) {
+	res := &scan.Result{Root: "test", Findings: []model.Finding{
+		{Asset: model.Asset{Type: model.TypeAlgorithm, Algorithm: "ML-KEM"}, Location: model.Location{File: "a.go", Line: 1},
+			Risk: model.Risk{Class: model.RiskNone, Severity: model.SeverityNone}},
+		{Asset: model.Asset{Type: model.TypeAlgorithm, Algorithm: "RSA", KeySize: 2048}, Location: model.Location{File: "b.go", Line: 2},
+			Risk: model.Risk{Class: model.RiskQuantumVulnerable, Severity: model.SeverityHigh}},
+		{Asset: model.Asset{Type: model.TypeProtocol, Algorithm: "TLS 1.0"}, Location: model.Location{File: "c.conf", Line: 3},
+			Risk: model.Risk{Class: model.RiskMisconfig, Severity: model.SeverityHigh}},
+		{Asset: model.Asset{Type: model.TypeAlgorithm, Algorithm: "SHA-256"}, Location: model.Location{File: "d.py", Line: 4},
+			Risk: model.Risk{Class: model.RiskNone, Severity: model.SeverityNone}},
+	}}
+
+	var buf bytes.Buffer
+	if err := CNSA(&buf, res); err != nil {
+		t.Fatal(err)
+	}
+	var wire struct {
+		Summary map[string]int `json:"summary"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &wire); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	want := map[string]int{"compliant": 1, "nonCompliant": 1, "issues": 1, "notAssessed": 1, "total": 4}
+	for k, v := range want {
+		got, ok := wire.Summary[k]
+		if !ok {
+			t.Errorf("cnsa summary has no %q count: %v", k, wire.Summary)
+			continue
+		}
+		if got != v {
+			t.Errorf("cnsa summary %s=%d want %d (%v)", k, got, v, wire.Summary)
+		}
+	}
+
+	var evBuf bytes.Buffer
+	if _, err := Evidence(&evBuf, res, "test", nil); err != nil {
+		t.Fatal(err)
+	}
+	// A pointer, so a missing count reads differently from a zero one.
+	var evWire struct {
+		Summary struct {
+			NotAssessed *int `json:"notAssessed"`
+		} `json:"summary"`
+	}
+	if err := json.Unmarshal(evBuf.Bytes(), &evWire); err != nil {
+		t.Fatalf("invalid evidence JSON: %v", err)
+	}
+	if evWire.Summary.NotAssessed == nil {
+		t.Errorf("evidence summary has no notAssessed count: %s", evBuf.String())
+	} else if *evWire.Summary.NotAssessed != 1 {
+		t.Errorf("evidence summary notAssessed=%d want 1", *evWire.Summary.NotAssessed)
+	}
+
+	var htmlBuf bytes.Buffer
+	if err := CNSAHTML(&htmlBuf, res); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(htmlBuf.String(), "not assessed") {
+		t.Errorf("cnsa-html never says how many assets were not assessed")
+	}
+
+	var dashBuf bytes.Buffer
+	if err := Dashboard(&dashBuf, res, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(dashBuf.String(), "not assessed") {
+		t.Errorf("dashboard never says how many assets were not assessed")
+	}
+}
+
+// TestDependencyManifestStaysOutOfTheScoreAndTheMigrationSet is the same
+// defect measured where it was published. A requirements.txt naming a crypto
+// library used to arrive as an RSA quantum-vulnerable HIGH asset, so it was
+// counted non-compliant by the CNSA audit, listed in the NCSC 2035 migration
+// set, and given a migration plan entry telling the operator to move a line in
+// a manifest to ML-KEM. It runs the real detector over a real file, because a
+// hand-built finding would only pin what this test itself believes.
+func TestDependencyManifestStaysOutOfTheScoreAndTheMigrationSet(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "requirements.txt"), []byte("flask==3.0\ncryptography>=42\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res, err := scan.New(detectors.NewDeps()).Scan(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Findings) != 1 {
+		t.Fatalf("got %d findings, want 1: %+v", len(res.Findings), res.Findings)
+	}
+
+	var cnsaBuf bytes.Buffer
+	if err := CNSA(&cnsaBuf, res); err != nil {
+		t.Fatal(err)
+	}
+	var rep cnsaReport
+	if err := json.Unmarshal(cnsaBuf.Bytes(), &rep); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if rep.Summary.NonCompliant != 0 {
+		t.Errorf("nonCompliant=%d want 0: a manifest line is not a non-compliant algorithm (%+v)", rep.Summary.NonCompliant, rep.Assets)
+	}
+	if rep.Summary.NotAssessed != 1 {
+		t.Errorf("notAssessed=%d want 1: the library is still in the inventory, ungraded (%+v)", rep.Summary.NotAssessed, rep.Assets)
+	}
+
+	var ncscBuf bytes.Buffer
+	if err := NCSC(&ncscBuf, res); err != nil {
+		t.Fatal(err)
+	}
+	var ncsc ncscReport
+	if err := json.Unmarshal(ncscBuf.Bytes(), &ncsc); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if ncsc.Full2035.Count != 0 || ncsc.Discovery2028.QuantumVulnerable != 0 {
+		t.Errorf("NCSC has %d quantum-vulnerable asset(s) and %d in the 2035 set, want 0 and 0",
+			ncsc.Discovery2028.QuantumVulnerable, ncsc.Full2035.Count)
+	}
+	if ncsc.Discovery2028.TotalInventoried != 1 {
+		t.Errorf("totalInventoried=%d want 1: the dependency is still discovered, just not vulnerable", ncsc.Discovery2028.TotalInventoried)
+	}
+
+	var migBuf bytes.Buffer
+	if err := Migration(&migBuf, res); err != nil {
+		t.Fatal(err)
+	}
+	var mig migrationReport
+	if err := json.Unmarshal(migBuf.Bytes(), &mig); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if mig.Summary.ToMigrate != 0 {
+		t.Errorf("migration plan has %d step(s) for a dependency manifest: %+v", mig.Summary.ToMigrate, mig.Plan)
 	}
 }
 

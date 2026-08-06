@@ -20,6 +20,7 @@
   .chip-orange { background:#d9480f; }
   .chip-blue   { background:#2b6cb0; }
   .chip-green  { background:#276749; }
+  .chip-grey   { background:#5a6270; }
   table { border-collapse:collapse; width:100%; margin-top:.5rem; }
   th, td { text-align:left; padding:.45rem .6rem; border-bottom:1px solid #8882; vertical-align:top; }
   th { font-size:.78rem; text-transform:uppercase; letter-spacing:.03em; color:#888; }
@@ -56,6 +57,10 @@
       <span class="score" style="color:#276749">{{.Summary.Compliant}}</span>
       <span class="score-label">compliant assets</span>
     </span>
+    <span class="score-box">
+      <span class="score" style="color:#5a6270">{{.Summary.NotAssessed}}</span>
+      <span class="score-label">not assessed</span>
+    </span>
   </div>
 
   <div class="chips">
@@ -63,7 +68,10 @@
     {{if .Deadline2027Count}}<span class="chip chip-orange">{{.Deadline2027Count}} by 2027</span>{{end}}
     {{if .Deadline2030Count}}<span class="chip chip-blue">{{.Deadline2030Count}} by 2030</span>{{end}}
     {{if .Summary.Compliant}}<span class="chip chip-green">{{.Summary.Compliant}} compliant</span>{{end}}
+    {{if .Summary.NotAssessed}}<span class="chip chip-grey">{{.Summary.NotAssessed}} not assessed</span>{{end}}
   </div>
+
+  <div class="meta">{{.Summary.Total}} asset(s) graded: {{.Summary.Compliant}} compliant, {{.Summary.NonCompliant}} non-compliant, {{.Summary.Issues}} operational issue(s), {{.Summary.NotAssessed}} not assessed. The score is the compliant share of all of them, so an asset qryx has no rule for lowers it rather than counting as a pass.</div>
 
   {{if .NonCompliant}}
   <h2>Non-compliant assets</h2>
@@ -124,6 +132,31 @@
         <td class="algo">{{assetNameFn .Node}}</td>
         <td>{{len .Node.Occurrences}}</td>
         <td>{{.Action}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{end}}
+
+  {{if .NotAssessed}}
+  <h2>Not assessed against CNSA 2.0</h2>
+  <div class="meta">qryx has no CNSA 2.0 rule covering these, so it neither approved nor rejected them. They are listed because a compliance report that hides what it did not grade is read as though it graded everything.</div>
+  <table>
+    <thead><tr><th>Algorithm</th><th>Occurrences</th><th>Why</th><th>Where</th></tr></thead>
+    <tbody>
+      {{range .NotAssessed}}
+      <tr>
+        <td class="algo">{{assetNameFn .Node}}</td>
+        <td>{{len .Node.Occurrences}}</td>
+        <td>{{.Action}}</td>
+        <td>
+          {{if .Node.Occurrences}}
+          <details>
+            <summary>{{firstLoc .Node}} {{if gt (len .Node.Occurrences) 1}}(+{{extraCount .Node}} more){{end}}</summary>
+            {{range .Node.Occurrences}}<div class="loc">{{locStr .}}</div>{{end}}
+          </details>
+          {{end}}
+        </td>
       </tr>
       {{end}}
     </tbody>

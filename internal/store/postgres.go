@@ -140,9 +140,10 @@ func (t PostgresTrail) Append(r EvidenceRecord) error {
 	defer conn.Close(ctx)
 
 	_, err = conn.Exec(ctx,
-		`INSERT INTO evidence (created_at, root, version, score_pct, compliant, non_compliant, issues, total, digest)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-		r.CreatedAt, r.Root, r.Version, r.ScorePct, r.Compliant, r.NonCompliant, r.Issues, r.Total, r.Digest,
+		`INSERT INTO evidence (created_at, root, version, score_pct, compliant, non_compliant, issues, not_assessed, total, digest)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+		r.CreatedAt, r.Root, r.Version, r.ScorePct, r.Compliant, r.NonCompliant, r.Issues,
+		r.NotAssessed, r.Total, r.Digest,
 	)
 	return err
 }
@@ -158,7 +159,7 @@ func (t PostgresTrail) History() ([]EvidenceRecord, error) {
 	defer conn.Close(ctx)
 
 	rows, err := conn.Query(ctx,
-		`SELECT created_at, root, version, score_pct, compliant, non_compliant, issues, total, digest
+		`SELECT created_at, root, version, score_pct, compliant, non_compliant, issues, not_assessed, total, digest
 		 FROM evidence ORDER BY created_at, id`)
 	if err != nil {
 		return nil, err
@@ -169,7 +170,7 @@ func (t PostgresTrail) History() ([]EvidenceRecord, error) {
 	for rows.Next() {
 		var r EvidenceRecord
 		if err := rows.Scan(&r.CreatedAt, &r.Root, &r.Version, &r.ScorePct,
-			&r.Compliant, &r.NonCompliant, &r.Issues, &r.Total, &r.Digest); err != nil {
+			&r.Compliant, &r.NonCompliant, &r.Issues, &r.NotAssessed, &r.Total, &r.Digest); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

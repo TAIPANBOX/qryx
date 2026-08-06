@@ -29,6 +29,13 @@ type Assessment struct {
 }
 
 // sourceAgility maps a finding Source to how agile assets from it are.
+//
+// Every source in the tree needs a row. A missing one is not a neutral
+// default: the asset silently scores Low and its source name never reaches the
+// effort note. sources_test.go holds both halves of that list (the detector
+// registry, and the string literals the connectors stamp on findings) against
+// this map, because this is a second copy of a list kept by hand, and it has
+// already drifted once.
 var sourceAgility = map[string]Level{
 	"aws-kms":        High,
 	"gcp-kms":        High,
@@ -39,11 +46,26 @@ var sourceAgility = map[string]Level{
 	"tlsconfig": Medium,
 	"certfile":  Medium,
 	"deps":      Medium,
+	// A key declared in HCL is migrated by editing an argument and running
+	// `apply`, which is this row. The same key read back through the AWS, GCP
+	// or Azure connector is High, so scoring the declaration Low also made one
+	// physical key's difficulty depend on which connector happened to see it.
+	"terraform": Medium,
+	// A passport or event document is configuration. No asset agentstack
+	// currently emits (X509, enclave-key, OIDC, no-attestation, SHA-256,
+	// no-hash-chain) is one target() maps, so this row is unexercised today
+	// and is here to keep the lists reconciled.
+	"agentstack": Medium,
 
 	"goast":      Low,
 	"cryptocall": Low,
+	"rust":       Low,
 	"hardcoded":  Low,
 	"binary":     Low,
+	// aiusage emits model.TypeAIModel carrying a provider or model label,
+	// which target() never maps, so this row is unexercised too. Low is the
+	// conservative reading of a detector that reads source and manifests.
+	"aiusage": Low,
 }
 
 // levelRank orders agility for "least agile wins" and for sorting (higher rank
@@ -72,40 +94,47 @@ func Assess(n graph.AssetNode) (Assessment, bool) {
 
 // dominantAgility returns the least-agile (most conservative) level across all
 // occurrence sources, plus the distinct sources seen.
+//
+// A source with no row in sourceAgility is still named, and still counts as
+// Low. Skipping it dropped it from both answers at once: the level came back
+// as though the occurrence did not exist, and the effort note said nothing
+// about where the asset was seen. "Assume hardest" also has to hold whatever
+// the occurrence's company is, or the same unrankable sighting would mean
+// Low on its own and nothing at all beside a KMS.
 func dominantAgility(n graph.AssetNode) (Level, []string) {
-	level := High
+	level := Low // the answer for a node with no occurrences at all
 	seen := map[string]bool{}
 	var sources []string
-	found := false
+	first := true
 	for _, o := range n.Occurrences {
-		l, ok := sourceAgility[o.Source]
-		if !ok {
-			continue
-		}
-		if !seen[o.Source] {
+		if o.Source != "" && !seen[o.Source] {
 			seen[o.Source] = true
 			sources = append(sources, o.Source)
 		}
-		if !found || levelRank[l] < levelRank[level] {
-			level = l
-			found = true
+		l, ok := sourceAgility[o.Source]
+		if !ok {
+			l = Low
 		}
-	}
-	if !found {
-		return Low, sources // unknown source → assume hardest
+		if first || levelRank[l] < levelRank[level] {
+			level = l
+			first = false
+		}
 	}
 	return level, sources
 }
 
 func effortNote(level Level, occ int, sources []string) string {
-	src := strings.Join(sources, ", ")
+	var src string
+	if len(sources) > 0 {
+		src = " (" + strings.Join(sources, ", ") + ")"
+	}
 	switch level {
 	case High:
-		return fmt.Sprintf("rotate via managed key store (%s); %d occurrence(s)", src, occ)
+		return fmt.Sprintf("rotate via managed key store%s; %d occurrence(s)", src, occ)
 	case Medium:
-		return fmt.Sprintf("config/dependency change (%s); %d occurrence(s)", src, occ)
+		return fmt.Sprintf("config/dependency change%s; %d occurrence(s)", src, occ)
 	default:
-		return fmt.Sprintf("code change + redeploy (%s); %d occurrence(s)", src, occ)
+		return fmt.Sprintf("code change + redeploy%s; %d occurrence(s)", src, occ)
 	}
 }
 
@@ -129,11 +158,29 @@ func target(a model.Asset) string {
 	case "DES", "3DES", "RC4":
 		return "AES-256-GCM"
 	case "AES":
-		// Only sub-256 AES needs migration.
-		if a.KeySize > 0 && a.KeySize < 256 {
-			return "AES-256-GCM"
+		// Only a size that was actually read, and that clears 256, needs no
+		// migration. `KeySize == 0` is an unread size rather than a 256-bit
+		// one, and an empty target here does not say "unknown", it says "this
+		// asset already meets the bar" to every consumer of the plan.
+		//
+		// The unknown is the common shape, not an edge case: eight of the
+		// twelve places that build an AES asset leave the size at zero, led by
+		// Azure Key Vault `oct` keys, where the length is not derivable from
+		// public metadata and where 128 and 192 are both accepted. Two of the
+		// eight match text naming the size on the line they matched
+		// (`Aes128Gcm`, `createCipheriv('aes-128-cbc', ...)`) and still do not
+		// read it, because the patterns anchor on the cipher name, so the asset
+		// this branch used to skip can be a literal AES-128.
+		//
+		// So it is listed, with a rationale that says the size is what is
+		// missing. Nothing here invents a "not assessed" status the plan does
+		// not have: AES carries no risk class, so the entry sorts below every
+		// asset that has one, and the reader gets an item that says "go read
+		// the key length, and here is where you are going if it is short".
+		if a.KeySize >= 256 {
+			return ""
 		}
-		return ""
+		return "AES-256-GCM"
 	default:
 		return ""
 	}
@@ -161,7 +208,18 @@ func rationale(a model.Asset) string {
 	case "DES", "3DES", "RC4":
 		return fmt.Sprintf("%s is a broken/deprecated cipher; replace with an authenticated AES mode", a.Algorithm)
 	case "AES":
-		return "AES below 256 bits is below the CNSA 2.0 minimum"
+		// One string for all three cases stated the shortfall as fact over a
+		// key whose length was never read, which is the same defect target()
+		// carried, pointed the other way: this is the sentence an operator
+		// acts on.
+		switch {
+		case a.KeySize == 0:
+			return "qryx could not determine this AES key's size, and CNSA 2.0 approves AES only at 256 bits; check the configured key length at the locations listed, and migrate to AES-256-GCM if it is 128 or 192"
+		case a.KeySize < 256:
+			return fmt.Sprintf("AES-%d is below the CNSA 2.0 minimum of 256 bits", a.KeySize)
+		default:
+			return "AES-256 meets the CNSA 2.0 symmetric minimum"
+		}
 	default:
 		return "asset requires migration"
 	}

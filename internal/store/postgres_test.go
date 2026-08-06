@@ -3,9 +3,12 @@
 package store
 
 import (
+	"context"
 	"os"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/TAIPANBOX/qryx/internal/graph"
 	"github.com/TAIPANBOX/qryx/internal/model"
@@ -102,6 +105,75 @@ func TestPostgresTrail(t *testing.T) {
 	}
 	if last2[1].Digest != "sha256:two" || last2[1].Version != "v2" {
 		t.Errorf("round-trip mismatch: %+v", last2[1])
+	}
+}
+
+// TestPostgresTrailCarriesNotAssessed pins the fourth count through the
+// Postgres backend, so the two trail implementations agree about what a record
+// says rather than the file one carrying a number the database drops.
+func TestPostgresTrailCarriesNotAssessed(t *testing.T) {
+	tr := pgTrail(t)
+
+	rec := EvidenceRecord{
+		CreatedAt: time.Now().UTC(), Root: "pgtrail-na", Version: "v3", ScorePct: 25,
+		Compliant: 1, NonCompliant: 1, Issues: 1, NotAssessed: 1, Total: 4, Digest: "sha256:na",
+	}
+	if err := tr.Append(rec); err != nil {
+		t.Fatal(err)
+	}
+	hist, err := tr.History()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := hist[len(hist)-1]
+	if got.Digest != "sha256:na" {
+		t.Fatalf("expected the record just appended to be last, got %+v", got)
+	}
+	if got.NotAssessed != 1 {
+		t.Errorf("NotAssessed = %d, want 1: %+v", got.NotAssessed, got)
+	}
+	if sum := got.Compliant + got.NonCompliant + got.Issues + got.NotAssessed; sum != got.Total {
+		t.Errorf("counts sum to %d but Total = %d: %+v", sum, got.Total, got)
+	}
+}
+
+// TestPostgresTrailBootstrapAddsNotAssessedColumn is the migration test. A
+// deployment that has been writing evidence since before the fourth count
+// existed has an evidence table without the column, and CREATE TABLE IF NOT
+// EXISTS will not touch it: the bootstrap needs the ALTER, or every Append on
+// that installation fails at the first insert. Dropping the column here is how
+// that installation is reproduced, since the schema is applied on connect and a
+// fresh test database always already has it.
+func TestPostgresTrailBootstrapAddsNotAssessedColumn(t *testing.T) {
+	tr := pgTrail(t)
+	ctx := context.Background()
+
+	conn, err := pgx.Connect(ctx, tr.ConnString)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Exec(ctx, `ALTER TABLE evidence DROP COLUMN IF EXISTS not_assessed`); err != nil {
+		_ = conn.Close(ctx)
+		t.Fatal(err)
+	}
+	if err := conn.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := EvidenceRecord{
+		CreatedAt: time.Now().UTC(), Root: "pgtrail-migrate", Version: "v4", ScorePct: 50,
+		Compliant: 2, NonCompliant: 1, Issues: 0, NotAssessed: 1, Total: 4, Digest: "sha256:migrated",
+	}
+	if err := tr.Append(rec); err != nil {
+		t.Fatalf("append against a pre-existing evidence table must work: %v", err)
+	}
+	hist, err := tr.History()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := hist[len(hist)-1]
+	if got.Digest != "sha256:migrated" || got.NotAssessed != 1 {
+		t.Errorf("record after the column was added back = %+v, want NotAssessed 1", got)
 	}
 }
 

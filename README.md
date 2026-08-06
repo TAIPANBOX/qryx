@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-197-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-235-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Status](https://img.shields.io/badge/phase-4%20(governance)-success.svg)
 
@@ -450,7 +450,8 @@ qryx tls example.com:443               # probe a live endpoint's TLS posture
 qryx bin /usr/bin/openssl              # crypto in a binary (ELF/PE/Mach-O)
 docker save app:latest -o img.tar && qryx image img.tar   # scan a container image
 qryx aws --region us-east-1            # inventory AWS KMS keys + ACM certs
-qryx gcp --project my-project          # inventory GCP Cloud KMS key versions
+qryx gcp --project my-project          # inventory GCP Cloud KMS key versions, every location
+qryx gcp --project my-project --location europe-west1   # ...one location only
 qryx azure --vault-url https://myvault.vault.azure.net/  # inventory Azure Key Vault
 qryx agents ./passports                # inventory AI-agent attestation crypto + event-stream integrity
 qryx agents --events events.ndjson ./passports  # ...and append findings as agent-event NDJSON
@@ -475,12 +476,12 @@ Run against the bundled fixtures with `make scan`.
 | Detector | Covers |
 |---|---|
 | `goast` | crypto usage in Go via AST import resolution (no regex false positives) |
-| `cryptocall` | crypto API usage in Python / JS / TS source |
+| `cryptocall` | crypto API usage in Python / JS / TS source. Comments are stripped before matching in both languages, and string literals too for the Python identifier patterns (`RSA`, `AES`, `DES`), so a comment saying "migrate off RSA" is not a use of RSA. The JS patterns keep literals, because node names the algorithm inside one (`createHash('md5')`) |
 | `rust` | crypto primitives in Rust: the `ring`/`aws-lc-rs` constants, the RustCrypto crate paths, and a hand-written implementation naming its own type. Comments and string literals are stripped before matching, so a doc comment explaining that ECDSA is quantum-vulnerable is not counted as a use of ECDSA |
 | `certfile` | PEM certificate parsing (algorithm, key size, expiry) |
 | `tlsconfig` | legacy TLS/SSL in code and nginx/apache config |
 | `hardcoded` | private keys embedded in source/config |
-| `deps` | crypto libraries in dependency manifests |
+| `deps` | crypto libraries in dependency manifests, inventoried under their own names and marked informational: a manifest says a library is present, never which primitives the code calls, so a dependency is never reported as a quantum-vulnerable asset |
 | `terraform` | key material in HCL via the hashicorp/hcl parser (`tls_private_key`, `aws_kms_key`, `azurerm_key_vault_key`, `google_kms_crypto_key`) |
 | `aiusage` | the operator's own LLM/AI provider SDKs, imports and endpoint literals, informational and never a crypto risk (see [AI usage inventory](#ai-usage-inventory)) |
 
@@ -521,12 +522,29 @@ behind an interface seam so the connector logic is unit-tested without an accoun
 
 **GCP cloud** (`qryx gcp --project <id>`) - Cloud KMS key versions mapped by
 algorithm (RSA/EC/AES/HMAC, and PQC ML-DSA/ML-KEM/SLH-DSA as safe) via
-Application Default Credentials, behind the same lister seam.
+Application Default Credentials, behind the same lister seam. **Every location
+by default** (`locations/-`, the Cloud KMS wildcard), because key rings are
+overwhelmingly regional; `--location europe-west1` narrows it to one. Until 5
+August 2026 the default was `global`, so a plain `qryx gcp --project X`
+inventoried one location out of dozens and reported the near-empty result as a
+clean one.
 
 **Azure cloud** (`qryx azure --vault-url <url>`) - Key Vault keys mapped by JSON
 Web Key type (EC/EC-HSM → ECDSA, RSA/RSA-HSM → RSA with size from modulus,
 oct/oct-HSM → AES) via DefaultAzureCredential. Expired keys are flagged
 separately.
+
+### A partial inventory is reported as partial
+
+A cloud policy that grants `list` but not `get` on individual resources is an
+ordinary configuration: Key Vault's keys/list without keys/get, an AWS policy
+with `kms:ListKeys` and no `kms:DescribeKey`. All three connectors used to
+return the first such error and end the whole inventory, so an account they
+could partly read produced nothing at all. They now skip the resource they
+cannot read and carry on, and **every skipped resource is counted and named on
+stderr**, because nine keys out of ten reported as though they were all of them
+is the worse failure. A listing call that fails is still fatal: without it
+there is no inventory to be partial about.
 
 **AI-agent infrastructure** (`qryx agents <path>`) - inventories the
 agent-governance stack's own trust surface: Agent Passport `attestation.method`
@@ -587,10 +605,32 @@ against the NSA's CNSA 2.0 suite: ML-KEM/ML-DSA/SLH-DSA and AES-256/SHA-384+
 are compliant; RSA/ECDSA/ECC/DSA/DH are non-compliant with a 2030 migration
 deadline; MD5/SHA-1/DES/3DES/RC4 and sub-floor keys are non-compliant
 immediately; expired certificates, hardcoded keys and TLS misconfig are
-flagged as issues. Reports compliant/non-compliant/issue counts, a percentage
-score, and a per-asset remediation action, sorted by deadline urgency.
-`--policy cnsa` enforces the same standard as a CI gate (see Policy
-enforcement below); this report is the audit view, in JSON or HTML.
+flagged as issues. Everything else is **not assessed** (below). Reports all
+four counts, a percentage score, and a per-asset remediation action, sorted by
+deadline urgency. `--policy cnsa` enforces the same standard as a CI gate (see
+Policy enforcement below); this report is the audit view, in JSON or HTML.
+
+### Not assessed is not compliant
+
+An algorithm with no CNSA 2.0 rule in qryx is reported as `not-assessed`, its
+own status, and never counted as compliant. SHA-256 is not on the CNSA 2.0
+list; bcrypt, HMAC and ChaCha20 are outside the suite; `X509`, `OIDC` and
+`enclave-key` are the attestation pseudo-assets `qryx agents` emits; and any
+algorithm the classifier has never seen lands here too. Until 5 August 2026 all
+of them were graded "compliant" with "No CNSA 2.0 restriction identified", so a
+scan of cryptography this tool does not recognize scored 100%, and that number
+is what `--format evidence` signs and what `qryx trend --fail-on-regression`
+gates on.
+
+Not-assessed assets stay **in the denominator** of the score. Leaving them out
+would flatter exactly the scan that deserves it least, the one full of
+unrecognized crypto; counting them as compliant did that already. So the score
+is the compliant share of everything graded, and all four counts are printed
+next to it in both JSON and HTML, because a reader who cannot see how much was
+never assessed cannot judge the percentage. Scores from before this change are
+not comparable with scores after it: on this repository's own tree the figure
+moved from 16% to 0%, and on the `qryx agents` fixtures from 50% to 0%, with no
+change to the cryptography being scanned.
 
 **NCSC PQC readiness** (`--format ncsc`/`ncsc-html`) - tracks the same graph
 against the UK NCSC's three-milestone PQC migration timeline: complete
@@ -615,7 +655,10 @@ PQC/strong target (RSA→ML-DSA/ML-KEM, ECDSA/DSA/Ed25519→ML-DSA, MD5/SHA-1→
 etc.), a rationale and the occurrence locations. Quick wins - high-agility,
 high/critical severity - are counted in the summary. Works on any source,
 including cloud: a KMS RSA key reports `high` agility, the same algorithm in
-source reports `low`.
+source reports `low`. An AES key whose size the scan never established is
+listed rather than left out, because an unread size is not a 256-bit one; its
+rationale says the size is the missing fact and the locations say where to go
+and read it.
 
 **Remediation** (`qryx fix`) - turns findings into reviewable source patches,
 but only for transforms that are *provably safe*. Today that is raising a
@@ -701,14 +744,25 @@ otherwise separate; numbers come from the same computations, so it can't
 disagree with them.
 
 **Evidence trail** (`--save-evidence` + `qryx trend`) - append one compact,
-digest-stamped record per run to a JSON-Lines trail (date, score, non-compliant
-count, integrity digest). `qryx trend <trail>` renders the history and the
-latest score delta (improved / regressed / unchanged), so a team can prove
-posture over time and catch regressions. `--html` renders the history as a
-self-contained SVG line chart; `--fail-on-regression` exits 3 when the latest
-score is below the previous run, turning the trail into a CI monitor. Records
-share the same numbers and digest as `--format evidence`. The trail works with a
-file path or a `postgres://` URL (same backends as `--save`/`--baseline`):
+digest-stamped record per run to a JSON-Lines trail (date, score, all four
+status counts including not-assessed, the total, and the integrity digest).
+`qryx trend <trail>` renders the history and the latest score delta (improved /
+regressed / unchanged), so a team can prove posture over time and catch
+regressions. `--html` renders the history as a self-contained SVG line chart;
+`--fail-on-regression` exits 3 when the latest score is below the previous run,
+turning the trail into a CI monitor. Records share the same numbers and digest
+as `--format evidence`.
+
+The not-assessed count is carried because the score alone does not say what it
+is a percentage of: two runs can both read 50% while one graded its whole
+inventory and the other graded half of it, and a delta between those two is not
+a change in posture at all. `qryx trend` prints the count per record and states
+the latest ungraded share against its total when there is one. Records written
+before this count existed read fine and report 0, which is what they meant.
+
+The trail works with a file path or a `postgres://` URL (same backends as
+`--save`/`--baseline`); an evidence table created by an earlier version gains
+the new column on the next connection, so no manual migration is needed:
 
 ```bash
 qryx scan --save-evidence 'postgres://user:pass@host:5432/db' <path>

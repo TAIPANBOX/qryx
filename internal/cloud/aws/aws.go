@@ -35,7 +35,16 @@ type acmAPI interface {
 
 // Scan inventories KMS keys and ACM certificates in the given region using the
 // default AWS credential chain (optionally a named shared-config profile).
-func Scan(ctx context.Context, region, profile string) ([]model.Finding, error) {
+//
+// The second return value names the resources that could not be read. A
+// listing failure is still an error, because there is no inventory without
+// it; a failure on ONE key or certificate is not, because a policy granting
+// kms:ListKeys without kms:DescribeKey on every key is an ordinary
+// configuration and used to end the whole scan on the first such key. What is
+// not ordinary, and is what this second value exists for, is reporting the
+// nine keys that were read as though they were all of them: the caller must
+// say the result is partial (see cmd/qryx's reportPartialInventory).
+func Scan(ctx context.Context, region, profile string) ([]model.Finding, []string, error) {
 	opts := []func(*config.LoadOptions) error{}
 	if region != "" {
 		opts = append(opts, config.WithRegion(region))
@@ -45,30 +54,34 @@ func Scan(ctx context.Context, region, profile string) ([]model.Finding, error) 
 	}
 	cfg, err := config.LoadDefaultConfig(ctx, opts...)
 	if err != nil {
-		return nil, fmt.Errorf("load aws config: %w", err)
+		return nil, nil, fmt.Errorf("load aws config: %w", err)
 	}
 
 	var out []model.Finding
-	kmsFindings, err := scanKMS(ctx, kms.NewFromConfig(cfg))
+	var skipped []string
+	kmsFindings, kmsSkipped, err := scanKMS(ctx, kms.NewFromConfig(cfg))
 	if err != nil {
-		return nil, fmt.Errorf("kms: %w", err)
+		return nil, nil, fmt.Errorf("kms: %w", err)
 	}
 	out = append(out, kmsFindings...)
+	skipped = append(skipped, kmsSkipped...)
 
-	acmFindings, err := scanACM(ctx, acm.NewFromConfig(cfg))
+	acmFindings, acmSkipped, err := scanACM(ctx, acm.NewFromConfig(cfg))
 	if err != nil {
-		return nil, fmt.Errorf("acm: %w", err)
+		return nil, nil, fmt.Errorf("acm: %w", err)
 	}
-	return append(out, acmFindings...), nil
+	return append(out, acmFindings...), append(skipped, acmSkipped...), nil
 }
 
-func scanKMS(ctx context.Context, api kmsAPI) ([]model.Finding, error) {
+func scanKMS(ctx context.Context, api kmsAPI) ([]model.Finding, []string, error) {
 	var out []model.Finding
+	var skipped []string
 	var marker *string
 	for {
 		page, err := api.ListKeys(ctx, &kms.ListKeysInput{Marker: marker})
 		if err != nil {
-			return nil, err
+			// No listing, no inventory: this one is fatal.
+			return nil, nil, err
 		}
 		for _, entry := range page.Keys {
 			if entry.KeyId == nil {
@@ -76,7 +89,8 @@ func scanKMS(ctx context.Context, api kmsAPI) ([]model.Finding, error) {
 			}
 			desc, err := api.DescribeKey(ctx, &kms.DescribeKeyInput{KeyId: entry.KeyId})
 			if err != nil {
-				return nil, err
+				skipped = append(skipped, fmt.Sprintf("kms key %s: %v", deref(entry.KeyId, "?"), err))
+				continue
 			}
 			meta := desc.KeyMetadata
 			if meta == nil {
@@ -86,9 +100,12 @@ func scanKMS(ctx context.Context, api kmsAPI) ([]model.Finding, error) {
 			if !ok {
 				continue
 			}
+			// The key itself was readable, so it belongs in the inventory even
+			// when its tags are not: losing an owner label is not a reason to
+			// lose the key.
 			tags, err := fetchKMSTags(ctx, api, entry.KeyId)
 			if err != nil {
-				return nil, err
+				skipped = append(skipped, fmt.Sprintf("kms key %s tags: %v", deref(entry.KeyId, "?"), err))
 			}
 			out = append(out, model.Finding{
 				Asset:    asset,
@@ -102,7 +119,7 @@ func scanKMS(ctx context.Context, api kmsAPI) ([]model.Finding, error) {
 			marker = page.NextMarker
 			continue
 		}
-		return out, nil
+		return out, skipped, nil
 	}
 }
 
@@ -123,13 +140,14 @@ func fetchKMSTags(ctx context.Context, api kmsAPI, keyID *string) (map[string]st
 	return tags, nil
 }
 
-func scanACM(ctx context.Context, api acmAPI) ([]model.Finding, error) {
+func scanACM(ctx context.Context, api acmAPI) ([]model.Finding, []string, error) {
 	var out []model.Finding
+	var skipped []string
 	var token *string
 	for {
 		page, err := api.ListCertificates(ctx, &acm.ListCertificatesInput{NextToken: token})
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for _, sum := range page.CertificateSummaryList {
 			if sum.CertificateArn == nil {
@@ -137,7 +155,8 @@ func scanACM(ctx context.Context, api acmAPI) ([]model.Finding, error) {
 			}
 			desc, err := api.DescribeCertificate(ctx, &acm.DescribeCertificateInput{CertificateArn: sum.CertificateArn})
 			if err != nil {
-				return nil, err
+				skipped = append(skipped, fmt.Sprintf("acm certificate %s: %v", deref(sum.CertificateArn, "?"), err))
+				continue
 			}
 			cert := desc.Certificate
 			if cert == nil {
@@ -146,7 +165,7 @@ func scanACM(ctx context.Context, api acmAPI) ([]model.Finding, error) {
 			arn := deref(cert.CertificateArn, "")
 			tags, err := fetchACMTags(ctx, api, cert.CertificateArn)
 			if err != nil {
-				return nil, err
+				skipped = append(skipped, fmt.Sprintf("acm certificate %s tags: %v", arn, err))
 			}
 			asset, ok := acmKeyAlgoToAsset(string(cert.KeyAlgorithm))
 			if ok {
@@ -182,7 +201,7 @@ func scanACM(ctx context.Context, api acmAPI) ([]model.Finding, error) {
 			token = page.NextToken
 			continue
 		}
-		return out, nil
+		return out, skipped, nil
 	}
 }
 

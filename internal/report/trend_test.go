@@ -61,6 +61,71 @@ func TestTrendHTML(t *testing.T) {
 	}
 }
 
+// TestTrendShowsNotAssessed pins the column that tells a reader what the score
+// is a percentage of. Two runs can both read 50% while one graded every asset
+// and the other graded half of them, and the trail carries the difference; a
+// table that prints only the score hides it.
+func TestTrendShowsNotAssessed(t *testing.T) {
+	r := recAt(1, 50)
+	r.Compliant, r.NonCompliant, r.Issues, r.NotAssessed, r.Total = 2, 1, 0, 1, 4
+	out := renderTrend(t, []store.EvidenceRecord{r})
+
+	if !strings.Contains(out, "NOT-ASSESSED") {
+		t.Errorf("trend table should carry a not-assessed column:\n%s", out)
+	}
+	// The count itself, not just the heading: a heading over an absent number
+	// is the same omission with a label on it.
+	if !strings.Contains(out, "1") {
+		t.Errorf("trend table should print the not-assessed count:\n%s", out)
+	}
+}
+
+// TestTrendNotAssessedIsVisibleAgainstTheTotal checks the same record renders
+// both halves of the fact: how many were ungraded, and out of how many.
+func TestTrendNotAssessedIsVisibleAgainstTheTotal(t *testing.T) {
+	r := recAt(1, 40)
+	r.Compliant, r.NonCompliant, r.Issues, r.NotAssessed, r.Total = 4, 2, 0, 4, 10
+	out := renderTrend(t, []store.EvidenceRecord{r})
+
+	if !strings.Contains(out, "4 of 10") {
+		t.Errorf("expected the ungraded share stated against the inventory it came from:\n%s", out)
+	}
+}
+
+func TestTrendHTMLShowsNotAssessed(t *testing.T) {
+	a, b := recAt(1, 40), recAt(2, 60)
+	a.NotAssessed, a.Total = 3, 10
+	b.NotAssessed, b.Total = 2, 10
+
+	var buf bytes.Buffer
+	if err := TrendHTML(&buf, []store.EvidenceRecord{a, b}); err != nil {
+		t.Fatal(err)
+	}
+	html := buf.String()
+	if !strings.Contains(html, "Not assessed") {
+		t.Errorf("trend HTML table should carry a not-assessed column:\n%s", html)
+	}
+	if !strings.Contains(html, "2 of 10") {
+		t.Errorf("trend HTML should state the latest ungraded share against its total:\n%s", html)
+	}
+}
+
+// TestTrendHTMLFullyAssessedSaysNothingExtra keeps the note honest: when every
+// asset was graded there is no caveat to make, and printing "0 of 10 not
+// assessed" on every clean run trains the reader to skip the line that matters.
+func TestTrendHTMLFullyAssessedSaysNothingExtra(t *testing.T) {
+	r := recAt(1, 60)
+	r.NotAssessed, r.Total = 0, 10
+
+	var buf bytes.Buffer
+	if err := TrendHTML(&buf, []store.EvidenceRecord{r}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(buf.String(), "0 of 10") {
+		t.Errorf("a fully graded scan should carry no ungraded caveat:\n%s", buf.String())
+	}
+}
+
 func TestTrendHTMLEmpty(t *testing.T) {
 	var buf bytes.Buffer
 	if err := TrendHTML(&buf, nil); err != nil {
