@@ -59,9 +59,15 @@ var cnsaTemplate = template.Must(
 )
 
 // cnsaEntry is one asset's CNSA 2.0 compliance record.
+//
+// "not-assessed" is a verdict, not a gap in this type: it says qryx has no
+// CNSA 2.0 rule covering that algorithm and did not grade it. It exists
+// because the alternative, which this report used to do, is to call
+// everything it does not recognize compliant, and a compliance score is only
+// worth reading if not knowing looks different from passing.
 type cnsaEntry struct {
 	Node     graph.AssetNode
-	Status   string // "compliant" | "non-compliant" | "issue"
+	Status   string // "compliant" | "non-compliant" | "issue" | "not-assessed"
 	Deadline string // "2027" | "2030" | "2035" | "immediate" | "n/a"
 	Action   string
 }
@@ -82,7 +88,7 @@ func cnsaStatus(n graph.AssetNode) cnsaEntry {
 			Action: "Private key material in source/config; rotate and remove."}
 	case model.RiskMisconfig:
 		return cnsaEntry{Node: n, Status: "issue", Deadline: "immediate",
-			Action: "TLS misconfiguration; enforce TLS 1.3 per CNSA 2.0."}
+			Action: misconfigAction(n)}
 	}
 
 	// Quantum-vulnerable: must migrate per CNSA 2.0 schedule.
@@ -106,20 +112,97 @@ func cnsaStatus(n graph.AssetNode) cnsaEntry {
 		return cnsaEntry{Node: n, Status: "compliant", Deadline: "n/a",
 			Action: "Approved CNSA 2.0 post-quantum algorithm."}
 	case "AES":
-		if n.Asset.KeySize == 0 || n.Asset.KeySize >= 256 {
+		// A missing size is not a passing size. CNSA 2.0 approves AES at 256
+		// bits and nothing below it, so grading a sizeless AES asset compliant
+		// asserts the one fact the scan never established, and asserts it in
+		// the operator's favour. This branch used to fold `KeySize == 0` in
+		// with `>= 256` and tell the reader "AES-256 is the CNSA 2.0 approved
+		// symmetric cipher" about a key whose length it had never seen.
+		//
+		// The unknown is the common case, not an edge one. Eight of the twelve
+		// places that build an AES asset leave the size at zero: Azure Key
+		// Vault oct and oct-HSM keys, where it is genuinely unknowable from
+		// public metadata while Key Vault and Managed HSM both accept 128 and
+		// 192-bit keys; the same key declared in Terraform; a `crypto/aes`
+		// import; the `AES_` and `EVP_aes_` symbol rules in binscan; and the
+		// three identifier patterns in the rust and cryptocall detectors. The
+		// four that do supply 256 all read a provider's symmetric default:
+		// AWS KMS, GCP KMS, and Terraform's aws and google equivalents.
+		//
+		// Two of those six match text that names the size on the matched line
+		// (`Aes128Gcm`, `createCipheriv('aes-128-cbc', ...)`) and still do not
+		// read it, because the patterns anchor on the cipher name. So this was
+		// not only an unknown counted as a pass: it printed a specific wrong
+		// number over a source line that said otherwise. Teaching those
+		// detectors to extract a size would shrink this branch's population
+		// but cannot empty it, because the Key Vault case has no size to read.
+		switch {
+		case n.Asset.KeySize == 0:
+			return cnsaEntry{Node: n, Status: "not-assessed", Deadline: "n/a",
+				Action: "Not assessed: qryx could not determine the AES key size, and CNSA 2.0 approves AES only at 256 bits. Check the configured key length where the key is created, at the location listed; AES-128 and AES-192 are not compliant."}
+		case n.Asset.KeySize >= 256:
 			return cnsaEntry{Node: n, Status: "compliant", Deadline: "n/a",
 				Action: "AES-256 is the CNSA 2.0 approved symmetric cipher."}
+		default:
+			return cnsaEntry{Node: n, Status: "non-compliant", Deadline: "immediate",
+				Action: fmt.Sprintf("AES-%d is below the CNSA 2.0 minimum of 256 bits. Upgrade to AES-256.", n.Asset.KeySize)}
 		}
-		return cnsaEntry{Node: n, Status: "non-compliant", Deadline: "immediate",
-			Action: fmt.Sprintf("AES-%d is below the CNSA 2.0 minimum of 256 bits. Upgrade to AES-256.", n.Asset.KeySize)}
 	case "SHA384", "SHA512":
 		return cnsaEntry{Node: n, Status: "compliant", Deadline: "n/a",
 			Action: "SHA-384/512 is the CNSA 2.0 approved hash function."}
 	}
 
-	// Unknown / RiskNone — include as informational.
-	return cnsaEntry{Node: n, Status: "compliant", Deadline: "n/a",
-		Action: "No CNSA 2.0 restriction identified."}
+	// Everything else: no rule above matched, so this tool has not graded the
+	// asset against CNSA 2.0 and must not imply that it did.
+	//
+	// This branch used to return "compliant" with "No CNSA 2.0 restriction
+	// identified", which was false for every asset that reached it. SHA-256 is
+	// not on the CNSA 2.0 list; bcrypt, HMAC and ChaCha20 are simply outside
+	// the suite; X509, OIDC and enclave-key are the pseudo-assets `qryx
+	// agents` emits for a passport's attestation method; and any algorithm
+	// risk.Classify has never heard of lands here too. Counting them as passes
+	// inflated ScorePct, which is what `--format evidence` signs and what
+	// `qryx trend --fail-on-regression` gates on: a scan of entirely
+	// unrecognized cryptography scored 100%.
+	return cnsaEntry{Node: n, Status: "not-assessed", Deadline: "n/a",
+		Action: fmt.Sprintf("Not assessed: qryx has no CNSA 2.0 rule for %s. It is neither approved nor rejected here; grade it by hand before relying on the score.", n.Asset.Algorithm)}
+}
+
+// misconfigAction picks the remediation for a misconfiguration from what the
+// finding actually is, not from its risk class alone.
+//
+// Risk class says how bad a thing is, never what it is: "misconfig" covers a
+// server offering TLS 1.0, an Agent Passport with no attestation method, and
+// an agent-event stream with no prev_hash chain. This used to return the TLS
+// line for all three, so the compliance pack told an operator to enforce TLS
+// 1.3 to fix an unsigned agent identity.
+//
+// The smallest discriminator that separates them is the asset's algorithm,
+// which is the field each connector already sets to say what it found: the
+// pseudo-algorithms "no-attestation" and "no-hash-chain" come from
+// internal/agentstack (passportFindings / eventStreamFindings), and every TLS
+// misconfiguration arrives as a protocol named TLS or SSL from
+// internal/probe or the tlsconfig detector.
+//
+// The default is deliberately not the TLS line. A misconfiguration this
+// report has no rule for gets the detector's own reason and an admission that
+// there is no CNSA 2.0 remediation specific to it, so the next connector to
+// add a misconfig class inherits an honest answer rather than a wrong one.
+func misconfigAction(n graph.AssetNode) string {
+	algo := strings.ToUpper(strings.TrimSpace(n.Asset.Algorithm))
+	switch algo {
+	case "NO-ATTESTATION":
+		return "Agent Passport declares no attestation method; bind the identity to real key material (mTLS certificate, SPIFFE SVID or enclave key) per agent-passport SPEC.md §4."
+	case "NO-HASH-CHAIN":
+		return "Agent event stream is not tamper-evident; emit a distinct sha256 prev_hash on every event so the log is chained, per agent-passport SPEC.md §6.5."
+	}
+	if strings.HasPrefix(algo, "TLS") || strings.HasPrefix(algo, "SSL") {
+		return "TLS misconfiguration; enforce TLS 1.3 per CNSA 2.0."
+	}
+	if n.Risk.Reason != "" {
+		return fmt.Sprintf("%s. Fix what that names: qryx has no CNSA 2.0 remediation specific to %s.", n.Risk.Reason, n.Asset.Algorithm)
+	}
+	return fmt.Sprintf("%s is misconfigured. qryx has no CNSA 2.0 remediation specific to it; review the configuration that produced it.", n.Asset.Algorithm)
 }
 
 func quantumAction(algo string) string {
@@ -153,10 +236,19 @@ type cnsaReport struct {
 	Assets      []cnsaAssetJSON `json:"assets"`
 }
 
+// cnsaSummary carries all four counts, always, including the zero ones.
+//
+// The split is the point: 60% compliant out of an inventory this tool graded
+// completely and 60% out of one where a third was never assessed are different
+// facts, and a reader who is shown only the score cannot tell them apart.
+// NotAssessed is counted in Total, so it is in the denominator of the score:
+// leaving it out would let a scan of nothing but unrecognized cryptography
+// report 100%, which is the exact defect the third status exists to close.
 type cnsaSummary struct {
 	Compliant    int `json:"compliant"`
 	NonCompliant int `json:"nonCompliant"`
 	Issues       int `json:"issues"`
+	NotAssessed  int `json:"notAssessed"`
 	Total        int `json:"total"`
 }
 
@@ -187,6 +279,8 @@ func CNSA(w io.Writer, res *scan.Result) error {
 			rep.Summary.NonCompliant++
 		case "issue":
 			rep.Summary.Issues++
+		case "not-assessed":
+			rep.Summary.NotAssessed++
 		}
 		rep.Summary.Total++
 
@@ -255,6 +349,7 @@ type cnsaHTMLView struct {
 	NonCompliant      []cnsaEntry
 	Issues            []cnsaEntry
 	Compliant         []cnsaEntry
+	NotAssessed       []cnsaEntry
 	ImmediateCount    int
 	Deadline2027Count int
 	Deadline2030Count int
@@ -287,9 +382,12 @@ func CNSAHTML(w io.Writer, res *scan.Result) error {
 			v.Summary.Issues++
 			v.Issues = append(v.Issues, e)
 			v.ImmediateCount++
+		case "not-assessed":
+			v.Summary.NotAssessed++
+			v.NotAssessed = append(v.NotAssessed, e)
 		}
 	}
-	v.Summary.Total = v.Summary.Compliant + v.Summary.NonCompliant + v.Summary.Issues
+	v.Summary.Total = v.Summary.Compliant + v.Summary.NonCompliant + v.Summary.Issues + v.Summary.NotAssessed
 	if v.Summary.Total > 0 {
 		v.ScorePct = v.Summary.Compliant * 100 / v.Summary.Total
 	}

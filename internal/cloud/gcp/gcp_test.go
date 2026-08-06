@@ -7,10 +7,13 @@ import (
 	"github.com/TAIPANBOX/qryx/internal/model"
 )
 
-type fakeLister struct{ versions []keyVersion }
+type fakeLister struct {
+	versions []keyVersion
+	skipped  []string
+}
 
-func (f fakeLister) list(_ context.Context, _, _ string) ([]keyVersion, error) {
-	return f.versions, nil
+func (f fakeLister) list(_ context.Context, _, _ string) ([]keyVersion, []string, error) {
+	return f.versions, f.skipped, nil
 }
 
 func TestScanWithMapsAlgorithms(t *testing.T) {
@@ -22,7 +25,7 @@ func TestScanWithMapsAlgorithms(t *testing.T) {
 		{Name: "projects/p/.../v5", Algorithm: "CRYPTO_KEY_VERSION_ALGORITHM_UNSPECIFIED"}, // dropped
 	}}
 
-	got, err := scanWith(context.Background(), l, "p", "global")
+	got, _, err := scanWith(context.Background(), l, "p", "global")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +58,7 @@ func TestScanWithLabelsPopulated(t *testing.T) {
 	l := fakeLister{versions: []keyVersion{
 		{Name: "projects/p/.../v1", Algorithm: "GOOGLE_SYMMETRIC_ENCRYPTION", Labels: map[string]string{"team": "platform"}},
 	}}
-	got, err := scanWith(context.Background(), l, "p", "global")
+	got, _, err := scanWith(context.Background(), l, "p", "global")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,6 +67,42 @@ func TestScanWithLabelsPopulated(t *testing.T) {
 	}
 	if got[0].Tags["team"] != "platform" {
 		t.Errorf("Labels not propagated as Tags: %v", got[0].Tags)
+	}
+}
+
+// recordingLister remembers what scope it was asked for.
+type recordingLister struct{ project, location string }
+
+func (r *recordingLister) list(_ context.Context, project, location string) ([]keyVersion, []string, error) {
+	r.project, r.location = project, location
+	return nil, nil, nil
+}
+
+// TestScanDefaultsToEveryKMSLocation pins the scope of a plain `qryx gcp
+// --project X`. It used to be a single location defaulting to "global", and
+// Cloud KMS key rings are overwhelmingly regional, so that inventoried almost
+// nothing in a real project and reported the result as a clean one. The API
+// takes locations/- as a wildcard for ListKeyRings, so the narrow scope was a
+// choice rather than a constraint.
+func TestScanDefaultsToEveryKMSLocation(t *testing.T) {
+	tests := []struct {
+		name string
+		give string
+		want string
+	}{
+		{"no location given", "", AllLocations},
+		{"an explicit location still narrows the scan", "europe-west1", "europe-west1"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var l recordingLister
+			if _, _, err := scanWith(context.Background(), &l, "p", tc.give); err != nil {
+				t.Fatal(err)
+			}
+			if l.location != tc.want {
+				t.Errorf("lister asked for location %q, want %q", l.location, tc.want)
+			}
+		})
 	}
 }
 
