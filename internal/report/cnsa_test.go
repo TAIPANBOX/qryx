@@ -3,11 +3,14 @@ package report
 import (
 	"bytes"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/TAIPANBOX/qryx/internal/agentstack"
 	"github.com/TAIPANBOX/qryx/internal/graph"
 	"github.com/TAIPANBOX/qryx/internal/model"
+	"github.com/TAIPANBOX/qryx/internal/risk"
 	"github.com/TAIPANBOX/qryx/internal/scan"
 )
 
@@ -89,6 +92,123 @@ func TestCnsaStatusContextRiskWinsOverAlgorithmCompliance(t *testing.T) {
 				t.Errorf("deadline=%q want %q", e.Deadline, tc.wantDeadline)
 			}
 		})
+	}
+}
+
+// TestCnsaMisconfigRemediationFollowsTheFinding pins that the remediation text
+// is chosen by what the finding is, not only by its risk class. cnsaStatus
+// branched on n.Risk.Class alone, so every misconfig finding was told to
+// "enforce TLS 1.3 per CNSA 2.0" -- including an Agent Passport with no
+// attestation method and an agent-event stream with no prev_hash chain, which
+// are the two findings `qryx agents` exists to produce and neither of which
+// has anything to do with TLS.
+func TestCnsaMisconfigRemediationFollowsTheFinding(t *testing.T) {
+	tests := []struct {
+		name    string
+		node    graph.AssetNode
+		want    string // substring the action must contain
+		notWant string // substring the action must not contain
+	}{
+		{
+			name:    "passport with no attestation method",
+			node:    misconfigNode(model.TypeProtocol, "no-attestation", "agent identity has no cryptographic attestation"),
+			want:    "attestation",
+			notWant: "TLS 1.3",
+		},
+		{
+			name:    "event stream with no prev_hash chain",
+			node:    misconfigNode(model.TypeProtocol, "no-hash-chain", "agent event stream is not tamper-evident (no hash chain)"),
+			want:    "prev_hash",
+			notWant: "TLS 1.3",
+		},
+		{
+			name: "real TLS misconfiguration from the config detector",
+			node: misconfigNode(model.TypeProtocol, "TLS 1.0", "TLS 1.0 is deprecated"),
+			want: "TLS 1.3",
+		},
+		{
+			name: "real TLS misconfiguration from a live probe",
+			node: misconfigNode(model.TypeProtocol, "TLS", "TLS 1.1 is deprecated"),
+			want: "TLS 1.3",
+		},
+		{
+			name: "legacy SSL from a server config",
+			node: misconfigNode(model.TypeProtocol, "SSL 3.0", "SSL 3.0 is broken (POODLE)"),
+			want: "TLS 1.3",
+		},
+		{
+			// The same trap one connector later: a misconfig this report has
+			// never seen must not inherit the TLS line by default.
+			name:    "a misconfiguration this report has no rule for",
+			node:    misconfigNode(model.TypeKey, "kms-key-rotation-disabled", "automatic key rotation is off"),
+			notWant: "TLS 1.3",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e := cnsaStatus(tc.node)
+			if e.Status != "issue" {
+				t.Fatalf("status=%q want %q", e.Status, "issue")
+			}
+			if tc.want != "" && !strings.Contains(e.Action, tc.want) {
+				t.Errorf("action %q does not mention %q", e.Action, tc.want)
+			}
+			if tc.notWant != "" && strings.Contains(e.Action, tc.notWant) {
+				t.Errorf("action %q wrongly prescribes %q", e.Action, tc.notWant)
+			}
+		})
+	}
+}
+
+// misconfigNode builds a context-risk node the way a connector emits one: the
+// risk class is set by the detector, not derived from the algorithm.
+func misconfigNode(typ model.AssetType, algo, reason string) graph.AssetNode {
+	return graph.AssetNode{
+		Asset:       model.Asset{Type: typ, Algorithm: algo},
+		Risk:        model.Risk{Class: model.RiskMisconfig, Severity: model.SeverityMedium, Reason: reason},
+		Occurrences: []graph.Occurrence{{Location: model.Location{File: "x"}, Source: "agentstack"}},
+	}
+}
+
+// TestCnsaRemediationForRealAgentstackFindings runs the real connector over
+// the real fixtures, so a rename on either side of this contract fails here:
+// internal/agentstack decides the algorithm strings ("no-attestation",
+// "no-hash-chain") and internal/report keys the remediation on them.
+func TestCnsaRemediationForRealAgentstackFindings(t *testing.T) {
+	findings, err := agentstack.Scan(filepath.Join("..", "agentstack", "testdata"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := &scan.Result{Root: "agents://testdata", Findings: risk.Apply(findings)}
+
+	var buf bytes.Buffer
+	if err := CNSA(&buf, res); err != nil {
+		t.Fatal(err)
+	}
+	var rep cnsaReport
+	if err := json.Unmarshal(buf.Bytes(), &rep); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	want := map[string]string{"no-attestation": "attestation", "no-hash-chain": "prev_hash"}
+	seen := map[string]bool{}
+	for _, a := range rep.Assets {
+		w, ok := want[a.Algorithm]
+		if !ok {
+			continue
+		}
+		seen[a.Algorithm] = true
+		if !strings.Contains(a.Action, w) {
+			t.Errorf("%s: action %q does not mention %q", a.Algorithm, a.Action, w)
+		}
+		if strings.Contains(a.Action, "TLS 1.3") {
+			t.Errorf("%s: the compliance pack tells an operator to %q", a.Algorithm, a.Action)
+		}
+	}
+	for algo := range want {
+		if !seen[algo] {
+			t.Errorf("no %q entry in the CNSA report: %+v", algo, rep.Assets)
+		}
 	}
 }
 

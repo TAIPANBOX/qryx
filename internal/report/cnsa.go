@@ -88,7 +88,7 @@ func cnsaStatus(n graph.AssetNode) cnsaEntry {
 			Action: "Private key material in source/config; rotate and remove."}
 	case model.RiskMisconfig:
 		return cnsaEntry{Node: n, Status: "issue", Deadline: "immediate",
-			Action: "TLS misconfiguration; enforce TLS 1.3 per CNSA 2.0."}
+			Action: misconfigAction(n)}
 	}
 
 	// Quantum-vulnerable: must migrate per CNSA 2.0 schedule.
@@ -137,6 +137,43 @@ func cnsaStatus(n graph.AssetNode) cnsaEntry {
 	// unrecognized cryptography scored 100%.
 	return cnsaEntry{Node: n, Status: "not-assessed", Deadline: "n/a",
 		Action: fmt.Sprintf("Not assessed: qryx has no CNSA 2.0 rule for %s. It is neither approved nor rejected here; grade it by hand before relying on the score.", n.Asset.Algorithm)}
+}
+
+// misconfigAction picks the remediation for a misconfiguration from what the
+// finding actually is, not from its risk class alone.
+//
+// Risk class says how bad a thing is, never what it is: "misconfig" covers a
+// server offering TLS 1.0, an Agent Passport with no attestation method, and
+// an agent-event stream with no prev_hash chain. This used to return the TLS
+// line for all three, so the compliance pack told an operator to enforce TLS
+// 1.3 to fix an unsigned agent identity.
+//
+// The smallest discriminator that separates them is the asset's algorithm,
+// which is the field each connector already sets to say what it found: the
+// pseudo-algorithms "no-attestation" and "no-hash-chain" come from
+// internal/agentstack (passportFindings / eventStreamFindings), and every TLS
+// misconfiguration arrives as a protocol named TLS or SSL from
+// internal/probe or the tlsconfig detector.
+//
+// The default is deliberately not the TLS line. A misconfiguration this
+// report has no rule for gets the detector's own reason and an admission that
+// there is no CNSA 2.0 remediation specific to it, so the next connector to
+// add a misconfig class inherits an honest answer rather than a wrong one.
+func misconfigAction(n graph.AssetNode) string {
+	algo := strings.ToUpper(strings.TrimSpace(n.Asset.Algorithm))
+	switch algo {
+	case "NO-ATTESTATION":
+		return "Agent Passport declares no attestation method; bind the identity to real key material (mTLS certificate, SPIFFE SVID or enclave key) per agent-passport SPEC.md §4."
+	case "NO-HASH-CHAIN":
+		return "Agent event stream is not tamper-evident; emit a distinct sha256 prev_hash on every event so the log is chained, per agent-passport SPEC.md §6.5."
+	}
+	if strings.HasPrefix(algo, "TLS") || strings.HasPrefix(algo, "SSL") {
+		return "TLS misconfiguration; enforce TLS 1.3 per CNSA 2.0."
+	}
+	if n.Risk.Reason != "" {
+		return fmt.Sprintf("%s. Fix what that names: qryx has no CNSA 2.0 remediation specific to %s.", n.Risk.Reason, n.Asset.Algorithm)
+	}
+	return fmt.Sprintf("%s is misconfigured. qryx has no CNSA 2.0 remediation specific to it; review the configuration that produced it.", n.Asset.Algorithm)
 }
 
 func quantumAction(algo string) string {
