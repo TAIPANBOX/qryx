@@ -1,5 +1,5 @@
 // Package agentstack is a connector that inventories the cryptography of
-// AI-agent infrastructure itself — the trust surface of the agent-governance
+// AI-agent infrastructure itself: the trust surface of the agent-governance
 // stack, not just the systems it governs. It reads Agent Passport identity
 // documents and agent-event NDJSON streams (see
 // https://github.com/TAIPANBOX/agent-passport, SPEC.md §4 and §6) and turns
@@ -19,7 +19,7 @@
 // A passport document and an agent-event stream are distinguished by content
 // (the "schema" field), not file extension or location, so a directory mixing
 // both is handled correctly. Malformed files and malformed lines within an
-// otherwise-recognized stream are counted, logged, and skipped — never fatal.
+// otherwise-recognized stream are counted, logged, and skipped: never fatal.
 //
 // This increment does not probe agent endpoints: nothing in a Passport
 // document names a network address today. Once passports (or a future SPEC
@@ -69,13 +69,13 @@ type agentEvent struct {
 	PrevHash string `json:"prev_hash"`
 }
 
-// Scan reads every file under path — a single file, a directory (walked
-// recursively), or a glob pattern — and returns crypto findings for each
-// Agent Passport document and agent-event NDJSON stream it recognizes. Files
-// that are neither are logged and skipped; malformed passports/event lines
-// within a recognized file are counted, logged, and skipped. No input ever
-// makes Scan return an error on its own account — only a filesystem failure
-// (e.g. path does not exist) does.
+// Scan reads every file under path, which may be a single file, a directory
+// (walked recursively), or a glob pattern, and returns crypto findings for
+// each Agent Passport document and agent-event NDJSON stream it recognizes.
+// Files that are neither are logged and skipped; malformed passports/event
+// lines within a recognized file are counted, logged, and skipped. No input
+// ever makes Scan return an error on its own account: only a filesystem
+// failure (e.g. path does not exist) does.
 func Scan(path string) ([]model.Finding, error) {
 	files, err := listFiles(path)
 	if err != nil {
@@ -198,7 +198,7 @@ func parseEvents(content []byte) (events []agentEvent, malformed int) {
 // it implies. mtls-cert/spiffe-svid inventory an x509-based identity binding
 // with an unknown algorithm (the document alone can't say more); enclave-key
 // is a hardware-backed key, the safe end of the spectrum; oidc is token-based
-// with no key material visible; none/absent is a misconfig — the identity has
+// with no key material visible; none/absent is a misconfig: the identity has
 // no cryptographic attestation at all.
 func passportFindings(path string, p passport) []model.Finding {
 	loc := model.Location{File: path}

@@ -62,7 +62,7 @@ func TestBuildKeepsHighestSeverityAndNormalizes(t *testing.T) {
 // first, silently dropping whichever risk didn't happen to be classified
 // first (in practice: expired, since risk.Apply's central classification of
 // the algorithm-only finding runs before/independently of the context finding
-// that asserts RiskExpired — see internal/probe/tls.go's certFindings, which
+// that asserts RiskExpired; see internal/probe/tls.go's certFindings, which
 // is the exact shape reproduced here). This mirrors what was verified live
 // against expired.badssl.com.
 func TestBuildPreservesOrthogonalRisksOnSameAsset(t *testing.T) {
@@ -105,7 +105,7 @@ func TestBuildPreservesOrthogonalRisksOnSameAsset(t *testing.T) {
 	}
 	exp, ok := byClass[model.RiskExpired]
 	if !ok {
-		t.Fatal("expired risk missing from graph — silently dropped by dedup collision")
+		t.Fatal("expired risk missing from graph: silently dropped by dedup collision")
 	}
 	if exp.Asset.Algorithm != "RSA" || exp.Asset.Type != model.TypeCertificate {
 		t.Errorf("expired node has wrong asset: %+v", exp.Asset)
@@ -121,7 +121,7 @@ func TestBuildDedupsIdenticalOccurrence(t *testing.T) {
 }
 
 func TestBuildMergesTagsAcrossOccurrences(t *testing.T) {
-	// Same RSA key found from two cloud sources with different tags — node-level
+	// Same RSA key found from two cloud sources with different tags: node-level
 	// Tags must be the union.
 	findings := []model.Finding{
 		{
@@ -151,7 +151,7 @@ func TestBuildMergesTagsAcrossOccurrences(t *testing.T) {
 	if len(n.Occurrences) != 2 {
 		t.Errorf("want 2 occurrences, got %d", len(n.Occurrences))
 	}
-	// Each occurrence carries its own tags — find by source, not by index.
+	// Each occurrence carries its own tags, so find by source, not by index.
 	var kmsOcc *Occurrence
 	for i := range n.Occurrences {
 		if n.Occurrences[i].Source == "aws-kms" {

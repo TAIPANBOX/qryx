@@ -12,12 +12,12 @@ import (
 
 // TestNCSCJSONOutput golden-tests the report shape against a fixture that has
 // one finding in each risk class the report cares about: quantum-vulnerable
-// (twice — one plain-code RSA, one externally-facing/long-lived ECDH), weak
+// (twice: one plain-code RSA, one externally-facing/long-lived ECDH), weak
 // (MD5), and safe/post-quantum (ML-KEM).
 func TestNCSCJSONOutput(t *testing.T) {
 	res := &scan.Result{Root: "test", Findings: []model.Finding{
 		// Quantum-vulnerable, code-only: not externally-facing, not long-lived
-		// (Primitive unset) — excluded from the 2031 highest-priority subset.
+		// (Primitive unset), so excluded from the 2031 highest-priority subset.
 		{
 			Asset:    model.Asset{Type: model.TypeAlgorithm, Algorithm: "RSA", KeySize: 2048},
 			Location: model.Location{File: "a.go", Line: 5},
@@ -25,7 +25,7 @@ func TestNCSCJSONOutput(t *testing.T) {
 			Risk:     model.Risk{Class: model.RiskQuantumVulnerable, Severity: model.SeverityHigh},
 		},
 		// Quantum-vulnerable, ACM certificate (externally-facing) AND
-		// key-exchange (long-lived-data) — included in the 2031 subset.
+		// key-exchange (long-lived-data), so included in the 2031 subset.
 		{
 			Asset:    model.Asset{Type: model.TypeAlgorithm, Algorithm: "ECDH", Primitive: model.PrimitiveKeyExch},
 			Location: model.Location{File: "acm:cert-1"},
@@ -136,7 +136,7 @@ func TestNCSCVerdicts(t *testing.T) {
 			// Shor like any discrete-log scheme) is not in agility.target()'s
 			// switch, so agility.Assess proposes no migration target for it and
 			// no plan covers it. Risk is set directly on the finding here
-			// (buildNCSC/graph.Build never call risk.Classify — they trust
+			// (buildNCSC/graph.Build never call risk.Classify; they trust
 			// Finding.Risk as scored upstream) specifically so this test stays
 			// independent of which algorithms risk.Classify happens to flag;
 			// it is also externally-facing (tls-probe), so it lands in the 2031

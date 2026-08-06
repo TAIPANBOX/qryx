@@ -28,7 +28,7 @@ type fakeKMS struct {
 
 func (f fakeKMS) ListKeys(_ context.Context, in *kms.ListKeysInput, _ ...func(*kms.Options)) (*kms.ListKeysOutput, error) {
 	// Page 1 returns the first key and a marker; page 2 returns the rest.
-	// Sort for a stable order — map iteration differs between the two calls and
+	// Sort for a stable order: map iteration differs between the two calls and
 	// would otherwise drop or duplicate a key.
 	ids := make([]string, 0, len(f.keys))
 	for id := range f.keys {

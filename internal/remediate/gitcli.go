@@ -7,7 +7,7 @@ import (
 )
 
 // GitCLI is the production Runner: it shells out to git and gh. It holds no
-// logic beyond invoking commands and wrapping their stderr — all decisions live
+// logic beyond invoking commands and wrapping their stderr: all decisions live
 // in OpenPR so they stay testable.
 type GitCLI struct{}
 

@@ -2,7 +2,7 @@
 // cryptography they negotiate: TLS version, cipher suite, and certificate
 // chain. Unlike the static detectors it observes real deployed crypto.
 //
-// It probes only the explicit targets it is given — no port ranges, no host
+// It probes only the explicit targets it is given: no port ranges, no host
 // discovery. Callers must be authorized to connect to the targets.
 package probe
 

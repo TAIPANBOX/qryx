@@ -15,9 +15,9 @@ import (
 type Level string
 
 const (
-	High   Level = "high"   // managed key store — rotate via API/console
-	Medium Level = "medium" // config / cert / dependency — config change
-	Low    Level = "low"    // code or binary — code change + redeploy
+	High   Level = "high"   // managed key store: rotate via API/console
+	Medium Level = "medium" // config / cert / dependency: config change
+	Low    Level = "low"    // code or binary: code change + redeploy
 )
 
 // Assessment is the agility verdict for one asset.

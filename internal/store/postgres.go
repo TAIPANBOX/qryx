@@ -17,7 +17,7 @@ var schemaSQL string
 
 // PostgresStore persists the asset graph in normalized relational tables. It
 // implements Store, so the diff/drift logic above is reused unchanged. Each
-// operation opens and closes its own connection — the CLI is one-shot.
+// operation opens and closes its own connection: the CLI is one-shot.
 type PostgresStore struct {
 	ConnString string
 }

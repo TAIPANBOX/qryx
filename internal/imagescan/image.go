@@ -1,7 +1,7 @@
 // Package imagescan scans a local container image tarball (the output of
 // `docker save` or an OCI image layout) for cryptography. An image is just
 // layered filesystems: this package extracts the layers to a temp directory and
-// runs the existing code and binary scanners over them — no new detection
+// runs the existing code and binary scanners over them: no new detection
 // logic, images are simply another source.
 package imagescan
 
@@ -186,7 +186,7 @@ func extractLayer(tr *tar.Reader, root string, st *extractStats) error {
 		}
 		dest, ok := safeJoin(root, hdr.Name)
 		if !ok {
-			continue // path escapes root — drop it
+			continue // path escapes root, drop it
 		}
 		if hdr.Size > maxFileBytes {
 			// Skipped and counted, not truncated: half a binary parses as a

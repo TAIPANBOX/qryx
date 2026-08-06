@@ -1,5 +1,5 @@
 // Package binscan discovers cryptography in compiled binaries (ELF, PE,
-// Mach-O). It is a connector like internal/probe, not a file detector —
+// Mach-O). It is a connector like internal/probe, not a file detector:
 // binaries are identified by magic bytes, read from disk, and parsed
 // structurally rather than scanned as text.
 package binscan
@@ -18,7 +18,7 @@ import (
 var elfMagic = []byte{0x7f, 'E', 'L', 'F'}
 
 // cryptoLibs maps a needed-library name substring to a canonical library name.
-// The asset is the library itself (inventory), not an algorithm — mapping it to
+// The asset is the library itself (inventory), not an algorithm: mapping it to
 // a representative algorithm would collide with real algorithm findings.
 var cryptoLibs = []struct{ needle, name string }{
 	{"libcrypto", "libcrypto"},
@@ -40,7 +40,7 @@ type symRule struct {
 // specific prefixes precede broader ones (SHA1 before SHA, EC before ED).
 //
 // Legacy flat OpenSSL API (MD5_Init, RSA_new, ...) is listed first. OpenSSL
-// 3.x deprecated that flat API in favor of the EVP_* interface — the openssl
+// 3.x deprecated that flat API in favor of the EVP_* interface, and the openssl
 // CLI and most modern libcrypto consumers call crypto almost exclusively
 // through EVP_* now, so the EVP rules below are what actually fires on a
 // current OpenSSL 3.x build. Algorithm-bearing EVP symbols (EVP_aes_*,
@@ -79,7 +79,7 @@ var symRules = []symRule{
 	{"EVP_sm3", "SM3", model.PrimitiveHash},
 
 	// EVP_PKEY_* calls that name their algorithm (keygen/paramgen setters,
-	// typed getters) — checked before the generic EVP_PKEY_ catch-all.
+	// typed getters), checked before the generic EVP_PKEY_ catch-all.
 	{"EVP_PKEY_get0_RSA", "RSA", model.PrimitiveSignature},
 	{"EVP_PKEY_CTX_set1_rsa", "RSA", model.PrimitiveSignature},
 	{"EVP_PKEY_CTX_set_rsa", "RSA", model.PrimitiveSignature},
