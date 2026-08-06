@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-205-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-208-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Status](https://img.shields.io/badge/phase-4%20(governance)-success.svg)
 
@@ -475,7 +475,7 @@ Run against the bundled fixtures with `make scan`.
 | Detector | Covers |
 |---|---|
 | `goast` | crypto usage in Go via AST import resolution (no regex false positives) |
-| `cryptocall` | crypto API usage in Python / JS / TS source |
+| `cryptocall` | crypto API usage in Python / JS / TS source. Comments are stripped before matching in both languages, and string literals too for the Python identifier patterns (`RSA`, `AES`, `DES`), so a comment saying "migrate off RSA" is not a use of RSA. The JS patterns keep literals, because node names the algorithm inside one (`createHash('md5')`) |
 | `rust` | crypto primitives in Rust: the `ring`/`aws-lc-rs` constants, the RustCrypto crate paths, and a hand-written implementation naming its own type. Comments and string literals are stripped before matching, so a doc comment explaining that ECDSA is quantum-vulnerable is not counted as a use of ECDSA |
 | `certfile` | PEM certificate parsing (algorithm, key size, expiry) |
 | `tlsconfig` | legacy TLS/SSL in code and nginx/apache config |

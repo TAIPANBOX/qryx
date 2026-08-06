@@ -189,6 +189,105 @@ func TestCryptoCallJS(t *testing.T) {
 	}
 }
 
+// TestCryptoCallIgnoresPythonCommentsAndStrings pins the same property the
+// rust detector has had since it was written, and that the README claims for
+// that row: prose about cryptography is not a use of cryptography. The Python
+// patterns are identifiers (\bRSA\b, \bDES\b, \bAES\b), and they used to run
+// against raw file content, so a comment saying "migrate off RSA" produced an
+// RSA quantum-vulnerable finding and a docstring naming DES produced a weak
+// one. CLAUDE.md's detector rule is explicit: don't scrape strings, keep false
+// positives low.
+func TestCryptoCallIgnoresPythonCommentsAndStrings(t *testing.T) {
+	src := []byte(`# TODO: migrate off RSA before 2030
+"""This module used to use DES.
+
+Do not use DSA here either.
+"""
+NOTE = "AES is fine, ChaCha20 is fine"
+import hashlib
+
+
+def digest(data):
+    return hashlib.sha256(data)
+`)
+	got := NewCryptoCall().Detect(scan.File{Path: "notes.py", Content: src})
+	algos := map[string]int{}
+	for _, f := range got {
+		algos[f.Asset.Algorithm] = f.Location.Line
+	}
+	for _, prose := range []string{"RSA", "DES", "DSA", "AES", "ChaCha20"} {
+		if line, found := algos[prose]; found {
+			t.Errorf("%s found at line %d, but it appears only in a comment, a docstring or a string literal", prose, line)
+		}
+	}
+	if algos["SHA-256"] != 11 {
+		t.Errorf("real hashlib.sha256 call reported at line %d, want 11 (line numbers must survive stripping): %+v", algos["SHA-256"], algos)
+	}
+}
+
+// TestCryptoCallIgnoresJSComments is the JS/TS half. Note what it does NOT
+// ask for: node's crypto API takes the algorithm name as a string literal
+// (createHash('md5')), so those patterns must keep matching inside literals.
+// Comments are the part that is never code in either language.
+func TestCryptoCallIgnoresJSComments(t *testing.T) {
+	src := []byte(`// we used to call crypto.createHash('md5') here
+/*
+ * and crypto.createCipheriv('des', ...) before that
+ */
+const h = crypto.createHash('sha256');
+`)
+	got := NewCryptoCall().Detect(scan.File{Path: "hash.js", Content: src})
+	algos := map[string]int{}
+	for _, f := range got {
+		algos[f.Asset.Algorithm] = f.Location.Line
+	}
+	if line, found := algos["MD5"]; found {
+		t.Errorf("MD5 found at line %d, but it appears only in a line comment", line)
+	}
+	if line, found := algos["DES"]; found {
+		t.Errorf("DES found at line %d, but it appears only in a block comment", line)
+	}
+	if algos["SHA-256"] != 5 {
+		t.Errorf("real createHash('sha256') reported at line %d, want 5: %+v", algos["SHA-256"], algos)
+	}
+}
+
+// TestCryptoCallUnterminatedQuoteDoesNotHideTheFile guards the direction of
+// the trade this fix makes. A quote that never closes, in a broken or partial
+// file a scanner does not get to refuse, would send a naive stripper blanking
+// to the end of the file: every finding after it vanishes and the scan reports
+// clean. Neither language lets a '...' or "..." span a line, so the newline
+// ends it and the code below is still examined. CLAUDE.md invariant 6: a clean
+// scan must never be manufactured by not looking.
+func TestCryptoCallUnterminatedQuoteDoesNotHideTheFile(t *testing.T) {
+	py := []byte("label = 'unterminated\nkey = RSA.generate(2048)\n")
+	var sawRSA bool
+	for _, f := range NewCryptoCall().Detect(scan.File{Path: "broken.py", Content: py}) {
+		if f.Asset.Algorithm == "RSA" && f.Location.Line == 2 {
+			sawRSA = true
+		}
+	}
+	if !sawRSA {
+		t.Errorf("the RSA call on line 2 was hidden by an unterminated quote on line 1")
+	}
+
+	// The same shape in JSX, where an apostrophe in prose is ordinary text.
+	jsx := []byte(`export function Note() {
+  return <p>don't roll your own crypto</p>;
+}
+const legacy = crypto.createHash('md5');
+`)
+	var sawMD5 bool
+	for _, f := range NewCryptoCall().Detect(scan.File{Path: "Note.jsx", Content: jsx}) {
+		if f.Asset.Algorithm == "MD5" && f.Location.Line == 4 {
+			sawMD5 = true
+		}
+	}
+	if !sawMD5 {
+		t.Errorf("the md5 call on line 4 was hidden by an apostrophe on line 2")
+	}
+}
+
 func TestCryptoCallWants(t *testing.T) {
 	d := NewCryptoCall()
 	for path, want := range map[string]bool{
