@@ -221,6 +221,36 @@ CBOM/CNSA -> policy gate (+drift) -> remediation (fix/PR) -> evidence
   binary against a synthetic 40 MiB image that scans as 0 findings on
   567c2ce and reports its MD5 finding after, 2026-08-05)*
 
+- 2026-08-06, Terraform-declared assets are scored as configuration, and an
+  unrankable source is no longer dropped in silence (branch
+  `fix/agility-terraform-source`). `internal/agility`'s `sourceAgility` map had
+  no row for `terraform`, and `dominantAgility` recorded a source name only
+  inside the branch that recognised it, so one missing row cost two answers at
+  once. Every HCL-declared key scored `low`, "code change + redeploy", when a
+  key spec in HCL is changed by editing an argument and running `apply`, which
+  is what `medium` means in that file -- and the same physical key read back
+  through the AWS, GCP or Azure connector scored `high`, so its difficulty
+  depended on which connector saw it. The name was dropped from the effort note
+  as well, which printed an empty parenthesis. Four rows were missing in all:
+  `terraform` and `agentstack` (medium), `rust` and `aiusage` (low); the last
+  two emit no asset `target()` maps today, so their level is unexercised and
+  the rows exist to keep the lists reconciled. An unrecognised source now
+  counts as `low` whatever its company, rather than as `low` alone and as
+  nothing at all beside a known source. Both halves of the list are now held
+  structurally by `internal/agility/sources_test.go`: one test walks
+  `detectors.Default()`, the other reads every `Source: "..."` literal out of a
+  `model.Finding` composite literal in the tree, so a connector cannot ship
+  without a row again.
+  *(@measured: `qryx scan --format migration testdata/sample` on `main` at
+  515864e prints `"agility": "low"` with `"effort": "code change + redeploy ();
+  1 occurrence(s)"` for all three `main.tf` entries (lines 3, 8 and 16) and
+  `"config/dependency change (terraform); 1 occurrence(s)"` at `"medium"` after.
+  `summary.toMigrate` stays 6 and `summary.quickWins` stays 0, since a quick win
+  needs `high` agility; plan order shifts, the RSA-2048 `main.tf:16` entry
+  moving from priority 5 to 4 ahead of MD5 because agility ranks after severity.
+  `go test -race ./...` and the three gate scripts pass; tests badge 197 -> 203,
+  2026-08-06)*
+
 **No remaining deliberate deferrals** -- both items tracked here (ML-DSA
 signing, agent-event export) are done. Revisit `go.mod`'s
 `toolchain go1.27rc2` pin once Go 1.27 GA ships, to drop the

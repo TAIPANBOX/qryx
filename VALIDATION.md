@@ -77,3 +77,33 @@ live run, because every one of them makes a run look successful.
    *(@measured: a synthetic 40 MiB layer containing one `hashlib.md5()` call scanned as
    "0 findings, exit 0" on `main` at 567c2ce and reports the MD5 finding after the fix; an image with
    a layer cut mid-file exits 1 instead of 0, 2026-08-05)*
+
+## A bug the fixture output was already showing (2026-08-06)
+
+One defect, and unlike the three above it was never invisible: it had been printing an empty
+parenthesis into the migration plan of the repository's own sample fixture, in the output every
+`--format migration` run produces. Nobody read it.
+
+4. **Terraform-declared assets scored `low` agility, and their source was dropped from the effort
+   note** (`internal/agility/agility.go`) - the `sourceAgility` map had no row for `terraform`, and
+   `dominantAgility` appended a source name to its result only inside the branch that recognised the
+   source, so a single missing row cost two answers. Every key declared in HCL fell through to the
+   "unknown source -> assume hardest" fallback and was reported as `low`, "code change + redeploy",
+   though a `aws_kms_key` or `azurerm_key_vault_key` in HCL is migrated by editing a key-spec argument
+   and running `apply` - `medium` in that file's own vocabulary. The same physical key read back
+   through the AWS, GCP or Azure connector scored `high`, so one key's stated difficulty depended on
+   which connector happened to see it. Three other sources were missing the same way (`rust`,
+   `aiusage`, `agentstack`). Fixed: the four rows added, an unrecognised source is now named in the
+   effort note and counts as `low` whatever it sits beside, and the parenthetical is omitted rather
+   than printed empty when there is no source to name.
+   *(@measured: `qryx scan --format migration testdata/sample` on `main` at 515864e prints
+   `"agility": "low"` and `"effort": "code change + redeploy (); 1 occurrence(s)"` for all three
+   `main.tf` entries (lines 3, 8 and 16); after the fix the same three read `"agility": "medium"` and
+   `"effort": "config/dependency change (terraform); 1 occurrence(s)"`. `summary.toMigrate` stays 6
+   and `summary.quickWins` stays 0, a quick win requiring `high` agility. 2026-08-06)*
+
+   The gap that let it ship is that `sourceAgility` is a second copy, kept by hand, of a list that
+   lives in the detectors and connectors, and nothing compared them. It is compared now, by
+   `internal/agility/sources_test.go`: one test walks `detectors.Default()` and requires a row per
+   detector, the other parses the tree for every `Source: "..."` literal inside a `model.Finding`
+   composite literal and requires a row per connector. Both fail red on 515864e.
