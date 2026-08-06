@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-217-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-224-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Status](https://img.shields.io/badge/phase-4%20(governance)-success.svg)
 
@@ -741,14 +741,25 @@ otherwise separate; numbers come from the same computations, so it can't
 disagree with them.
 
 **Evidence trail** (`--save-evidence` + `qryx trend`) - append one compact,
-digest-stamped record per run to a JSON-Lines trail (date, score, non-compliant
-count, integrity digest). `qryx trend <trail>` renders the history and the
-latest score delta (improved / regressed / unchanged), so a team can prove
-posture over time and catch regressions. `--html` renders the history as a
-self-contained SVG line chart; `--fail-on-regression` exits 3 when the latest
-score is below the previous run, turning the trail into a CI monitor. Records
-share the same numbers and digest as `--format evidence`. The trail works with a
-file path or a `postgres://` URL (same backends as `--save`/`--baseline`):
+digest-stamped record per run to a JSON-Lines trail (date, score, all four
+status counts including not-assessed, the total, and the integrity digest).
+`qryx trend <trail>` renders the history and the latest score delta (improved /
+regressed / unchanged), so a team can prove posture over time and catch
+regressions. `--html` renders the history as a self-contained SVG line chart;
+`--fail-on-regression` exits 3 when the latest score is below the previous run,
+turning the trail into a CI monitor. Records share the same numbers and digest
+as `--format evidence`.
+
+The not-assessed count is carried because the score alone does not say what it
+is a percentage of: two runs can both read 50% while one graded its whole
+inventory and the other graded half of it, and a delta between those two is not
+a change in posture at all. `qryx trend` prints the count per record and states
+the latest ungraded share against its total when there is one. Records written
+before this count existed read fine and report 0, which is what they meant.
+
+The trail works with a file path or a `postgres://` URL (same backends as
+`--save`/`--baseline`); an evidence table created by an earlier version gains
+the new column on the next connection, so no manual migration is needed:
 
 ```bash
 qryx scan --save-evidence 'postgres://user:pass@host:5432/db' <path>

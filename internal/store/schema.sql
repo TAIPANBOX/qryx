@@ -38,9 +38,17 @@ CREATE TABLE IF NOT EXISTS evidence (
     compliant     INT  NOT NULL,
     non_compliant INT  NOT NULL,
     issues        INT  NOT NULL,
+    not_assessed  INT  NOT NULL DEFAULT 0,
     total         INT  NOT NULL,
     digest        TEXT NOT NULL
 );
+
+-- CREATE TABLE IF NOT EXISTS does nothing to a table that already exists, so a
+-- deployment that has been writing evidence since before not_assessed existed
+-- keeps its old column list and every insert fails. The ALTER is what carries
+-- it across. The DEFAULT 0 is also the right reading of the rows already there:
+-- they were written when every asset was graded one of the other three ways.
+ALTER TABLE evidence ADD COLUMN IF NOT EXISTS not_assessed INT NOT NULL DEFAULT 0;
 
 CREATE INDEX IF NOT EXISTS scans_created_at_idx ON scans (created_at DESC);
 CREATE INDEX IF NOT EXISTS assets_scan_id_idx   ON assets (scan_id);

@@ -11,6 +11,7 @@
   h1 { font-size: 1.4rem; margin: 0 0 .4rem; }
   .latest { font-size: 2rem; font-weight: 700; }
   .up { color: #276749; } .down { color: #b00020; } .flat { color: #888; }
+  .caveat { color: #8a6d1f; margin: .4rem 0 0; font-size: .88rem; }
   svg { border: 1px solid #8882; border-radius: .4rem; margin: 1rem 0; max-width: 100%; }
   .axis { stroke: #8884; stroke-width: 1; }
   .line { fill: none; stroke: #2b6cb0; stroke-width: 2; }
@@ -26,6 +27,7 @@
   <div><span class="latest">{{.Latest}}%</span> CNSA 2.0 compliant
     {{if .DeltaText}}&mdash; <span class="{{.DeltaClass}}">{{.DeltaText}}</span>{{end}}
   </div>
+  {{if .NotAssessedNote}}<p class="caveat">{{.NotAssessedNote}}</p>{{end}}
 
   {{if .Points}}
   <svg viewBox="0 0 720 240" role="img" aria-label="compliance score over time">
@@ -45,9 +47,9 @@
 
   {{if .Points}}
   <table>
-    <thead><tr><th>Date</th><th>Score</th></tr></thead>
+    <thead><tr><th>Date</th><th>Score</th><th>Not assessed</th></tr></thead>
     <tbody>
-      {{range .Points}}<tr><td>{{.Date}}</td><td>{{.Score}}%</td></tr>{{end}}
+      {{range .Points}}<tr><td>{{.Date}}</td><td>{{.Score}}%</td><td>{{.NotAssessed}}</td></tr>{{end}}
     </tbody>
   </table>
   {{end}}
