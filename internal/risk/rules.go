@@ -47,7 +47,7 @@ var baseline = map[string]algoClass{
 	"POLY1305": {model.RiskNone, model.SeverityNone, ""},
 	"HMAC":     {model.RiskNone, model.SeverityNone, ""},
 
-	// Post-quantum (NIST FIPS 203/204/205) — explicitly good.
+	// Post-quantum (NIST FIPS 203/204/205): explicitly good.
 	"ML-KEM":    {model.RiskNone, model.SeverityNone, ""},
 	"ML-DSA":    {model.RiskNone, model.SeverityNone, ""},
 	"SLH-DSA":   {model.RiskNone, model.SeverityNone, ""},

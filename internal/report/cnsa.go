@@ -117,7 +117,7 @@ func cnsaStatus(n graph.AssetNode) cnsaEntry {
 			Action: "SHA-384/512 is the CNSA 2.0 approved hash function."}
 	}
 
-	// Unknown / RiskNone — include as informational.
+	// Unknown / RiskNone: include as informational.
 	return cnsaEntry{Node: n, Status: "compliant", Deadline: "n/a",
 		Action: "No CNSA 2.0 restriction identified."}
 }

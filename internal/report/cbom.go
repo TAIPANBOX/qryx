@@ -106,7 +106,7 @@ func CBOM(w io.Writer, res *scan.Result, version string) error {
 }
 
 // toComponent renders one asset node as a single CycloneDX component carrying
-// every occurrence of that asset — the graph, not a flat per-finding dump.
+// every occurrence of that asset: the graph, not a flat per-finding dump.
 func toComponent(n graph.AssetNode) cbomComp {
 	name := n.Asset.Algorithm
 	if n.Asset.KeySize > 0 {

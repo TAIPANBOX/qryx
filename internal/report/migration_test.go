@@ -15,7 +15,7 @@ func TestMigrationPlanExcludesCompliantAndRanks(t *testing.T) {
 		{Asset: model.Asset{Type: model.TypeAlgorithm, Algorithm: "RSA", KeySize: 1024, Primitive: model.PrimitiveSignature}, Location: model.Location{File: "a.go", Line: 1}, Source: "goast", Risk: model.Risk{Class: model.RiskWeak, Severity: model.SeverityCritical}},
 		// high severity quantum, high agility (kms) → quick win, should rank above lower-severity
 		{Asset: model.Asset{Type: model.TypeKey, Algorithm: "ECDSA", Primitive: model.PrimitiveSignature}, Location: model.Location{File: "arn:k"}, Source: "aws-kms", Risk: model.Risk{Class: model.RiskQuantumVulnerable, Severity: model.SeverityHigh}},
-		// compliant — must be excluded
+		// compliant, must be excluded
 		{Asset: model.Asset{Type: model.TypeAlgorithm, Algorithm: "ML-KEM"}, Location: model.Location{File: "c.go", Line: 3}, Source: "goast", Risk: model.Risk{Class: model.RiskNone}},
 		{Asset: model.Asset{Type: model.TypeAlgorithm, Algorithm: "SHA-256"}, Location: model.Location{File: "d.go", Line: 4}, Source: "goast", Risk: model.Risk{Class: model.RiskNone}},
 	}}

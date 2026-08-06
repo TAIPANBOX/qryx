@@ -12,7 +12,7 @@ import (
 )
 
 // rsaKeySize raises rsa.GenerateKey(rand, <literal>) calls whose key size is
-// below the configured floor. Only integer-literal sizes are touched — a
+// below the configured floor. Only integer-literal sizes are touched, since a
 // variable size has no single safe value to substitute. The change is one int
 // literal, so the result always parses and compiles.
 type rsaKeySize struct{}

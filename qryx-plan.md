@@ -1,4 +1,4 @@
-# qryx — Cryptography Security Graph
+# qryx: Cryptography Security Graph
 
 ## Essence
 A visibility and management layer for cryptography across code, infrastructure,
@@ -43,25 +43,25 @@ with many read-only connectors on the input side.
 | IBM Quantum Safe Explorer | crypto discovery | enterprise | tied to the IBM ecosystem |
 
 **qryx's gap:**
-1. **Open-core** — OSS scanner + CBOM generator for adoption and self-hosting in
+1. **Open-core**: OSS scanner + CBOM generator for adoption and self-hosting in
    regulated environments; paid: enforcement, governance, SaaS, reports.
-2. **Mid-market / dev-first** — CLI + CI integration that installs in an hour;
+2. **Mid-market / dev-first**: CLI + CI integration that installs in an hour;
    the big players target Fortune 1000.
 3. **CBOM-native graph**, not cert-lifecycle with scanning bolted on: crypto in
-   code, binaries, protocols, and cloud — in one model with impact paths.
+   code, binaries, protocols, and cloud, all in one model with impact paths.
 
 Risk: a compliance-driven market (longer sales cycle), requires crypto-domain
 expertise. Upside: the budget appears by force on the regulatory calendar, not on
-hype — unlike the oversaturated AI-security space.
+hype, unlike the oversaturated AI-security space.
 
 ## What this is technically
-- **CBOM** — Cryptography Bill of Materials in CycloneDX format (there is an
+- **CBOM**: Cryptography Bill of Materials in CycloneDX format (there is an
   official extension for crypto assets). Standard output → integrates into
   existing pipelines.
-- **Discovery** — static analysis (crypto API calls, TLS config, hardcoded keys)
+- **Discovery**: static analysis (crypto API calls, TLS config, hardcoded keys)
   + dynamic (active TLS handshake scans, certificate inspection) + inventory from
   cloud KMS / key stores.
-- **Crypto-agility** — assessment of how easily a system can switch algorithms
+- **Crypto-agility**: assessment of how easily a system can switch algorithms
   without a rewrite; recommends an abstraction layer where one is missing.
 
 ## Architecture
@@ -102,18 +102,18 @@ remediation. Connectors differ, the engine is shared.
 - Analysis/reports/risk classification: **Python** if needed.
 - Graph: Postgres first → graph DB if needed.
 - Output: CycloneDX CBOM, OTLP/SIEM, GRC reports.
-- UI: **TypeScript** (React) — later.
+- UI: **TypeScript** (React), later.
 - License: open-core (OSS scanner+CBOM, paid enforcement/governance/SaaS).
 
 ## Roadmap (phases)
 
-### Phase 0 — CLI scanner + CBOM (2-3 weeks) — DONE
+### Phase 0: CLI scanner + CBOM (2-3 weeks) - DONE
 - Static scan of one repo: crypto calls, TLS config, hardcoded keys.
 - CBOM output (CycloneDX) + human-readable report.
 - Classification: quantum-vulnerable / weak / ok.
 - **Go/no-go:** on a real repo, find something the owner didn't know in 10 min.
 
-### Phase 1 — MVP discovery (1-1.5 months)
+### Phase 1: MVP discovery (1-1.5 months)
 - tree-sitter instead of regex (accuracy, fewer false positives).
 - Connectors: code + binaries/images + TLS scan of endpoints + certificates.
 - CBOM graph in Postgres, asset deduplication across sources.
@@ -121,17 +121,17 @@ remediation. Connectors differ, the engine is shared.
 - CI integration (fail on new vulnerable crypto) + basic web report.
 - **Demo:** connect repo + domains → in an hour, a prioritized crypto-risk map.
 
-### Phase 2 — Cloud KMS + dependencies (1.5 months)
+### Phase 2: Cloud KMS + dependencies (1.5 months)
 - Connectors: AWS KMS/ACM, GCP KMS, Azure Key Vault; crypto libs from SBOM.
 - Owner-mapping of assets; correlation "asset → what data it protects".
 - Reports for CNSA 2.0 / audit.
 
-### Phase 3 — Crypto-agility + remediation (1.5 months)
+### Phase 3: Crypto-agility + remediation (1.5 months)
 - Per-asset agility assessment; generate a migration plan prioritized by risk.
 - PRs to code/Terraform: raise key size, replace algorithm, add a hybrid scheme.
 - An explanation for each change.
 
-### Phase 4 — Governance / enforcement (paid)
+### Phase 4: Governance / enforcement (paid)
 - Policies (forbid new RSA<3072, MD5, etc.) in blocking mode in CI.
 - Continuous monitoring of crypto-posture drift.
 - Compliance dashboards and evidence export.

@@ -1,16 +1,16 @@
-// Package report — NCSC PQC migration readiness report.
+// Package report: NCSC PQC migration readiness report.
 //
 // This report tracks a scan against the UK National Cyber Security Centre's
 // post-quantum cryptography migration guidance, which sets three timeline
 // milestones for UK-regulated organizations:
 //
-//   - by 2028: complete discovery — a full inventory of quantum-vulnerable
+//   - by 2028: complete discovery, a full inventory of quantum-vulnerable
 //     cryptography and a defined migration plan.
 //   - by 2031: complete migration of the highest-priority systems.
 //   - by 2035: complete migration of all systems.
 //
-// (Plain reference to NCSC PQC migration guidance; no specific document quoted
-// or linked here — see the NCSC website for the source guidance.)
+// (Plain reference to NCSC PQC migration guidance; no specific document is
+// quoted or linked here. See the NCSC website for the source guidance.)
 //
 // It consumes the same cryptographic asset graph as the other reports; it does
 // not re-scan or re-classify anything.
@@ -73,10 +73,10 @@ const discoveryPlanNote = "reuses the qryx migration report's plan (agility.Asse
 
 // sourceBucket classifies an occurrence into one of the six discovery-coverage
 // categories the milestone-1 report tracks. Container provenance is not a
-// per-finding Source in qryx today — `qryx image` reuses the code (goast,
-// deps, ...) and binary detectors on extracted layers — so container findings
-// are identified by the scan Result's "image://" root prefix instead, checked
-// by the caller before falling back to this per-source table.
+// per-finding Source in qryx today, because `qryx image` reuses the code
+// (goast, deps, ...) and binary detectors on extracted layers, so container
+// findings are identified by the scan Result's "image://" root prefix instead,
+// checked by the caller before falling back to this per-source table.
 var sourceBucket = map[string]string{
 	"goast":      "code",
 	"cryptocall": "code",
@@ -134,7 +134,7 @@ func isExternallyFacing(n graph.AssetNode) bool {
 // recorded and decrypted retroactively once a cryptographically relevant
 // quantum computer exists, so it needs to outlive the primitive protecting it.
 // Signature forgery, by contrast, is a forward-looking risk that a timely
-// migration fully closes — there is nothing to "harvest" from a signature.
+// migration fully closes: there is nothing to "harvest" from a signature.
 func isLongLivedData(n graph.AssetNode) bool {
 	if n.Asset.Primitive == model.PrimitiveEncryption || n.Asset.Primitive == model.PrimitiveKeyExch {
 		return true
@@ -359,7 +359,7 @@ func buildNCSC(res *scan.Result) ncscReport {
 }
 
 // planStep reports whether agility.Assess recognizes a migration target for
-// this asset — the same computation `--format migration` and the dashboard
+// this asset: the same computation `--format migration` and the dashboard
 // use (rankedSteps), reused here as the definition of "planned" per
 // discoveryPlanNote.
 func planStep(n graph.AssetNode) (target string, planned bool) {

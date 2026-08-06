@@ -120,9 +120,9 @@ func TestCNSAJSONOutput(t *testing.T) {
 
 // TestCNSAJSONOutputSurfacesBothRisksOnExpiredQuantumVulnerableCert pins the
 // graph dedup bug at the report level: a certificate that is both
-// quantum-vulnerable and expired must produce two entries in the CNSA report
-// — a "non-compliant"/2030 entry for the algorithm and an "issue"/immediate
-// entry for the expiry — not just one. A CI gate on `--policy cnsa
+// quantum-vulnerable and expired must produce two entries in the CNSA report,
+// a "non-compliant"/2030 entry for the algorithm and an "issue"/immediate
+// entry for the expiry, not just one. A CI gate on `--policy cnsa
 // --forbid-expired` (or reading this report) must be able to see the expiry;
 // before the fix it was silently dropped by the graph's asset dedup.
 func TestCNSAJSONOutputSurfacesBothRisksOnExpiredQuantumVulnerableCert(t *testing.T) {
@@ -171,7 +171,7 @@ func TestCNSAJSONOutputSurfacesBothRisksOnExpiredQuantumVulnerableCert(t *testin
 		t.Errorf("quantum-vulnerable entry missing from report: %+v", rep.Assets)
 	}
 	if !sawExpired {
-		t.Errorf("expired entry missing from report — dedup dropped it: %+v", rep.Assets)
+		t.Errorf("expired entry missing from report, dedup dropped it: %+v", rep.Assets)
 	}
 }
 

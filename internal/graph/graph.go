@@ -35,7 +35,7 @@ type AssetNode struct {
 //
 // Risk class is part of the identity, not just an attribute hanging off it.
 // An algorithm property (e.g. "RSA is quantum-vulnerable") and a validity/
-// hygiene state (e.g. "this cert is expired") are orthogonal — the same
+// hygiene state (e.g. "this cert is expired") are orthogonal, so the same
 // physical asset can legitimately carry both at once. Folding every finding
 // for a (type, algo, keySize) into one node with a single Risk field meant a
 // same-severity risk discovered after the first never overwrote it (see the
@@ -59,7 +59,7 @@ func keyOf(f model.Finding) key {
 }
 
 // AssetKey returns the canonical string identity of an (asset, risk class)
-// pair — type, normalized algorithm, key size, and risk class — used to match
+// pair (type, normalized algorithm, key size, and risk class), used to match
 // the same logical finding across runs and sources, e.g. for baseline/drift
 // diffing. Two findings for the same physical asset but different risk
 // classes (say, quantum-vulnerable and expired on the same certificate) have

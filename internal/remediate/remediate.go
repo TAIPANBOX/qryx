@@ -1,5 +1,5 @@
 // Package remediate turns scan findings into concrete, reviewable source
-// patches. It only emits transforms that are provably safe — currently raising
+// patches. It only emits transforms that are provably safe, currently raising
 // a sub-floor RSA key size, a single integer-literal change that always
 // compiles. Algorithm swaps (MD5->SHA-256) and hybrid schemes change semantics
 // and break downstream consumers, so they stay as migration guidance and are

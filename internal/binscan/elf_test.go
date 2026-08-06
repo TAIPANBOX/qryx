@@ -36,7 +36,7 @@ func TestCryptoFromSymbols(t *testing.T) {
 
 // TestCryptoFromSymbolsEVP pins the OpenSSL 3.x EVP_* detection rules against
 // the real dynamic symbol set imported by /usr/bin/openssl on Ubuntu (nm -D),
-// which is almost entirely EVP_* — the legacy flat API (RSA_new, MD5_Init,
+// which is almost entirely EVP_*: the legacy flat API (RSA_new, MD5_Init,
 // ...) barely appears anymore. Before this test, none of these symbols
 // matched any rule and a scan of a modern openssl binary found near nothing.
 func TestCryptoFromSymbolsEVP(t *testing.T) {
