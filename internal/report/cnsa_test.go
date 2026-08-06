@@ -355,12 +355,18 @@ func TestCnsaStatusUnrecognisedAlgorithmIsNotAssessed(t *testing.T) {
 		{"enclave-key", 0, "not-assessed"},  // agentstack enclave-key passport
 		{"SM2", 0, "not-assessed"},          // an algorithm risk.Classify does not know
 		{"cryptography", 0, "not-assessed"}, // a dependency-manifest library name
+		// AES with no size read this table as a positive control until
+		// 2026-08-06, on the reading that AES is in the CNSA 2.0 suite so an
+		// AES asset passes. The suite's AES entry is AES-256 specifically, and
+		// size 0 means qryx never saw a size, so grading it compliant asserts
+		// the one fact that is missing. See
+		// TestCnsaStatusUnknownSizeAESIsNotAssessed for the whole argument.
+		{"AES", 0, "not-assessed"},
 		// Positive controls: the CNSA 2.0 suite itself still passes.
 		{"ML-KEM", 0, "compliant"},
 		{"ML-DSA", 0, "compliant"},
 		{"SLH-DSA", 0, "compliant"},
 		{"AES", 256, "compliant"},
-		{"AES", 0, "compliant"},
 		{"SHA-384", 0, "compliant"},
 		{"SHA-512", 0, "compliant"},
 	}
@@ -371,6 +377,123 @@ func TestCnsaStatusUnrecognisedAlgorithmIsNotAssessed(t *testing.T) {
 				t.Errorf("status=%q want %q (action was %q)", e.Status, tc.wantStatus, e.Action)
 			}
 		})
+	}
+}
+
+// TestCnsaStatusUnknownSizeAESIsNotAssessed is the same defect as the test
+// above, reaching the score through a size rather than through a name.
+//
+// The AES branch read `KeySize == 0 || KeySize >= 256` as compliant, so an AES
+// asset with no size was graded a pass and told the reader "AES-256 is the
+// CNSA 2.0 approved symmetric cipher". Size 0 does not mean 256, it means qryx
+// never saw a size, and CNSA 2.0 approves AES only at 256: AES-128 and AES-192
+// are not compliant. Grading the unknown as a pass therefore asserted the one
+// fact the scan was missing, and asserted it in the operator's favour.
+//
+// The unknown is real, not theoretical, and it is the common case rather than
+// the edge one. Eight of the twelve places that build an AES asset leave the
+// size at zero: Azure Key Vault oct and oct-HSM keys (internal/cloud/azure,
+// whose own comment says the length is not derivable from public metadata,
+// while Key Vault and Managed HSM both accept 128 and 192-bit oct keys), the
+// same key declared in Terraform (internal/scan/detectors/terraform.go), a
+// `crypto/aes` import, the `AES_` and `EVP_aes_` symbol rules in binscan, and
+// the three identifier patterns in the rust and cryptocall detectors. The four
+// that do supply 256 all read a provider's symmetric default: AWS KMS, GCP
+// KMS, and Terraform's aws and google equivalents.
+//
+// Two of those six match text that says 128 on the very line they matched, so
+// the report did not merely pass an unknown, it printed a specific wrong
+// number: see TestUnknownSizeAESIsNeverReportedAsAES256.
+func TestCnsaStatusUnknownSizeAESIsNotAssessed(t *testing.T) {
+	tests := []struct {
+		name       string
+		keySize    int
+		wantStatus string
+	}{
+		{"size never determined", 0, "not-assessed"},
+		{"AES-128 is below the CNSA 2.0 minimum", 128, "non-compliant"},
+		{"AES-192 is below the CNSA 2.0 minimum", 192, "non-compliant"},
+		{"AES-256 is the approved cipher", 256, "compliant"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e := cnsaStatus(makeNode("AES", tc.keySize, model.RiskNone, model.SeverityNone))
+			if e.Status != tc.wantStatus {
+				t.Errorf("AES keySize=%d status=%q want %q (action was %q)",
+					tc.keySize, e.Status, tc.wantStatus, e.Action)
+			}
+		})
+	}
+
+	// The status is half the fix. An operator reads the action, and the action
+	// must not name a key length that nothing in the scan established.
+	e := cnsaStatus(makeNode("AES", 0, model.RiskNone, model.SeverityNone))
+	if strings.Contains(e.Action, "256") && !strings.Contains(e.Action, "not determine") {
+		t.Errorf("action for unknown-size AES claims a size qryx never read: %q", e.Action)
+	}
+	if !strings.Contains(strings.ToLower(e.Action), "size") {
+		t.Errorf("action for unknown-size AES does not say the size is the problem: %q", e.Action)
+	}
+}
+
+// TestUnknownSizeAESIsNeverReportedAsAES256 is the defect measured where it is
+// published, through the real detectors over the real fixture rather than
+// through hand-built findings, which would only pin what this test believes.
+//
+// testdata/aes-unknown-size holds the three shapes that produce a sizeless AES
+// asset in the field: an Azure Key Vault `oct` key in Terraform, whose size
+// genuinely cannot be known, and a rust `Aes128Gcm` and a node
+// `createCipheriv('aes-128-cbc', ...)`, whose size is sitting in the matched
+// text and is still not read, because both patterns anchor on the cipher name.
+//
+// Before this fix that tree scored 100% CNSA 2.0 compliant and printed
+// "AES-256 is the CNSA 2.0 approved symmetric cipher" about both of the 128-bit
+// lines. That number is what `--format evidence` signs, what the dashboard
+// prints and what `qryx trend --fail-on-regression` gates on.
+func TestUnknownSizeAESIsNeverReportedAsAES256(t *testing.T) {
+	res, err := scan.New(detectors.Default()...).Scan("../../testdata/aes-unknown-size")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := CNSA(&buf, res); err != nil {
+		t.Fatal(err)
+	}
+	var rep cnsaReport
+	if err := json.Unmarshal(buf.Bytes(), &rep); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	// The fixture exists to carry AES. If a detector stops finding it, this
+	// test must fail loudly rather than pass on an empty inventory.
+	var aes []cnsaAssetJSON
+	for _, a := range rep.Assets {
+		if strings.HasPrefix(strings.ToUpper(a.Algorithm), "AES") {
+			aes = append(aes, a)
+		}
+	}
+	if len(aes) == 0 {
+		t.Fatalf("no AES asset found in the fixture; the detectors or the fixture changed: %+v", rep.Assets)
+	}
+
+	for _, a := range aes {
+		if a.Status == "compliant" {
+			t.Errorf("%s at %v graded compliant: no size was ever read, so nothing established it is 256 (%q)",
+				a.Algorithm, a.Locations, a.Action)
+		}
+		if strings.Contains(a.Action, "AES-256 is the CNSA 2.0 approved symmetric cipher") {
+			t.Errorf("%s at %v is told it is AES-256; two of these locations say 128 on the matched line (%q)",
+				a.Algorithm, a.Locations, a.Action)
+		}
+	}
+
+	if rep.Summary.Compliant != 0 {
+		t.Errorf("compliant=%d want 0: nothing in this tree had its key size established (%+v)",
+			rep.Summary.Compliant, rep.Assets)
+	}
+	if rep.Summary.NotAssessed == 0 {
+		t.Errorf("notAssessed=0: the AES keys are still in the inventory, ungraded (%+v)", rep.Assets)
 	}
 }
 
