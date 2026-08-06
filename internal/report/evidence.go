@@ -43,12 +43,15 @@ type evidenceSummary struct {
 }
 
 // Attestation is the summary subset of an evidence document, surfaced for the
-// audit trail without exposing the full per-asset records.
+// audit trail without exposing the full per-asset records. It carries all four
+// status counts, so the trail can state the same split the evidence document
+// does instead of a reader recovering the fourth by subtraction.
 type Attestation struct {
 	ScorePct     int
 	Compliant    int
 	NonCompliant int
 	Issues       int
+	NotAssessed  int
 	Total        int
 	Digest       string
 }
@@ -65,6 +68,7 @@ func Attest(res *scan.Result, version string) (Attestation, error) {
 		Compliant:    rep.Summary.Compliant,
 		NonCompliant: rep.Summary.NonCompliant,
 		Issues:       rep.Summary.Issues,
+		NotAssessed:  rep.Summary.NotAssessed,
 		Total:        rep.Summary.Total,
 		Digest:       rep.Digest,
 	}, nil

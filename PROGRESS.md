@@ -274,6 +274,30 @@ CBOM/CNSA -> policy gate (+drift) -> remediation (fix/PR) -> evidence
   `scripts/reproducible-build.sh`, `gosec -quiet ./...`, plus the real binary
   against this repo, `testdata/sample`, `internal/agentstack/testdata` and
   ad-hoc Python/requirements fixtures, 2026-08-06)*
+- 2026-08-06, follow-through on the above (branch
+  `fix/evidence-record-not-assessed`): the fourth status reached the reports but
+  not the record that outlives the run. `report.Attestation` and
+  `store.EvidenceRecord` still split three ways, so a `--save-evidence` trail
+  stated a `total` its own parts did not reach and left `qryx trend`'s reader to
+  recover the ungraded count by subtraction. Both carry `NotAssessed` now, wired
+  through `cmd/qryx`'s record build. `qryx trend` prints a NOT-ASSESSED column
+  and states the latest ungraded share against its total, staying silent when
+  everything was graded, since a caveat on every clean run is one nobody reads on
+  the run that needs it; `trend --html` gains the column and the same note.
+  Postgres gains `not_assessed` in `schema.sql` plus an
+  `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, because `CREATE TABLE IF NOT
+  EXISTS` leaves an existing deployment's table alone and every insert would have
+  failed on it. JSONL records written before the field decode as 0, which is what
+  they meant.
+  *(@measured: both new Postgres tests fail against the unfixed backend on a real
+  `postgres:16` and pass after, the migration one against a table genuinely
+  created without the column; the real binary's saved record reads
+  `"notAssessed":1,"total":4` with the four counts summing to 4, and `qryx trend`
+  over a trail mixing a pre-field record with a new one prints both;
+  `go test -race ./...` (224 test functions), `go test -tags=integration -race
+  ./internal/store/...`, `gofmt -l`, `go vet`, `go build`,
+  `scripts/declared-deps.sh`, `scripts/readme-numbers.sh`,
+  `scripts/reproducible-build.sh`, 2026-08-06)*
 
 **No remaining deliberate deferrals** -- both items tracked here (ML-DSA
 signing, agent-event export) are done. Revisit `go.mod`'s

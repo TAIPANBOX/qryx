@@ -87,6 +87,10 @@ error ran the same way: toward a better score, a cleaner inventory, a bigger fin
 errs in its own favour is the one thing a security team will not forgive, because they have no way to
 audit it except by rebuilding the report by hand.
 
+Item 6 is the follow-through on item 1, on branch `fix/evidence-record-not-assessed`, and it is here
+rather than in its own section because it is the same defect: a fix that changed how the score is
+computed but stopped short of the record that gets persisted and signed.
+
 **Two of these move numbers that were already published.** The CNSA 2.0 compliance percentage drops
 wherever a scan contains cryptography qryx has no rule for, and the evidence digest changes with the
 document, so a re-run will not reproduce the digest of an evidence file signed before this branch.
@@ -164,3 +168,29 @@ changed is that SHA-256, X509 and the enclave-key attestation pseudo-assets stop
    fakes; the CLI usage line is asserted to carry the new default. No cloud account was used, and the
    real-SDK wiring in `gcpLister.list` stays unverified by design, per CLAUDE.md invariant 4,
    2026-08-06)*
+6. **The fourth count stopped at the report layer, and the record that outlives the run still split
+   three ways** (`internal/store/evidence.go`, `internal/store/postgres.go`, `internal/store/
+   schema.sql`, `internal/report/evidence.go`, `internal/report/trend.go`, `cmd/qryx/main.go`) -
+   item 1 added `not-assessed` to `cnsaSummary` and `evidenceSummary`, but `report.Attestation` and
+   `store.EvidenceRecord` kept their three. The record stayed internally consistent, because `Total`
+   already counted the ungraded assets, and that is what made it hard to see: nothing was wrong,
+   `compliant + nonCompliant + issues` simply no longer reached `total`, and the reader of a
+   `--save-evidence` trail or of `qryx trend` had to subtract to find out how much of the denominator
+   was never graded. A compliance record whose parts do not add up to its whole is the kind of
+   document somebody reconstructs by hand at exactly the wrong moment. All four counts now travel to
+   the trail and back out through `qryx trend`, which prints the per-record count and states the
+   latest ungraded share against its total when there is one, and says nothing when everything was
+   graded. The Postgres backend gains the column through `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`
+   in the ensure-schema bootstrap, because `CREATE TABLE IF NOT EXISTS` does nothing to a table that
+   already exists and every insert on an existing deployment would have failed. Records written
+   before the field decode as 0, which is what they meant.
+   *(@measured: against a local `postgres:16`, `TestPostgresTrailCarriesNotAssessed` and
+   `TestPostgresTrailBootstrapAddsNotAssessedColumn` both fail on the unfixed backend
+   (`NotAssessed = 0, want 1`) and pass after, with the migration test run against a table genuinely
+   created without the column; the real binary's `--save-evidence` record reads
+   `"issues":0,"notAssessed":1,"total":4` with `1+2+0+1 = 4`; `qryx trend` over a trail mixing a
+   pre-field record with a new one prints both and the ungraded-share line;
+   `go test -race ./...` and `go test -tags=integration -race ./internal/store/...`, 2026-08-06.
+   Note that `TestPostgresTrail`, which predates this change, passes only against a fresh database;
+   verified to fail the same way on a re-used one with these tests removed, so it is not caused by
+   them, 2026-08-06)*
