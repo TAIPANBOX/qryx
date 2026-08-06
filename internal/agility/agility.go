@@ -129,11 +129,29 @@ func target(a model.Asset) string {
 	case "DES", "3DES", "RC4":
 		return "AES-256-GCM"
 	case "AES":
-		// Only sub-256 AES needs migration.
-		if a.KeySize > 0 && a.KeySize < 256 {
-			return "AES-256-GCM"
+		// Only a size that was actually read, and that clears 256, needs no
+		// migration. `KeySize == 0` is an unread size rather than a 256-bit
+		// one, and an empty target here does not say "unknown", it says "this
+		// asset already meets the bar" to every consumer of the plan.
+		//
+		// The unknown is the common shape, not an edge case: eight of the
+		// twelve places that build an AES asset leave the size at zero, led by
+		// Azure Key Vault `oct` keys, where the length is not derivable from
+		// public metadata and where 128 and 192 are both accepted. Two of the
+		// eight match text naming the size on the line they matched
+		// (`Aes128Gcm`, `createCipheriv('aes-128-cbc', ...)`) and still do not
+		// read it, because the patterns anchor on the cipher name, so the asset
+		// this branch used to skip can be a literal AES-128.
+		//
+		// So it is listed, with a rationale that says the size is what is
+		// missing. Nothing here invents a "not assessed" status the plan does
+		// not have: AES carries no risk class, so the entry sorts below every
+		// asset that has one, and the reader gets an item that says "go read
+		// the key length, and here is where you are going if it is short".
+		if a.KeySize >= 256 {
+			return ""
 		}
-		return ""
+		return "AES-256-GCM"
 	default:
 		return ""
 	}
@@ -161,7 +179,18 @@ func rationale(a model.Asset) string {
 	case "DES", "3DES", "RC4":
 		return fmt.Sprintf("%s is a broken/deprecated cipher; replace with an authenticated AES mode", a.Algorithm)
 	case "AES":
-		return "AES below 256 bits is below the CNSA 2.0 minimum"
+		// One string for all three cases stated the shortfall as fact over a
+		// key whose length was never read, which is the same defect target()
+		// carried, pointed the other way: this is the sentence an operator
+		// acts on.
+		switch {
+		case a.KeySize == 0:
+			return "qryx could not determine this AES key's size, and CNSA 2.0 approves AES only at 256 bits; check the configured key length at the locations listed, and migrate to AES-256-GCM if it is 128 or 192"
+		case a.KeySize < 256:
+			return fmt.Sprintf("AES-%d is below the CNSA 2.0 minimum of 256 bits", a.KeySize)
+		default:
+			return "AES-256 meets the CNSA 2.0 symmetric minimum"
+		}
 	default:
 		return "asset requires migration"
 	}

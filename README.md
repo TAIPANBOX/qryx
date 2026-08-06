@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-197-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-200-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Status](https://img.shields.io/badge/phase-4%20(governance)-success.svg)
 
@@ -615,7 +615,10 @@ PQC/strong target (RSA→ML-DSA/ML-KEM, ECDSA/DSA/Ed25519→ML-DSA, MD5/SHA-1→
 etc.), a rationale and the occurrence locations. Quick wins - high-agility,
 high/critical severity - are counted in the summary. Works on any source,
 including cloud: a KMS RSA key reports `high` agility, the same algorithm in
-source reports `low`.
+source reports `low`. An AES key whose size the scan never established is
+listed rather than left out, because an unread size is not a 256-bit one; its
+rationale says the size is the missing fact and the locations say where to go
+and read it.
 
 **Remediation** (`qryx fix`) - turns findings into reviewable source patches,
 but only for transforms that are *provably safe*. Today that is raising a
