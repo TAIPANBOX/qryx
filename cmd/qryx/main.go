@@ -367,6 +367,7 @@ func run(args []string) error {
 			Compliant:    att.Compliant,
 			NonCompliant: att.NonCompliant,
 			Issues:       att.Issues,
+			NotAssessed:  att.NotAssessed,
 			Total:        att.Total,
 			Digest:       att.Digest,
 		}
