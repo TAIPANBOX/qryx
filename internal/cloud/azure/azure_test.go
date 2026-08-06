@@ -2,6 +2,8 @@ package azure
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,6 +19,7 @@ func keyTypePtr(k azkeys.KeyType) *azkeys.KeyType { return &k }
 type fakeLister struct {
 	items []keyItem
 	keys  map[string]*azkeys.JSONWebKey
+	deny  map[string]bool // key name -> GetKey is forbidden (keys/list without keys/get)
 }
 
 func (f fakeLister) list(_ context.Context) ([]keyItem, error) {
@@ -24,6 +27,9 @@ func (f fakeLister) list(_ context.Context) ([]keyItem, error) {
 }
 
 func (f fakeLister) getKey(_ context.Context, name, _ string) (*azkeys.JSONWebKey, error) {
+	if f.deny[name] {
+		return nil, fmt.Errorf("Forbidden: the vault policy does not grant keys/get on %s", name)
+	}
 	return f.keys[name], nil
 }
 
@@ -48,7 +54,7 @@ func TestScanWithMapsKeyTypes(t *testing.T) {
 		"expired": {Kty: keyTypePtr(azkeys.KeyTypeRSA), N: rsaModulus(3072)},
 	}
 
-	got, err := scanWith(context.Background(), fakeLister{items, keys})
+	got, _, err := scanWith(context.Background(), fakeLister{items: items, keys: keys})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +107,7 @@ func TestScanWithTagsPopulated(t *testing.T) {
 		Tags:    map[string]*string{"Owner": strPtr("infra-team")},
 	}}
 	keys := map[string]*azkeys.JSONWebKey{"tagged": {Kty: keyTypePtr(azkeys.KeyTypeEC)}}
-	got, err := scanWith(context.Background(), fakeLister{items, keys})
+	got, _, err := scanWith(context.Background(), fakeLister{items: items, keys: keys})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,6 +116,32 @@ func TestScanWithTagsPopulated(t *testing.T) {
 	}
 	if got[0].Tags["Owner"] != "infra-team" {
 		t.Errorf("Tags not propagated: %v", got[0].Tags)
+	}
+}
+
+// TestScanWithSkipsAKeyItCannotGet pins that a common Key Vault policy does
+// not kill the inventory. Granting keys/list without keys/get is ordinary, and
+// the connector used to return the first GetKey error, so the scan died on key
+// one and the operator got nothing from a vault it could partly read. The
+// skip is only honest if it is reported, so unreadable keys come back
+// alongside the findings and the CLI prints them.
+func TestScanWithSkipsAKeyItCannotGet(t *testing.T) {
+	items := []keyItem{
+		{ID: "https://v.azure.net/keys/denied/1", Name: "denied", Version: "1"},
+		{ID: "https://v.azure.net/keys/readable/1", Name: "readable", Version: "1"},
+	}
+	keys := map[string]*azkeys.JSONWebKey{
+		"readable": {Kty: keyTypePtr(azkeys.KeyTypeRSA), N: rsaModulus(3072)},
+	}
+	got, skipped, err := scanWith(context.Background(), fakeLister{items: items, keys: keys, deny: map[string]bool{"denied": true}})
+	if err != nil {
+		t.Fatalf("one forbidden key ended the whole inventory: %v", err)
+	}
+	if len(got) != 1 || got[0].Asset.KeySize != 3072 {
+		t.Errorf("got %+v, want the one readable RSA-3072 key", got)
+	}
+	if len(skipped) != 1 || !strings.Contains(skipped[0], "denied") {
+		t.Errorf("skipped=%v, want one entry naming the key it could not read", skipped)
 	}
 }
 

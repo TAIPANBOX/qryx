@@ -221,6 +221,60 @@ CBOM/CNSA -> policy gate (+drift) -> remediation (fix/PR) -> evidence
   binary against a synthetic 40 MiB image that scans as 0 findings on
   567c2ce and reports its MD5 finding after, 2026-08-05)*
 
+- 2026-08-05 audit, fixed 2026-08-06: numbers this tool publishes, and the
+  signs it puts on findings, were wrong in its own favour (branch
+  `fix/numbers-that-flatter-the-scan`). Five defects, one theme: where the
+  earlier three could not tell "found nothing" from "could not look", these
+  five graded what they did look at generously, and every error ran toward a
+  better score or a cleaner inventory.
+  **(1)** `internal/report/cnsa.go`'s `cnsaStatus` returned `compliant` for
+  every RiskNone asset its algorithm switch did not recognise, which is
+  SHA-256, bcrypt, HMAC, ChaCha20, the X509/OIDC/enclave-key pseudo-assets
+  `qryx agents` emits, and anything `risk.Classify` has never seen; since
+  `ScorePct = compliant*100/total`, a scan of entirely unrecognised crypto
+  scored 100%. There is now a fourth status, `not-assessed`, out of the
+  compliant count and in the denominator (excluding it flatters the scan that
+  deserves it least), and all four counts are printed in the cnsa JSON, the
+  evidence document, `cnsa-html` and the dashboard.
+  **(2)** The same function branched on `Risk.Class` alone, so a passport with
+  no attestation and an event stream with no `prev_hash` chain were both told
+  to "enforce TLS 1.3 per CNSA 2.0"; remediation now follows the asset's
+  algorithm, and an unknown misconfiguration gets the detector's own reason
+  rather than the TLS line.
+  **(3)** `detectors/deps.go` mapped five library names to algorithm "RSA", so
+  a `cryptography>=42` line was a quantum-vulnerable HIGH asset in the CNSA
+  score, the NCSC 2035 set and the migration plan; libraries are inventoried
+  under their own names with an explicit informational risk (the `aiusage.go`
+  shape), and detection is per line rather than first-match, so both
+  declarations in a package.json are reported and `pyopenssl` no longer
+  invents an `openssl` beside itself.
+  **(4)** `detectors/cryptocall.go` matched comments and string literals, so a
+  docstring saying "migrate off RSA" was a finding; `noncode.go` blanks
+  comments in both languages and literals for the Python identifier patterns,
+  keeping byte offsets the way `stripRustNonCode` does (read first, not
+  reused: Rust has neither `#` comments nor triple-quoted strings, which are
+  exactly what hides a Python docstring). An unterminated quote recovers at
+  the newline instead of blanking to EOF.
+  **(5)** `qryx gcp` scanned one KMS location, defaulting to `global`, while
+  key rings are overwhelmingly regional; the default is now the `locations/-`
+  wildcard (`gcp.AllLocations`, referenced by the CLI so there is one source
+  of truth) with `--location` narrowing it. In the same family, AWS, Azure and
+  GCP ended the entire inventory on the first per-resource API error, which a
+  `keys/list`-without-`keys/get` policy triggers on key one; they skip the
+  resource and `cmd/qryx`'s `reportPartialInventory` counts and names what was
+  missed, since a partial inventory printed as a complete one is the worse
+  failure.
+  **This moved published numbers**: the CNSA percentage falls wherever a scan
+  holds crypto qryx has no rule for (this repo 16% -> 0%, `testdata/sample`
+  12% -> 0%, the agents fixtures 50% -> 0%), and the evidence digest changes
+  with the document, so a re-run will not match an evidence file signed before
+  this branch.
+  *(@measured: `go test -race ./...` (217 test functions), `gofmt -l`,
+  `go vet`, `go build`, `scripts/declared-deps.sh`, `scripts/readme-numbers.sh`,
+  `scripts/reproducible-build.sh`, `gosec -quiet ./...`, plus the real binary
+  against this repo, `testdata/sample`, `internal/agentstack/testdata` and
+  ad-hoc Python/requirements fixtures, 2026-08-06)*
+
 **No remaining deliberate deferrals** -- both items tracked here (ML-DSA
 signing, agent-event export) are done. Revisit `go.mod`'s
 `toolchain go1.27rc2` pin once Go 1.27 GA ships, to drop the

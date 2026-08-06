@@ -29,10 +29,14 @@ type evidenceReport struct {
 	Signature   *attest.Signature `json:"signature,omitempty"`
 }
 
+// evidenceSummary mirrors cnsaSummary's four counts (see its doc comment for
+// why NotAssessed is both reported and kept in the denominator of ScorePct)
+// plus the score and severity profile this document adds.
 type evidenceSummary struct {
 	Compliant    int            `json:"compliant"`
 	NonCompliant int            `json:"nonCompliant"`
 	Issues       int            `json:"issues"`
+	NotAssessed  int            `json:"notAssessed"`
 	Total        int            `json:"total"`
 	ScorePct     int            `json:"scorePct"`
 	BySeverity   map[string]int `json:"bySeverity"`
@@ -115,6 +119,8 @@ func buildEvidence(res *scan.Result, version string) (evidenceReport, error) {
 			rep.Summary.NonCompliant++
 		case "issue":
 			rep.Summary.Issues++
+		case "not-assessed":
+			rep.Summary.NotAssessed++
 		}
 		rep.Summary.Total++
 		rep.Assets = append(rep.Assets, assetJSON(e))
