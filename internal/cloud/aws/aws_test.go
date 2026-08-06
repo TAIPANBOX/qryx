@@ -2,7 +2,9 @@ package aws
 
 import (
 	"context"
+	"fmt"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,8 +20,10 @@ func ptr[T any](v T) *T { return &v }
 
 // fakeKMS serves canned keys across two pages to exercise pagination.
 type fakeKMS struct {
-	keys map[string]kmstypes.KeySpec  // keyId -> spec
-	tags map[string]map[string]string // keyId -> tag map (optional)
+	keys     map[string]kmstypes.KeySpec  // keyId -> spec
+	tags     map[string]map[string]string // keyId -> tag map (optional)
+	denyKey  map[string]bool              // keyId -> DescribeKey returns AccessDenied
+	denyTags map[string]bool              // keyId -> ListResourceTags returns AccessDenied
 }
 
 func (f fakeKMS) ListKeys(_ context.Context, in *kms.ListKeysInput, _ ...func(*kms.Options)) (*kms.ListKeysOutput, error) {
@@ -50,6 +54,9 @@ func (f fakeKMS) ListKeys(_ context.Context, in *kms.ListKeysInput, _ ...func(*k
 }
 
 func (f fakeKMS) DescribeKey(_ context.Context, in *kms.DescribeKeyInput, _ ...func(*kms.Options)) (*kms.DescribeKeyOutput, error) {
+	if f.denyKey[*in.KeyId] {
+		return nil, fmt.Errorf("AccessDeniedException: no kms:DescribeKey on %s", *in.KeyId)
+	}
 	return &kms.DescribeKeyOutput{KeyMetadata: &kmstypes.KeyMetadata{
 		KeyId:   in.KeyId,
 		Arn:     ptr("arn:aws:kms:us-east-1:111:key/" + *in.KeyId),
@@ -58,6 +65,9 @@ func (f fakeKMS) DescribeKey(_ context.Context, in *kms.DescribeKeyInput, _ ...f
 }
 
 func (f fakeKMS) ListResourceTags(_ context.Context, in *kms.ListResourceTagsInput, _ ...func(*kms.Options)) (*kms.ListResourceTagsOutput, error) {
+	if f.denyTags[*in.KeyId] {
+		return nil, fmt.Errorf("AccessDeniedException: no kms:ListResourceTags on %s", *in.KeyId)
+	}
 	if f.tags == nil {
 		return &kms.ListResourceTagsOutput{}, nil
 	}
@@ -70,8 +80,9 @@ func (f fakeKMS) ListResourceTags(_ context.Context, in *kms.ListResourceTagsInp
 }
 
 type fakeACM struct {
-	certs []acmtypes.CertificateDetail
-	tags  map[string]map[string]string // arn -> tag map (optional)
+	certs    []acmtypes.CertificateDetail
+	tags     map[string]map[string]string // arn -> tag map (optional)
+	denyCert map[string]bool              // arn -> DescribeCertificate returns AccessDenied
 }
 
 func (f fakeACM) ListCertificates(_ context.Context, _ *acm.ListCertificatesInput, _ ...func(*acm.Options)) (*acm.ListCertificatesOutput, error) {
@@ -83,6 +94,9 @@ func (f fakeACM) ListCertificates(_ context.Context, _ *acm.ListCertificatesInpu
 }
 
 func (f fakeACM) DescribeCertificate(_ context.Context, in *acm.DescribeCertificateInput, _ ...func(*acm.Options)) (*acm.DescribeCertificateOutput, error) {
+	if f.denyCert[*in.CertificateArn] {
+		return nil, fmt.Errorf("AccessDeniedException: no acm:DescribeCertificate on %s", *in.CertificateArn)
+	}
 	for i := range f.certs {
 		if *f.certs[i].CertificateArn == *in.CertificateArn {
 			return &acm.DescribeCertificateOutput{Certificate: &f.certs[i]}, nil
@@ -109,7 +123,7 @@ func TestScanKMSMapsSpecsAcrossPages(t *testing.T) {
 		"k-ecc": kmstypes.KeySpecEccNistP256,
 		"k-sym": kmstypes.KeySpecSymmetricDefault,
 	}}
-	got, err := scanKMS(context.Background(), api)
+	got, _, err := scanKMS(context.Background(), api)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +154,7 @@ func TestScanACMMapsAlgoAndExpiry(t *testing.T) {
 		{CertificateArn: ptr("arn:cert/1"), DomainName: ptr("a.example"), KeyAlgorithm: acmtypes.KeyAlgorithmRsa2048, NotAfter: ptr(time.Now().Add(24 * time.Hour))},
 		{CertificateArn: ptr("arn:cert/2"), DomainName: ptr("b.example"), KeyAlgorithm: acmtypes.KeyAlgorithmEcPrime256v1, NotAfter: &past},
 	}}
-	got, err := scanACM(context.Background(), api)
+	got, _, err := scanACM(context.Background(), api)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +191,7 @@ func TestScanACMExpiryPreservesRealKeyAlgorithm(t *testing.T) {
 	api := fakeACM{certs: []acmtypes.CertificateDetail{
 		{CertificateArn: ptr("arn:cert/weak"), DomainName: ptr("weak.example"), KeyAlgorithm: acmtypes.KeyAlgorithmRsa1024, NotAfter: &past},
 	}}
-	got, err := scanACM(context.Background(), api)
+	got, _, err := scanACM(context.Background(), api)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +218,7 @@ func TestScanKMSTagsPopulated(t *testing.T) {
 		keys: map[string]kmstypes.KeySpec{"k1": kmstypes.KeySpecRsa2048},
 		tags: map[string]map[string]string{"k1": {"Owner": "security-team", "env": "prod"}},
 	}
-	got, err := scanKMS(context.Background(), api)
+	got, _, err := scanKMS(context.Background(), api)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +240,7 @@ func TestScanACMTagsPopulated(t *testing.T) {
 		}},
 		tags: map[string]map[string]string{"arn:cert/t1": {"team": "infra"}},
 	}
-	got, err := scanACM(context.Background(), api)
+	got, _, err := scanACM(context.Background(), api)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,6 +249,76 @@ func TestScanACMTagsPopulated(t *testing.T) {
 	}
 	if got[0].Tags["team"] != "infra" {
 		t.Errorf("team tag not propagated: %v", got[0].Tags)
+	}
+}
+
+// TestScanKMSSkipsAKeyItCannotRead pins that one denied resource does not end
+// the inventory. A policy granting kms:ListKeys but not kms:DescribeKey on
+// every key is an ordinary configuration, and the connector used to return the
+// first such error, so the operator got no inventory at all from an account
+// that had one. Skipping is only honest if the skip is reported, so the
+// resources that could not be read come back as a second return value and the
+// CLI prints them.
+func TestScanKMSSkipsAKeyItCannotRead(t *testing.T) {
+	api := fakeKMS{
+		keys: map[string]kmstypes.KeySpec{
+			"k-denied": kmstypes.KeySpecRsa2048,
+			"k-ok":     kmstypes.KeySpecEccNistP256,
+			"k-sym":    kmstypes.KeySpecSymmetricDefault,
+		},
+		denyKey: map[string]bool{"k-denied": true},
+	}
+	got, skipped, err := scanKMS(context.Background(), api)
+	if err != nil {
+		t.Fatalf("one unreadable key ended the whole inventory: %v", err)
+	}
+	if len(got) != 2 {
+		t.Errorf("got %d findings, want 2 (the readable keys): %+v", len(got), got)
+	}
+	if len(skipped) != 1 {
+		t.Fatalf("skipped=%v, want exactly one entry", skipped)
+	}
+	if !strings.Contains(skipped[0], "k-denied") {
+		t.Errorf("skipped entry %q does not name the key it could not read", skipped[0])
+	}
+}
+
+// A tag read failing is the same shape one call deeper: the key itself was
+// read, so it belongs in the inventory, with its unreadable tags reported.
+func TestScanKMSKeepsAKeyWhoseTagsAreDenied(t *testing.T) {
+	api := fakeKMS{
+		keys:     map[string]kmstypes.KeySpec{"k1": kmstypes.KeySpecRsa2048},
+		denyTags: map[string]bool{"k1": true},
+	}
+	got, skipped, err := scanKMS(context.Background(), api)
+	if err != nil {
+		t.Fatalf("unreadable tags ended the inventory: %v", err)
+	}
+	if len(got) != 1 {
+		t.Errorf("got %d findings, want 1: the key was readable, only its tags were not", len(got))
+	}
+	if len(skipped) != 1 || !strings.Contains(skipped[0], "k1") {
+		t.Errorf("skipped=%v, want one entry naming k1's tags", skipped)
+	}
+}
+
+func TestScanACMSkipsACertificateItCannotRead(t *testing.T) {
+	api := fakeACM{
+		certs: []acmtypes.CertificateDetail{
+			{CertificateArn: ptr("arn:cert/ok"), DomainName: ptr("a.example"), KeyAlgorithm: acmtypes.KeyAlgorithmRsa2048, NotAfter: ptr(time.Now().Add(24 * time.Hour))},
+			{CertificateArn: ptr("arn:cert/denied"), DomainName: ptr("b.example"), KeyAlgorithm: acmtypes.KeyAlgorithmEcPrime256v1, NotAfter: ptr(time.Now().Add(24 * time.Hour))},
+		},
+		denyCert: map[string]bool{"arn:cert/denied": true},
+	}
+	got, skipped, err := scanACM(context.Background(), api)
+	if err != nil {
+		t.Fatalf("one unreadable certificate ended the whole inventory: %v", err)
+	}
+	if len(got) != 1 {
+		t.Errorf("got %d findings, want 1 (the readable certificate): %+v", len(got), got)
+	}
+	if len(skipped) != 1 || !strings.Contains(skipped[0], "arn:cert/denied") {
+		t.Errorf("skipped=%v, want one entry naming the denied certificate", skipped)
 	}
 }
 

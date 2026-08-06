@@ -65,6 +65,36 @@ func TestEvidenceSummaryAndMeta(t *testing.T) {
 	}
 }
 
+// TestAttestCarriesNotAssessed pins the count on the way out of the report
+// package. Attest is the only path by which the evidence trail learns a scan's
+// numbers, so a summary that splits four ways and an Attestation that splits
+// three ways means the trail can never show the split: a reader of `qryx trend`
+// would have to subtract to discover that the denominator holds ungraded
+// assets, and subtraction is not a thing a reader of a compliance record should
+// have to do to find out what it says.
+func TestAttestCarriesNotAssessed(t *testing.T) {
+	res := evidenceFixture()
+	// SHA-256 is not on the CNSA 2.0 list, so it is graded "not-assessed".
+	res.Findings = append(res.Findings, model.Finding{
+		Asset:    model.Asset{Type: model.TypeAlgorithm, Algorithm: "SHA-256", Primitive: model.PrimitiveHash},
+		Location: model.Location{File: "d.go", Line: 4},
+		Source:   "goast",
+		Risk:     model.Risk{Class: model.RiskNone},
+	})
+
+	att, err := Attest(res, "test-1.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if att.NotAssessed != 1 {
+		t.Errorf("Attestation.NotAssessed = %d, want 1", att.NotAssessed)
+	}
+	if sum := att.Compliant + att.NonCompliant + att.Issues + att.NotAssessed; sum != att.Total {
+		t.Errorf("counts sum to %d but Total = %d: an attestation whose parts do not "+
+			"add up to its whole cannot be read without guessing what the gap is (%+v)", sum, att.Total, att)
+	}
+}
+
 func TestEvidenceDigestVerifies(t *testing.T) {
 	rep, _ := decodeEvidence(t, evidenceFixture())
 

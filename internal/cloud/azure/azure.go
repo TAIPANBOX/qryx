@@ -32,34 +32,43 @@ type keyLister interface {
 }
 
 // Scan inventories the Key Vault at vaultURL using DefaultAzureCredential.
-func Scan(ctx context.Context, vaultURL string) ([]model.Finding, error) {
+//
+// The second return value names the keys that could not be read; see the same
+// return on the AWS connector for why one unreadable key is not an error and
+// why silence about it would be.
+func Scan(ctx context.Context, vaultURL string) ([]model.Finding, []string, error) {
 	cred, err := azidentity.NewDefaultAzureCredential(nil)
 	if err != nil {
-		return nil, fmt.Errorf("azure credential: %w", err)
+		return nil, nil, fmt.Errorf("azure credential: %w", err)
 	}
 	client, err := azkeys.NewClient(vaultURL, cred, nil)
 	if err != nil {
-		return nil, fmt.Errorf("azure keyvault client: %w", err)
+		return nil, nil, fmt.Errorf("azure keyvault client: %w", err)
 	}
 	return scanWith(ctx, azureLister{client})
 }
 
 // scanWith is the testable core.
-func scanWith(ctx context.Context, l keyLister) ([]model.Finding, error) {
+func scanWith(ctx context.Context, l keyLister) ([]model.Finding, []string, error) {
 	items, err := l.list(ctx)
 	if err != nil {
-		return nil, err
+		// Without the listing there is no inventory at all: still fatal.
+		return nil, nil, err
 	}
 	var out []model.Finding
+	var skipped []string
 	for _, item := range items {
 		// Skip disabled keys.
 		if item.Attrs != nil && item.Attrs.Enabled != nil && !*item.Attrs.Enabled {
 			continue
 		}
 
+		// A vault policy granting keys/list without keys/get is a common
+		// configuration, and this used to end the scan on the first key it hit.
 		jwk, err := l.getKey(ctx, item.Name, item.Version)
 		if err != nil {
-			return nil, err
+			skipped = append(skipped, fmt.Sprintf("key vault key %s: %v", item.ID, err))
+			continue
 		}
 
 		kty := azkeys.KeyTypeEC // default; overwritten below
@@ -100,7 +109,7 @@ func scanWith(ctx context.Context, l keyLister) ([]model.Finding, error) {
 			})
 		}
 	}
-	return out, nil
+	return out, skipped, nil
 }
 
 // azureLister is the real SDK-backed implementation.

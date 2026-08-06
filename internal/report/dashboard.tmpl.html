@@ -57,7 +57,12 @@
       <span class="score" style="color:#276749">{{.Summary.Compliant}}</span>
       <span class="score-label">compliant assets</span>
     </span>
+    <span class="score-box">
+      <span class="score" style="color:#5a6270">{{.Summary.NotAssessed}}</span>
+      <span class="score-label">not assessed</span>
+    </span>
   </div>
+  <div class="meta">The score is the compliant share of all {{.Summary.Total}} graded asset(s), including the {{.Summary.NotAssessed}} qryx has no CNSA 2.0 rule for. Not assessed is not a pass.</div>
 
   {{if .BySeverity}}
   <h2>Risk profile</h2>
