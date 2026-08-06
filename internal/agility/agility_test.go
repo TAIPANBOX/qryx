@@ -70,7 +70,13 @@ func TestAgilityBySource(t *testing.T) {
 		{"azure-keyvault", High},
 		{"aws-acm", Medium},
 		{"tlsconfig", Medium},
+		{"tls-probe", Medium},
+		{"certfile", Medium},
+		{"deps", Medium},
+		{"terraform", Medium},
 		{"goast", Low},
+		{"cryptocall", Low},
+		{"rust", Low},
 		{"hardcoded", Low},
 		{"binary", Low},
 	}
@@ -84,6 +90,74 @@ func TestAgilityBySource(t *testing.T) {
 				t.Errorf("agility=%q want %q", a.Agility, tc.want)
 			}
 		})
+	}
+}
+
+// TestTerraformDeclaredAssetIsConfigAgility pins the level for an asset qryx
+// only ever saw as an HCL declaration. A `aws_kms_key` or a
+// `google_kms_crypto_key` in Terraform is changed by editing a key-spec
+// argument and running `apply`, which is what Medium means here; scoring it
+// Low said "code change + redeploy" about a file that is configuration. The
+// same physical key read back through the AWS or GCP connector scores High,
+// so the old answer also made one key's difficulty depend on which connector
+// happened to see it.
+func TestTerraformDeclaredAssetIsConfigAgility(t *testing.T) {
+	a, ok := Assess(node("RSA", 2048, model.PrimitiveSignature, "terraform"))
+	if !ok {
+		t.Fatal("expected migration needed")
+	}
+	if a.Agility != Medium {
+		t.Errorf("agility=%q want %q (an HCL declaration is a config change, not a code change)", a.Agility, Medium)
+	}
+}
+
+// TestEffortNoteNamesAnUnrecognizedSource covers the second half of the same
+// bug: dominantAgility only recorded a source name inside the branch that
+// recognized it, so an unlisted source was dropped from the effort note as
+// well as from the ranking, and the note rendered an empty parenthesis. The
+// note is the only place the report says where an asset was seen, so an
+// unknown source is exactly the case where it must still say something.
+func TestEffortNoteNamesAnUnrecognizedSource(t *testing.T) {
+	a, ok := Assess(node("RSA", 2048, model.PrimitiveSignature, "some-future-connector"))
+	if !ok {
+		t.Fatal("expected migration needed")
+	}
+	if !strings.Contains(a.Effort, "some-future-connector") {
+		t.Errorf("effort=%q does not name the source it came from", a.Effort)
+	}
+	if strings.Contains(a.Effort, "()") {
+		t.Errorf("effort=%q renders an empty parenthesis", a.Effort)
+	}
+}
+
+// TestEffortNoteOmitsTheParentheticalWhenThereIsNoSource is the degenerate
+// case of the same rendering: with nothing to name, the note should drop the
+// parenthetical rather than print an empty one.
+func TestEffortNoteOmitsTheParentheticalWhenThereIsNoSource(t *testing.T) {
+	n := graph.AssetNode{Asset: model.Asset{Type: model.TypeKey, Algorithm: "RSA", KeySize: 2048, Primitive: model.PrimitiveSignature}}
+	a, ok := Assess(n)
+	if !ok {
+		t.Fatal("expected migration needed")
+	}
+	// " (" is the source parenthetical; "occurrence(s)" has no space before
+	// its own bracket.
+	if strings.Contains(a.Effort, " (") {
+		t.Errorf("effort=%q renders a source parenthetical with no source to put in it", a.Effort)
+	}
+}
+
+// TestUnrecognizedSourceStillCountsAsLeastAgile keeps the fallback consistent
+// with the rule beside it. An unknown source alone already meant "assume
+// hardest"; skipping it when a known source sat next to it meant the same
+// occurrence was treated as hardest or as absent depending on its company, so
+// an asset seen in a KMS *and* somewhere qryx could not rank came back High.
+func TestUnrecognizedSourceStillCountsAsLeastAgile(t *testing.T) {
+	a, ok := Assess(node("RSA", 2048, model.PrimitiveSignature, "aws-kms", "some-future-connector"))
+	if !ok {
+		t.Fatal("expected migration needed")
+	}
+	if a.Agility != Low {
+		t.Errorf("agility=%q want %q (an unrankable occurrence is assumed hardest, alone or not)", a.Agility, Low)
 	}
 }
 

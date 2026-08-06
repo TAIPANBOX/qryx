@@ -167,6 +167,27 @@ an absent invariant.
     has vanished is worse than no check. Verified by breaking: putting the version
     back fails it in all four repositories that share this shape.)*
 
+11. **Every finding `Source` string has a row in `internal/agility`'s
+    `sourceAgility` map.** That map is a second copy, kept by hand, of a list
+    that actually lives in the detectors and the connectors, and a missing row
+    is not a neutral default: the asset falls through to the "assume hardest"
+    fallback, is reported as `low` / "code change + redeploy", and its source
+    name never reaches the migration plan's effort note, which then renders an
+    empty parenthesis. That is not hypothetical. `terraform` shipped as a
+    detector and was never added, so every key declared in HCL was scored as a
+    code change while the same physical key read through a cloud connector
+    scored `high`, and the difference was visible in the repository's own
+    fixture output for as long as it existed. An unrecognised source is still
+    assumed hardest **and is still named**, because dropping it from the note
+    is how the first half stayed invisible.
+    *(test: `TestEveryDefaultDetectorHasAnAgilityLevel` walks
+    `detectors.Default()` and requires a row per detector;
+    `TestEveryFindingSourceLiteralHasAnAgilityLevel` parses the tree for every
+    `Source: "..."` literal inside a `model.Finding` composite literal and
+    requires a row per connector, and fails loudly if the walk finds no
+    literals at all rather than passing on an empty set. Both go red on
+    515864e.)*
+
 ## Decisions that have no gate yet
 
 This list is debt, and it is here to stay visible rather than to be tidy.
