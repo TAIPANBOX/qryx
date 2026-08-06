@@ -3,6 +3,7 @@
 package store
 
 import (
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -79,12 +80,21 @@ func TestPostgresTrail(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	r1 := EvidenceRecord{CreatedAt: time.Now().UTC().Add(-time.Hour), Root: "pgtrail", Version: "v1", ScorePct: 40, NonCompliant: 3, Digest: "sha256:one"}
-	r2 := EvidenceRecord{CreatedAt: time.Now().UTC(), Root: "pgtrail", Version: "v2", ScorePct: 60, NonCompliant: 1, Digest: "sha256:two"}
-	if err := tr.Append(r1); err != nil {
+	// A root unique to this run. The evidence table is append-only and nothing
+	// truncates it, so a second run against the same database finds the first
+	// run's rows sitting between the two below by created_at: asserting on the
+	// tail of the whole history then reads "60 then 60" and blames ordering.
+	root := fmt.Sprintf("pgtrail-%d", time.Now().UnixNano())
+
+	now := time.Now().UTC()
+	r1 := EvidenceRecord{CreatedAt: now.Add(-time.Hour), Root: root, Version: "v1", ScorePct: 40, NonCompliant: 3, Digest: "sha256:one"}
+	r2 := EvidenceRecord{CreatedAt: now, Root: root, Version: "v2", ScorePct: 60, NonCompliant: 1, Digest: "sha256:two"}
+	// Appended newest first, so getting them back the other way round is
+	// evidence that the order comes from created_at and not from insertion.
+	if err := tr.Append(r2); err != nil {
 		t.Fatal(err)
 	}
-	if err := tr.Append(r2); err != nil {
+	if err := tr.Append(r1); err != nil {
 		t.Fatal(err)
 	}
 
@@ -95,13 +105,23 @@ func TestPostgresTrail(t *testing.T) {
 	if len(after) != len(before)+2 {
 		t.Fatalf("history grew by %d, want 2", len(after)-len(before))
 	}
-	// The two newest records (ordered by created_at) are r1 then r2.
-	last2 := after[len(after)-2:]
-	if last2[0].ScorePct != 40 || last2[1].ScorePct != 60 {
-		t.Errorf("append order wrong: %d then %d", last2[0].ScorePct, last2[1].ScorePct)
+
+	var mine []EvidenceRecord
+	for _, r := range after {
+		if r.Root == root {
+			mine = append(mine, r)
+		}
 	}
-	if last2[1].Digest != "sha256:two" || last2[1].Version != "v2" {
-		t.Errorf("round-trip mismatch: %+v", last2[1])
+	if len(mine) != 2 {
+		t.Fatalf("history holds %d records for root %s, want 2", len(mine), root)
+	}
+	// History preserved created_at order: the older record first, in the
+	// relative order of these two and independent of everything around them.
+	if mine[0].ScorePct != 40 || mine[1].ScorePct != 60 {
+		t.Errorf("append order wrong: %d then %d, want 40 then 60", mine[0].ScorePct, mine[1].ScorePct)
+	}
+	if mine[1].Digest != "sha256:two" || mine[1].Version != "v2" {
+		t.Errorf("round-trip mismatch: %+v", mine[1])
 	}
 }
 
