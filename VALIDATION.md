@@ -81,11 +81,12 @@ live run, because every one of them makes a run look successful.
 ## Numbers this tool published, and signs, that were wrong in its own favour (2026-08-05 audit)
 
 Five more from the same read-only audit, fixed on 2026-08-06 on branch
-`fix/numbers-that-flatter-the-scan`. Where the first three were the tool not knowing what it had
-failed to look at, these are the tool grading what it did look at, generously, and in every case the
-error ran the same way: toward a better score, a cleaner inventory, a bigger finding. A scanner that
-errs in its own favour is the one thing a security team will not forgive, because they have no way to
-audit it except by rebuilding the report by hand.
+`fix/numbers-that-flatter-the-scan`, and a sixth (item 6) found afterwards by asking where else
+defect 1's shape had survived, fixed on `fix/aes-unknown-size-is-not-aes-256`. Where the first three
+were the tool not knowing what it had failed to look at, these are the tool grading what it did look
+at, generously, and in every case the error ran the same way: toward a better score, a cleaner
+inventory, a bigger finding. A scanner that errs in its own favour is the one thing a security team
+will not forgive, because they have no way to audit it except by rebuilding the report by hand.
 
 **Two of these move numbers that were already published.** The CNSA 2.0 compliance percentage drops
 wherever a scan contains cryptography qryx has no rule for, and the evidence digest changes with the
@@ -93,7 +94,9 @@ document, so a re-run will not reproduce the digest of an evidence file signed b
 Measured on real targets: this repository's own tree **16% -> 0%**, `testdata/sample` **12% -> 0%**,
 the `qryx agents` fixtures **50% -> 0%**. Nothing about the cryptography being scanned changed. What
 changed is that SHA-256, X509 and the enclave-key attestation pseudo-assets stopped counting as CNSA
-2.0 compliant, which they never were.
+2.0 compliant, which they never were. Item 6 moves the same percentage again, on any scan holding an
+AES key whose size was never read; it does not move the three targets above, none of which contains
+AES, so the figures in this paragraph still stand.
 
 1. **The compliance score counted anything it did not recognise as compliant** (`internal/report/
    cnsa.go`) - `cnsaStatus`'s final branch returned `compliant` with "No CNSA 2.0 restriction
@@ -164,3 +167,30 @@ changed is that SHA-256, X509 and the enclave-key attestation pseudo-assets stop
    fakes; the CLI usage line is asserted to carry the new default. No cloud account was used, and the
    real-SDK wiring in `gcpLister.list` stays unverified by design, per CLAUDE.md invariant 4,
    2026-08-06)*
+6. **AES whose size was never read was graded as though it were AES-256** (`internal/report/
+   cnsa.go`) - the AES branch treated `KeySize == 0 || KeySize >= 256` as compliant, so an asset
+   whose key length the scan never established was counted a pass and told the reader "AES-256 is
+   the CNSA 2.0 approved symmetric cipher". Size 0 means no size was read, not that it is 256, and
+   CNSA 2.0 approves AES at 256 and nothing below: AES-128 and AES-192 are not compliant. This is
+   defect 1's disease surviving one branch above it, in a named algorithm, and it is the common
+   case rather than an edge one. Eight of the twelve places that build an AES asset leave the size
+   at zero: Azure Key Vault `oct` and `oct-HSM` keys, where `keyTypeToAsset`'s own comment says the
+   length is not derivable from public metadata while Key Vault and Managed HSM both accept 128 and
+   192-bit keys; the same key declared in Terraform; a `crypto/aes` import; the `AES_` and
+   `EVP_aes_` symbol rules in binscan; and the three identifier patterns in the rust and cryptocall
+   detectors. The four that do supply 256 all read a provider's symmetric default: AWS KMS, GCP KMS,
+   and Terraform's aws and google equivalents. Two of the eight match text that names the size on the
+   line they matched, `Aes128Gcm` and `createCipheriv('aes-128-cbc', ...)`, and still do not read
+   it, because the patterns anchor on the cipher name: so the report was not only passing an
+   unknown, it printed a specific wrong number over a source line that said 128. Fixed by splitting
+   the branch three ways, 0 to `not-assessed`, `>= 256` compliant, everything between still
+   non-compliant, with an action that says the size could not be determined and where to check it.
+   Teaching those detectors to extract a size would shrink the not-assessed population but cannot
+   empty it, because the Key Vault case has no size to read.
+   *(@measured: `qryx scan --format cnsa testdata/aes-unknown-size`, a fixture holding all three
+   shapes, scores **100% -> 0%**, `compliant 2 / notAssessed 0` before and `compliant 0 /
+   notAssessed 2` after. A real AES-256, an `aws_kms_key` taking `SYMMETRIC_DEFAULT`, still scores
+   100%. This repository's tree and `testdata/sample` do not move, 0% -> 0%, because neither
+   contains AES. Regression tests `TestCnsaStatusUnknownSizeAESIsNotAssessed` and
+   `TestUnknownSizeAESIsNeverReportedAsAES256`, the second running the real detectors over that
+   fixture; both were run against the unfixed code first and fail on it, 2026-08-06)*

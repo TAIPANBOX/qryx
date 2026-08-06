@@ -112,12 +112,41 @@ func cnsaStatus(n graph.AssetNode) cnsaEntry {
 		return cnsaEntry{Node: n, Status: "compliant", Deadline: "n/a",
 			Action: "Approved CNSA 2.0 post-quantum algorithm."}
 	case "AES":
-		if n.Asset.KeySize == 0 || n.Asset.KeySize >= 256 {
+		// A missing size is not a passing size. CNSA 2.0 approves AES at 256
+		// bits and nothing below it, so grading a sizeless AES asset compliant
+		// asserts the one fact the scan never established, and asserts it in
+		// the operator's favour. This branch used to fold `KeySize == 0` in
+		// with `>= 256` and tell the reader "AES-256 is the CNSA 2.0 approved
+		// symmetric cipher" about a key whose length it had never seen.
+		//
+		// The unknown is the common case, not an edge one. Eight of the twelve
+		// places that build an AES asset leave the size at zero: Azure Key
+		// Vault oct and oct-HSM keys, where it is genuinely unknowable from
+		// public metadata while Key Vault and Managed HSM both accept 128 and
+		// 192-bit keys; the same key declared in Terraform; a `crypto/aes`
+		// import; the `AES_` and `EVP_aes_` symbol rules in binscan; and the
+		// three identifier patterns in the rust and cryptocall detectors. The
+		// four that do supply 256 all read a provider's symmetric default:
+		// AWS KMS, GCP KMS, and Terraform's aws and google equivalents.
+		//
+		// Two of those six match text that names the size on the matched line
+		// (`Aes128Gcm`, `createCipheriv('aes-128-cbc', ...)`) and still do not
+		// read it, because the patterns anchor on the cipher name. So this was
+		// not only an unknown counted as a pass: it printed a specific wrong
+		// number over a source line that said otherwise. Teaching those
+		// detectors to extract a size would shrink this branch's population
+		// but cannot empty it, because the Key Vault case has no size to read.
+		switch {
+		case n.Asset.KeySize == 0:
+			return cnsaEntry{Node: n, Status: "not-assessed", Deadline: "n/a",
+				Action: "Not assessed: qryx could not determine the AES key size, and CNSA 2.0 approves AES only at 256 bits. Check the configured key length where the key is created, at the location listed; AES-128 and AES-192 are not compliant."}
+		case n.Asset.KeySize >= 256:
 			return cnsaEntry{Node: n, Status: "compliant", Deadline: "n/a",
 				Action: "AES-256 is the CNSA 2.0 approved symmetric cipher."}
+		default:
+			return cnsaEntry{Node: n, Status: "non-compliant", Deadline: "immediate",
+				Action: fmt.Sprintf("AES-%d is below the CNSA 2.0 minimum of 256 bits. Upgrade to AES-256.", n.Asset.KeySize)}
 		}
-		return cnsaEntry{Node: n, Status: "non-compliant", Deadline: "immediate",
-			Action: fmt.Sprintf("AES-%d is below the CNSA 2.0 minimum of 256 bits. Upgrade to AES-256.", n.Asset.KeySize)}
 	case "SHA384", "SHA512":
 		return cnsaEntry{Node: n, Status: "compliant", Deadline: "n/a",
 			Action: "SHA-384/512 is the CNSA 2.0 approved hash function."}

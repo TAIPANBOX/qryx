@@ -264,16 +264,32 @@ CBOM/CNSA -> policy gate (+drift) -> remediation (fix/PR) -> evidence
   resource and `cmd/qryx`'s `reportPartialInventory` counts and names what was
   missed, since a partial inventory printed as a complete one is the worse
   failure.
+  **(6)** On branch `fix/aes-unknown-size-is-not-aes-256`, found by asking
+  where else (1)'s shape had survived: the AES branch of `cnsaStatus` read
+  `KeySize == 0 || KeySize >= 256` as compliant, so an AES asset whose size was
+  never read was graded a pass and told "AES-256 is the CNSA 2.0 approved
+  symmetric cipher". Size 0 is not 256, and CNSA 2.0 approves AES only at 256.
+  Eight of the twelve places that build an AES asset leave the size at zero,
+  led by Azure Key Vault `oct` keys, where it is genuinely unknowable and where
+  128 and 192-bit keys are both allowed; two of the eight (`Aes128Gcm`,
+  `createCipheriv('aes-128-cbc', ...)`) match text naming the size on the line
+  they matched and still do not read it, so the report printed a specific wrong
+  number, not merely an optimistic one. Split three ways: 0 is `not-assessed`
+  with an action saying the size could not be determined and where to check it,
+  `>= 256` stays compliant, and between them stays non-compliant.
   **This moved published numbers**: the CNSA percentage falls wherever a scan
   holds crypto qryx has no rule for (this repo 16% -> 0%, `testdata/sample`
   12% -> 0%, the agents fixtures 50% -> 0%), and the evidence digest changes
   with the document, so a re-run will not match an evidence file signed before
-  this branch.
-  *(@measured: `go test -race ./...` (217 test functions), `gofmt -l`,
+  this branch. **(6) moves it again** wherever a scan holds AES whose size was
+  never read (`testdata/aes-unknown-size` 100% -> 0%); it leaves the three
+  figures above untouched, since none of those targets contains AES.
+  *(@measured: `go test -race ./...` (219 test functions), `gofmt -l`,
   `go vet`, `go build`, `scripts/declared-deps.sh`, `scripts/readme-numbers.sh`,
   `scripts/reproducible-build.sh`, `gosec -quiet ./...`, plus the real binary
-  against this repo, `testdata/sample`, `internal/agentstack/testdata` and
-  ad-hoc Python/requirements fixtures, 2026-08-06)*
+  against this repo, `testdata/sample`, `internal/agentstack/testdata`,
+  `testdata/aes-unknown-size` and ad-hoc Python/requirements fixtures,
+  2026-08-06)*
 
 **No remaining deliberate deferrals** -- both items tracked here (ML-DSA
 signing, agent-event export) are done. Revisit `go.mod`'s
