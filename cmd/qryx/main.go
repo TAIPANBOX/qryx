@@ -54,7 +54,7 @@ func run(args []string) error {
 		region    = fs.String("region", "", "AWS region (aws)")
 		profile   = fs.String("profile", "", "AWS shared-config profile (aws)")
 		project   = fs.String("project", "", "GCP project ID (gcp)")
-		location  = fs.String("location", "global", "GCP KMS location (gcp)")
+		location  = fs.String("location", gcpcloud.AllLocations, "GCP KMS location, or - for every location the caller can see (gcp)")
 		vaultURL  = fs.String("vault-url", "", "Azure Key Vault URL, e.g. https://myvault.vault.azure.net/ (azure)")
 		write     = fs.Bool("write", false, "apply fixes in place (fix); default prints a unified diff")
 		minRSA    = fs.Int("min-rsa-bits", 3072, "raise RSA keys below this size when fixing (fix)")
@@ -583,10 +583,11 @@ func runScan(root string) (*scan.Result, error) {
 
 // runAWS inventories KMS keys and ACM certificates in an AWS account.
 func runAWS(region, profile string) (*scan.Result, error) {
-	findings, err := awscloud.Scan(context.Background(), region, profile)
+	findings, skipped, err := awscloud.Scan(context.Background(), region, profile)
 	if err != nil {
 		return nil, err
 	}
+	reportPartialInventory(os.Stderr, "aws", skipped)
 	root := "aws://" + region
 	if region == "" {
 		root = "aws://default"
@@ -598,10 +599,11 @@ func runAWS(region, profile string) (*scan.Result, error) {
 
 // runAzure inventories keys in an Azure Key Vault.
 func runAzure(vaultURL string) (*scan.Result, error) {
-	findings, err := azurecloud.Scan(context.Background(), vaultURL)
+	findings, skipped, err := azurecloud.Scan(context.Background(), vaultURL)
 	if err != nil {
 		return nil, err
 	}
+	reportPartialInventory(os.Stderr, "azure", skipped)
 	res := &scan.Result{Root: "azure://" + vaultURL, FilesWalked: 1}
 	res.Findings = risk.Apply(findings)
 	return res, nil
@@ -609,13 +611,50 @@ func runAzure(vaultURL string) (*scan.Result, error) {
 
 // runGCP inventories Cloud KMS key versions in a GCP project/location.
 func runGCP(project, location string) (*scan.Result, error) {
-	findings, err := gcpcloud.Scan(context.Background(), project, location)
+	findings, skipped, err := gcpcloud.Scan(context.Background(), project, location)
 	if err != nil {
 		return nil, err
 	}
+	reportPartialInventory(os.Stderr, "gcp", skipped)
 	res := &scan.Result{Root: fmt.Sprintf("gcp://%s/%s", project, location), FilesWalked: 1}
 	res.Findings = risk.Apply(findings)
 	return res, nil
+}
+
+// maxNamedSkips caps how many unreadable resources are named on the line
+// below. The count is always exact; the list is a sample, because a vault with
+// four hundred forbidden keys should say so in a sentence rather than in four
+// hundred lines nobody reads to the end of.
+const maxNamedSkips = 3
+
+// reportPartialInventory tells the operator, on stderr, which cloud resources
+// the connector could not read.
+//
+// It is the same rule as reportUnexamined above it, one source further out. A
+// KMS key a policy would not let qryx describe produces no finding, and so
+// does an account with no such key: on stdout the two results are identical.
+// The connectors used to end the whole inventory on the first such error,
+// which at least failed loudly; skipping the resource is better behaviour and
+// a worse silence, because now nine keys out of ten come back looking like all
+// of them. This line is what keeps that from reading as a clean inventory.
+//
+// Silent when nothing was skipped, for the same reason as the other one: a
+// counter that prints zeros teaches the reader to skip the line that will one
+// day be non-zero.
+func reportPartialInventory(w io.Writer, source string, skipped []string) {
+	if len(skipped) == 0 {
+		return
+	}
+	named := skipped
+	if len(named) > maxNamedSkips {
+		named = named[:maxNamedSkips]
+	}
+	fmt.Fprintf(w, "qryx: %s: %d resource(s) could not be read and are missing from this inventory: %s",
+		source, len(skipped), strings.Join(named, "; "))
+	if rest := len(skipped) - len(named); rest > 0 {
+		fmt.Fprintf(w, "; and %d more", rest)
+	}
+	fmt.Fprintln(w, ". This inventory is partial, not a clean one.")
 }
 
 // runAgents inventories the cryptography of AI-agent infrastructure: Agent

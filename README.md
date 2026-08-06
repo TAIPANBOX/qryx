@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-208-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-217-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Status](https://img.shields.io/badge/phase-4%20(governance)-success.svg)
 
@@ -450,7 +450,8 @@ qryx tls example.com:443               # probe a live endpoint's TLS posture
 qryx bin /usr/bin/openssl              # crypto in a binary (ELF/PE/Mach-O)
 docker save app:latest -o img.tar && qryx image img.tar   # scan a container image
 qryx aws --region us-east-1            # inventory AWS KMS keys + ACM certs
-qryx gcp --project my-project          # inventory GCP Cloud KMS key versions
+qryx gcp --project my-project          # inventory GCP Cloud KMS key versions, every location
+qryx gcp --project my-project --location europe-west1   # ...one location only
 qryx azure --vault-url https://myvault.vault.azure.net/  # inventory Azure Key Vault
 qryx agents ./passports                # inventory AI-agent attestation crypto + event-stream integrity
 qryx agents --events events.ndjson ./passports  # ...and append findings as agent-event NDJSON
@@ -521,12 +522,29 @@ behind an interface seam so the connector logic is unit-tested without an accoun
 
 **GCP cloud** (`qryx gcp --project <id>`) - Cloud KMS key versions mapped by
 algorithm (RSA/EC/AES/HMAC, and PQC ML-DSA/ML-KEM/SLH-DSA as safe) via
-Application Default Credentials, behind the same lister seam.
+Application Default Credentials, behind the same lister seam. **Every location
+by default** (`locations/-`, the Cloud KMS wildcard), because key rings are
+overwhelmingly regional; `--location europe-west1` narrows it to one. Until 5
+August 2026 the default was `global`, so a plain `qryx gcp --project X`
+inventoried one location out of dozens and reported the near-empty result as a
+clean one.
 
 **Azure cloud** (`qryx azure --vault-url <url>`) - Key Vault keys mapped by JSON
 Web Key type (EC/EC-HSM → ECDSA, RSA/RSA-HSM → RSA with size from modulus,
 oct/oct-HSM → AES) via DefaultAzureCredential. Expired keys are flagged
 separately.
+
+### A partial inventory is reported as partial
+
+A cloud policy that grants `list` but not `get` on individual resources is an
+ordinary configuration: Key Vault's keys/list without keys/get, an AWS policy
+with `kms:ListKeys` and no `kms:DescribeKey`. All three connectors used to
+return the first such error and end the whole inventory, so an account they
+could partly read produced nothing at all. They now skip the resource they
+cannot read and carry on, and **every skipped resource is counted and named on
+stderr**, because nine keys out of ten reported as though they were all of them
+is the worse failure. A listing call that fails is still fatal: without it
+there is no inventory to be partial about.
 
 **AI-agent infrastructure** (`qryx agents <path>`) - inventories the
 agent-governance stack's own trust surface: Agent Passport `attestation.method`
