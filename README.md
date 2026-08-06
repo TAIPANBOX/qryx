@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-197-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-200-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Status](https://img.shields.io/badge/phase-4%20(governance)-success.svg)
 
@@ -587,10 +587,32 @@ against the NSA's CNSA 2.0 suite: ML-KEM/ML-DSA/SLH-DSA and AES-256/SHA-384+
 are compliant; RSA/ECDSA/ECC/DSA/DH are non-compliant with a 2030 migration
 deadline; MD5/SHA-1/DES/3DES/RC4 and sub-floor keys are non-compliant
 immediately; expired certificates, hardcoded keys and TLS misconfig are
-flagged as issues. Reports compliant/non-compliant/issue counts, a percentage
-score, and a per-asset remediation action, sorted by deadline urgency.
-`--policy cnsa` enforces the same standard as a CI gate (see Policy
-enforcement below); this report is the audit view, in JSON or HTML.
+flagged as issues. Everything else is **not assessed** (below). Reports all
+four counts, a percentage score, and a per-asset remediation action, sorted by
+deadline urgency. `--policy cnsa` enforces the same standard as a CI gate (see
+Policy enforcement below); this report is the audit view, in JSON or HTML.
+
+### Not assessed is not compliant
+
+An algorithm with no CNSA 2.0 rule in qryx is reported as `not-assessed`, its
+own status, and never counted as compliant. SHA-256 is not on the CNSA 2.0
+list; bcrypt, HMAC and ChaCha20 are outside the suite; `X509`, `OIDC` and
+`enclave-key` are the attestation pseudo-assets `qryx agents` emits; and any
+algorithm the classifier has never seen lands here too. Until 5 August 2026 all
+of them were graded "compliant" with "No CNSA 2.0 restriction identified", so a
+scan of cryptography this tool does not recognize scored 100%, and that number
+is what `--format evidence` signs and what `qryx trend --fail-on-regression`
+gates on.
+
+Not-assessed assets stay **in the denominator** of the score. Leaving them out
+would flatter exactly the scan that deserves it least, the one full of
+unrecognized crypto; counting them as compliant did that already. So the score
+is the compliant share of everything graded, and all four counts are printed
+next to it in both JSON and HTML, because a reader who cannot see how much was
+never assessed cannot judge the percentage. Scores from before this change are
+not comparable with scores after it: on this repository's own tree the figure
+moved from 16% to 0%, and on the `qryx agents` fixtures from 50% to 0%, with no
+change to the cryptography being scanned.
 
 **NCSC PQC readiness** (`--format ncsc`/`ncsc-html`) - tracks the same graph
 against the UK NCSC's three-milestone PQC migration timeline: complete

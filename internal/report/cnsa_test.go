@@ -206,6 +206,169 @@ func TestCNSAExcludesNonCryptographicAssetTypes(t *testing.T) {
 	}
 }
 
+// TestCnsaStatusUnrecognisedAlgorithmIsNotAssessed pins the third state. The
+// final branch of cnsaStatus used to return "compliant" with "No CNSA 2.0
+// restriction identified" for every RiskNone asset the algorithm switch did
+// not recognize, which is not what CNSA 2.0 says about any of them: SHA-256 is
+// not on the CNSA 2.0 list, and bcrypt, HMAC, ChaCha20, X509, OIDC and the
+// enclave-key pseudo-asset `qryx agents` emits were never graded at all. The
+// compliance score is compliant*100/total, so a scan full of crypto this tool
+// does not recognize scored high, and that number is what `--format evidence`
+// signs and what `qryx trend --fail-on-regression` gates on.
+//
+// Not knowing is its own answer, and it has to be visible as one.
+func TestCnsaStatusUnrecognisedAlgorithmIsNotAssessed(t *testing.T) {
+	tests := []struct {
+		algo       string
+		keySize    int
+		wantStatus string
+	}{
+		// Never graded by any rule in cnsaStatus: these must not read as a pass.
+		{"SHA-256", 0, "not-assessed"},
+		{"bcrypt", 0, "not-assessed"},
+		{"HMAC", 0, "not-assessed"},
+		{"ChaCha20", 0, "not-assessed"},
+		{"X509", 0, "not-assessed"},         // agentstack mtls-cert/spiffe-svid passport
+		{"OIDC", 0, "not-assessed"},         // agentstack oidc passport
+		{"enclave-key", 0, "not-assessed"},  // agentstack enclave-key passport
+		{"SM2", 0, "not-assessed"},          // an algorithm risk.Classify does not know
+		{"cryptography", 0, "not-assessed"}, // a dependency-manifest library name
+		// Positive controls: the CNSA 2.0 suite itself still passes.
+		{"ML-KEM", 0, "compliant"},
+		{"ML-DSA", 0, "compliant"},
+		{"SLH-DSA", 0, "compliant"},
+		{"AES", 256, "compliant"},
+		{"AES", 0, "compliant"},
+		{"SHA-384", 0, "compliant"},
+		{"SHA-512", 0, "compliant"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.algo, func(t *testing.T) {
+			e := cnsaStatus(makeNode(tc.algo, tc.keySize, model.RiskNone, model.SeverityNone))
+			if e.Status != tc.wantStatus {
+				t.Errorf("status=%q want %q (action was %q)", e.Status, tc.wantStatus, e.Action)
+			}
+		})
+	}
+}
+
+// TestCNSAScoreDoesNotFlatterUnrecognisedCrypto is the same defect measured
+// where it is published: the percentage. A scan whose entire inventory is
+// crypto this tool never graded must not report a high compliance score, and a
+// scan that is genuinely CNSA 2.0 compliant must still report 100.
+func TestCNSAScoreDoesNotFlatterUnrecognisedCrypto(t *testing.T) {
+	unrecognised := &scan.Result{Root: "test", Findings: []model.Finding{
+		{Asset: model.Asset{Type: model.TypeAlgorithm, Algorithm: "SHA-256", Primitive: model.PrimitiveHash},
+			Location: model.Location{File: "a.py", Line: 3}, Source: "cryptocall",
+			Risk: model.Risk{Class: model.RiskNone, Severity: model.SeverityNone}},
+	}}
+	ev, err := buildEvidence(unrecognised, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ev.Summary.ScorePct == 100 {
+		t.Errorf("a scan containing only SHA-256 scored %d%% CNSA 2.0 compliant; SHA-256 is not on the CNSA 2.0 list", ev.Summary.ScorePct)
+	}
+	if ev.Summary.Compliant != 0 {
+		t.Errorf("compliant=%d want 0: nothing in this scan was graded compliant", ev.Summary.Compliant)
+	}
+
+	compliant := &scan.Result{Root: "test", Findings: []model.Finding{
+		{Asset: model.Asset{Type: model.TypeAlgorithm, Algorithm: "ML-KEM", Primitive: model.PrimitiveKeyExch},
+			Location: model.Location{File: "a.rs", Line: 1}, Source: "rust",
+			Risk: model.Risk{Class: model.RiskNone, Severity: model.SeverityNone}},
+		{Asset: model.Asset{Type: model.TypeAlgorithm, Algorithm: "AES", KeySize: 256, Primitive: model.PrimitiveEncryption},
+			Location: model.Location{File: "b.rs", Line: 2}, Source: "rust",
+			Risk: model.Risk{Class: model.RiskNone, Severity: model.SeverityNone}},
+		{Asset: model.Asset{Type: model.TypeAlgorithm, Algorithm: "SHA-384", Primitive: model.PrimitiveHash},
+			Location: model.Location{File: "c.rs", Line: 3}, Source: "rust",
+			Risk: model.Risk{Class: model.RiskNone, Severity: model.SeverityNone}},
+	}}
+	ev, err = buildEvidence(compliant, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ev.Summary.ScorePct != 100 {
+		t.Errorf("a genuinely CNSA 2.0 compliant scan scored %d%%, want 100 (%+v)", ev.Summary.ScorePct, ev.Summary)
+	}
+}
+
+// TestCNSAReportsAllFourCounts pins the split being visible rather than merely
+// correct. A reader who cannot see how much of the inventory was never graded
+// cannot judge the score: 60% compliant out of assets that were all assessed
+// and 60% out of an inventory half of which nothing looked at are different
+// facts. The counts are read by their wire names, so the JSON contract is what
+// is pinned, not a Go field name.
+func TestCNSAReportsAllFourCounts(t *testing.T) {
+	res := &scan.Result{Root: "test", Findings: []model.Finding{
+		{Asset: model.Asset{Type: model.TypeAlgorithm, Algorithm: "ML-KEM"}, Location: model.Location{File: "a.go", Line: 1},
+			Risk: model.Risk{Class: model.RiskNone, Severity: model.SeverityNone}},
+		{Asset: model.Asset{Type: model.TypeAlgorithm, Algorithm: "RSA", KeySize: 2048}, Location: model.Location{File: "b.go", Line: 2},
+			Risk: model.Risk{Class: model.RiskQuantumVulnerable, Severity: model.SeverityHigh}},
+		{Asset: model.Asset{Type: model.TypeProtocol, Algorithm: "TLS 1.0"}, Location: model.Location{File: "c.conf", Line: 3},
+			Risk: model.Risk{Class: model.RiskMisconfig, Severity: model.SeverityHigh}},
+		{Asset: model.Asset{Type: model.TypeAlgorithm, Algorithm: "SHA-256"}, Location: model.Location{File: "d.py", Line: 4},
+			Risk: model.Risk{Class: model.RiskNone, Severity: model.SeverityNone}},
+	}}
+
+	var buf bytes.Buffer
+	if err := CNSA(&buf, res); err != nil {
+		t.Fatal(err)
+	}
+	var wire struct {
+		Summary map[string]int `json:"summary"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &wire); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	want := map[string]int{"compliant": 1, "nonCompliant": 1, "issues": 1, "notAssessed": 1, "total": 4}
+	for k, v := range want {
+		got, ok := wire.Summary[k]
+		if !ok {
+			t.Errorf("cnsa summary has no %q count: %v", k, wire.Summary)
+			continue
+		}
+		if got != v {
+			t.Errorf("cnsa summary %s=%d want %d (%v)", k, got, v, wire.Summary)
+		}
+	}
+
+	var evBuf bytes.Buffer
+	if _, err := Evidence(&evBuf, res, "test", nil); err != nil {
+		t.Fatal(err)
+	}
+	// A pointer, so a missing count reads differently from a zero one.
+	var evWire struct {
+		Summary struct {
+			NotAssessed *int `json:"notAssessed"`
+		} `json:"summary"`
+	}
+	if err := json.Unmarshal(evBuf.Bytes(), &evWire); err != nil {
+		t.Fatalf("invalid evidence JSON: %v", err)
+	}
+	if evWire.Summary.NotAssessed == nil {
+		t.Errorf("evidence summary has no notAssessed count: %s", evBuf.String())
+	} else if *evWire.Summary.NotAssessed != 1 {
+		t.Errorf("evidence summary notAssessed=%d want 1", *evWire.Summary.NotAssessed)
+	}
+
+	var htmlBuf bytes.Buffer
+	if err := CNSAHTML(&htmlBuf, res); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(htmlBuf.String(), "not assessed") {
+		t.Errorf("cnsa-html never says how many assets were not assessed")
+	}
+
+	var dashBuf bytes.Buffer
+	if err := Dashboard(&dashBuf, res, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(dashBuf.String(), "not assessed") {
+		t.Errorf("dashboard never says how many assets were not assessed")
+	}
+}
+
 func TestCNSAHTMLOutput(t *testing.T) {
 	res := &scan.Result{Root: "test", Findings: []model.Finding{
 		{Asset: model.Asset{Type: model.TypeAlgorithm, Algorithm: "RSA"}, Location: model.Location{File: "a.go", Line: 1}, Risk: model.Risk{Class: model.RiskQuantumVulnerable, Severity: model.SeverityHigh}},

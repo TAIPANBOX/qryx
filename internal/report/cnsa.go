@@ -59,9 +59,15 @@ var cnsaTemplate = template.Must(
 )
 
 // cnsaEntry is one asset's CNSA 2.0 compliance record.
+//
+// "not-assessed" is a verdict, not a gap in this type: it says qryx has no
+// CNSA 2.0 rule covering that algorithm and did not grade it. It exists
+// because the alternative, which this report used to do, is to call
+// everything it does not recognize compliant, and a compliance score is only
+// worth reading if not knowing looks different from passing.
 type cnsaEntry struct {
 	Node     graph.AssetNode
-	Status   string // "compliant" | "non-compliant" | "issue"
+	Status   string // "compliant" | "non-compliant" | "issue" | "not-assessed"
 	Deadline string // "2027" | "2030" | "2035" | "immediate" | "n/a"
 	Action   string
 }
@@ -117,9 +123,20 @@ func cnsaStatus(n graph.AssetNode) cnsaEntry {
 			Action: "SHA-384/512 is the CNSA 2.0 approved hash function."}
 	}
 
-	// Unknown / RiskNone — include as informational.
-	return cnsaEntry{Node: n, Status: "compliant", Deadline: "n/a",
-		Action: "No CNSA 2.0 restriction identified."}
+	// Everything else: no rule above matched, so this tool has not graded the
+	// asset against CNSA 2.0 and must not imply that it did.
+	//
+	// This branch used to return "compliant" with "No CNSA 2.0 restriction
+	// identified", which was false for every asset that reached it. SHA-256 is
+	// not on the CNSA 2.0 list; bcrypt, HMAC and ChaCha20 are simply outside
+	// the suite; X509, OIDC and enclave-key are the pseudo-assets `qryx
+	// agents` emits for a passport's attestation method; and any algorithm
+	// risk.Classify has never heard of lands here too. Counting them as passes
+	// inflated ScorePct, which is what `--format evidence` signs and what
+	// `qryx trend --fail-on-regression` gates on: a scan of entirely
+	// unrecognized cryptography scored 100%.
+	return cnsaEntry{Node: n, Status: "not-assessed", Deadline: "n/a",
+		Action: fmt.Sprintf("Not assessed: qryx has no CNSA 2.0 rule for %s. It is neither approved nor rejected here; grade it by hand before relying on the score.", n.Asset.Algorithm)}
 }
 
 func quantumAction(algo string) string {
@@ -153,10 +170,19 @@ type cnsaReport struct {
 	Assets      []cnsaAssetJSON `json:"assets"`
 }
 
+// cnsaSummary carries all four counts, always, including the zero ones.
+//
+// The split is the point: 60% compliant out of an inventory this tool graded
+// completely and 60% out of one where a third was never assessed are different
+// facts, and a reader who is shown only the score cannot tell them apart.
+// NotAssessed is counted in Total, so it is in the denominator of the score:
+// leaving it out would let a scan of nothing but unrecognized cryptography
+// report 100%, which is the exact defect the third status exists to close.
 type cnsaSummary struct {
 	Compliant    int `json:"compliant"`
 	NonCompliant int `json:"nonCompliant"`
 	Issues       int `json:"issues"`
+	NotAssessed  int `json:"notAssessed"`
 	Total        int `json:"total"`
 }
 
@@ -187,6 +213,8 @@ func CNSA(w io.Writer, res *scan.Result) error {
 			rep.Summary.NonCompliant++
 		case "issue":
 			rep.Summary.Issues++
+		case "not-assessed":
+			rep.Summary.NotAssessed++
 		}
 		rep.Summary.Total++
 
@@ -255,6 +283,7 @@ type cnsaHTMLView struct {
 	NonCompliant      []cnsaEntry
 	Issues            []cnsaEntry
 	Compliant         []cnsaEntry
+	NotAssessed       []cnsaEntry
 	ImmediateCount    int
 	Deadline2027Count int
 	Deadline2030Count int
@@ -287,9 +316,12 @@ func CNSAHTML(w io.Writer, res *scan.Result) error {
 			v.Summary.Issues++
 			v.Issues = append(v.Issues, e)
 			v.ImmediateCount++
+		case "not-assessed":
+			v.Summary.NotAssessed++
+			v.NotAssessed = append(v.NotAssessed, e)
 		}
 	}
-	v.Summary.Total = v.Summary.Compliant + v.Summary.NonCompliant + v.Summary.Issues
+	v.Summary.Total = v.Summary.Compliant + v.Summary.NonCompliant + v.Summary.Issues + v.Summary.NotAssessed
 	if v.Summary.Total > 0 {
 		v.ScorePct = v.Summary.Compliant * 100 / v.Summary.Total
 	}
