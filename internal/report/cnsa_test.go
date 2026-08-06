@@ -3,6 +3,7 @@ package report
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/TAIPANBOX/qryx/internal/model"
 	"github.com/TAIPANBOX/qryx/internal/risk"
 	"github.com/TAIPANBOX/qryx/internal/scan"
+	"github.com/TAIPANBOX/qryx/internal/scan/detectors"
 )
 
 func makeNode(algo string, keySize int, riskClass model.RiskClass, sev model.Severity) graph.AssetNode {
@@ -486,6 +488,70 @@ func TestCNSAReportsAllFourCounts(t *testing.T) {
 	}
 	if !strings.Contains(dashBuf.String(), "not assessed") {
 		t.Errorf("dashboard never says how many assets were not assessed")
+	}
+}
+
+// TestDependencyManifestStaysOutOfTheScoreAndTheMigrationSet is the same
+// defect measured where it was published. A requirements.txt naming a crypto
+// library used to arrive as an RSA quantum-vulnerable HIGH asset, so it was
+// counted non-compliant by the CNSA audit, listed in the NCSC 2035 migration
+// set, and given a migration plan entry telling the operator to move a line in
+// a manifest to ML-KEM. It runs the real detector over a real file, because a
+// hand-built finding would only pin what this test itself believes.
+func TestDependencyManifestStaysOutOfTheScoreAndTheMigrationSet(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "requirements.txt"), []byte("flask==3.0\ncryptography>=42\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res, err := scan.New(detectors.NewDeps()).Scan(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Findings) != 1 {
+		t.Fatalf("got %d findings, want 1: %+v", len(res.Findings), res.Findings)
+	}
+
+	var cnsaBuf bytes.Buffer
+	if err := CNSA(&cnsaBuf, res); err != nil {
+		t.Fatal(err)
+	}
+	var rep cnsaReport
+	if err := json.Unmarshal(cnsaBuf.Bytes(), &rep); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if rep.Summary.NonCompliant != 0 {
+		t.Errorf("nonCompliant=%d want 0: a manifest line is not a non-compliant algorithm (%+v)", rep.Summary.NonCompliant, rep.Assets)
+	}
+	if rep.Summary.NotAssessed != 1 {
+		t.Errorf("notAssessed=%d want 1: the library is still in the inventory, ungraded (%+v)", rep.Summary.NotAssessed, rep.Assets)
+	}
+
+	var ncscBuf bytes.Buffer
+	if err := NCSC(&ncscBuf, res); err != nil {
+		t.Fatal(err)
+	}
+	var ncsc ncscReport
+	if err := json.Unmarshal(ncscBuf.Bytes(), &ncsc); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if ncsc.Full2035.Count != 0 || ncsc.Discovery2028.QuantumVulnerable != 0 {
+		t.Errorf("NCSC has %d quantum-vulnerable asset(s) and %d in the 2035 set, want 0 and 0",
+			ncsc.Discovery2028.QuantumVulnerable, ncsc.Full2035.Count)
+	}
+	if ncsc.Discovery2028.TotalInventoried != 1 {
+		t.Errorf("totalInventoried=%d want 1: the dependency is still discovered, just not vulnerable", ncsc.Discovery2028.TotalInventoried)
+	}
+
+	var migBuf bytes.Buffer
+	if err := Migration(&migBuf, res); err != nil {
+		t.Fatal(err)
+	}
+	var mig migrationReport
+	if err := json.Unmarshal(migBuf.Bytes(), &mig); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if mig.Summary.ToMigrate != 0 {
+		t.Errorf("migration plan has %d step(s) for a dependency manifest: %+v", mig.Summary.ToMigrate, mig.Plan)
 	}
 }
 

@@ -8,10 +8,13 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"math/big"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/TAIPANBOX/qryx/internal/model"
+	"github.com/TAIPANBOX/qryx/internal/risk"
 	"github.com/TAIPANBOX/qryx/internal/scan"
 )
 
@@ -54,18 +57,89 @@ func TestHardcodedMultipleKeys(t *testing.T) {
 
 // --- Deps ---
 
+// TestDepsDetectsCryptoLibs: each library is inventoried under its own name.
+// It used to assert that pycryptodome produced an "AES" asset, which is the
+// defect in TestDepsManifestEntryIsNotAnAlgorithmAsset below, written down as
+// an expectation: a manifest entry names a library, and only the code can say
+// which primitives it uses.
 func TestDepsDetectsCryptoLibs(t *testing.T) {
 	content := []byte("flask==3.0\npycryptodome==3.20\nbcrypt>=4.0\n")
 	got := NewDeps().Detect(scan.File{Path: "requirements.txt", Content: content})
-	algos := map[string]bool{}
+	libs := map[string]bool{}
 	for _, f := range got {
 		if f.Asset.Type != model.TypeLibrary {
 			t.Errorf("expected library asset, got %v", f.Asset.Type)
 		}
-		algos[f.Asset.Algorithm] = true
+		libs[f.Asset.Algorithm] = true
 	}
-	if !algos["AES"] || !algos["bcrypt"] {
-		t.Fatalf("expected AES (pycryptodome) and bcrypt findings, got %+v", got)
+	if !libs["pycryptodome"] || !libs["bcrypt"] {
+		t.Fatalf("expected pycryptodome and bcrypt findings, got %+v", got)
+	}
+}
+
+// TestDepsManifestEntryIsNotAnAlgorithmAsset pins what a dependency manifest
+// can and cannot say. `cryptography>=42` in a requirements.txt is a library
+// that MIGHT use RSA, among a dozen other primitives, and might never be
+// called. It used to be mapped to algorithm "RSA", and because risk.Classify
+// keys purely on the algorithm name with no regard for asset type, that line
+// became a quantum-vulnerable HIGH asset: counted against the CNSA 2.0 score,
+// listed in the NCSC 2035 migration set, and able to trip `--fail-on high`.
+// The manifest never said any of that.
+func TestDepsManifestEntryIsNotAnAlgorithmAsset(t *testing.T) {
+	content := []byte("flask==3.0\ncryptography>=42\n")
+	got := risk.Apply(NewDeps().Detect(scan.File{Path: "requirements.txt", Content: content}))
+	if len(got) != 1 {
+		t.Fatalf("got %d findings, want 1: %+v", len(got), got)
+	}
+	f := got[0]
+	if f.Asset.Algorithm == "RSA" {
+		t.Errorf("a manifest naming %q was reported as an RSA asset", "cryptography")
+	}
+	if f.Asset.Algorithm != "cryptography" {
+		t.Errorf("algorithm=%q, want the library's own name %q", f.Asset.Algorithm, "cryptography")
+	}
+	if f.Asset.Type != model.TypeLibrary {
+		t.Errorf("type=%q, want %q", f.Asset.Type, model.TypeLibrary)
+	}
+	if f.Risk.Class != model.RiskNone {
+		t.Errorf("risk class=%q, want %q: a declared dependency is inventory, not a graded weakness", f.Risk.Class, model.RiskNone)
+	}
+	if f.Risk.Severity != model.SeverityInfo {
+		t.Errorf("severity=%q, want info", f.Risk.Severity)
+	}
+	if f.Location.Line != 2 {
+		t.Errorf("line=%d, want 2", f.Location.Line)
+	}
+	if !strings.Contains(f.Evidence, "cryptography") {
+		t.Errorf("evidence %q does not name the library", f.Evidence)
+	}
+}
+
+// TestDepsReportsEveryDeclarationOncePerLine covers the other half: the
+// detector used strings.Index, so only the first mention of a library in a
+// file was ever reported, and the "openssl" needle matched inside the
+// "pyopenssl" line, inventing a second dependency that is not there.
+func TestDepsReportsEveryDeclarationOncePerLine(t *testing.T) {
+	pkg := []byte(`{
+  "dependencies": { "node-forge": "^1.3.1" },
+  "devDependencies": { "node-forge": "^1.3.1" }
+}`)
+	got := NewDeps().Detect(scan.File{Path: "package.json", Content: pkg})
+	if len(got) != 2 {
+		t.Fatalf("got %d findings, want 2 (both declarations): %+v", len(got), got)
+	}
+	lines := []int{got[0].Location.Line, got[1].Location.Line}
+	sort.Ints(lines)
+	if lines[0] != 2 || lines[1] != 3 {
+		t.Errorf("lines=%v, want [2 3]", lines)
+	}
+
+	one := NewDeps().Detect(scan.File{Path: "requirements.txt", Content: []byte("pyopenssl==24.0\n")})
+	if len(one) != 1 {
+		t.Fatalf("got %d findings for one pyopenssl line, want 1: %+v", len(one), one)
+	}
+	if one[0].Asset.Algorithm != "pyopenssl" {
+		t.Errorf("algorithm=%q, want the most specific name on the line, %q", one[0].Asset.Algorithm, "pyopenssl")
 	}
 }
 

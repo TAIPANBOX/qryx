@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-202-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-205-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Status](https://img.shields.io/badge/phase-4%20(governance)-success.svg)
 
@@ -480,7 +480,7 @@ Run against the bundled fixtures with `make scan`.
 | `certfile` | PEM certificate parsing (algorithm, key size, expiry) |
 | `tlsconfig` | legacy TLS/SSL in code and nginx/apache config |
 | `hardcoded` | private keys embedded in source/config |
-| `deps` | crypto libraries in dependency manifests |
+| `deps` | crypto libraries in dependency manifests, inventoried under their own names and marked informational: a manifest says a library is present, never which primitives the code calls, so a dependency is never reported as a quantum-vulnerable asset |
 | `terraform` | key material in HCL via the hashicorp/hcl parser (`tls_private_key`, `aws_kms_key`, `azurerm_key_vault_key`, `google_kms_crypto_key`) |
 | `aiusage` | the operator's own LLM/AI provider SDKs, imports and endpoint literals, informational and never a crypto risk (see [AI usage inventory](#ai-usage-inventory)) |
 
