@@ -78,6 +78,51 @@ live run, because every one of them makes a run look successful.
    "0 findings, exit 0" on `main` at 567c2ce and reports the MD5 finding after the fix; an image with
    a layer cut mid-file exits 1 instead of 0, 2026-08-05)*
 
+## The migration plan called an unknown a pass (2026-08-06)
+
+The same disease as the three above, one report further on, found by asking where else it had
+survived. `agility.target()` returned no migration target for an AES asset whose key size the scan
+never read, and an empty target does not mean "unknown" to anything downstream: it means "this asset
+already meets the bar", which is why `Assess` returns `ok=false` beside it and why the plan then
+leaves the asset out entirely. The guard was `a.KeySize > 0 && a.KeySize < 256`, which reads as
+deliberate rather than accidental, so the first question was not how to fix it but whether the
+migration plan is the right place to raise an unknown at all.
+
+It is. Eight of the twelve places that build an AES asset leave the size at zero, so the skipped
+population is the common shape rather than an edge case: Azure Key Vault `oct` and `oct-HSM` keys,
+where the length genuinely is not derivable from public metadata and where both 128 and 192 are
+accepted; the same key in Terraform; a `crypto/aes` import; the `AES_` and `EVP_aes_` symbol rules in
+binscan; and three identifier patterns in the rust and cryptocall detectors. Two of those match text
+naming the size on the very line they matched (`Aes128Gcm`,
+`createCipheriv('aes-128-cbc', ...)`) and still do not read it, because the patterns anchor on the
+cipher name, so an asset the plan skipped can be a literal AES-128 sitting under a line that says
+128.
+
+Nothing here invents a "not assessed" status the migration plan does not have, and that was the
+alternative worth rejecting out loud. AES carries no risk class, so the entry sorts below every asset
+that has one, the dashboard's top-N priority list cannot be displaced by it, and what the reader gets
+is one line saying "go and read this key's length, and here is where you are going if it turns out to
+be short". The rationale had to move with it: a single flat string, "AES below 256 bits is below the
+CNSA 2.0 minimum", was returned for every AES asset regardless of size, so listing an unread key
+without touching that would have stated the shortfall as fact over a length nobody had read, which is
+the same defect pointed the other way, in the sentence an operator actually acts on.
+
+**Numbers this moves.** `testdata/aes-unknown-size` goes from `"toMigrate": 0` and a null plan to two
+entries, both targeting AES-256-GCM, both carrying the locations to check. This repository's own tree
+stays at 3 and `testdata/sample` at 6, since neither contains AES, so nothing previously published
+about those two moves. The NCSC verdicts do not move anywhere, on any target: `planStep` is consulted
+only for quantum-vulnerable assets, and AES is not one.
+
+This is the plan half only. On this branch `--format cnsa` still grades that same fixture 100%
+compliant and still prints "AES-256 is the CNSA 2.0 approved symmetric cipher" over both 128-bit
+lines; that half is fixed independently on `fix/aes-unknown-size-is-not-aes-256`, which is where the
+fixture comes from (identical bytes, so the two branches can land in either order).
+
+*(@measured: the real binary built from this branch and from `main` at 515864e, run over
+`testdata/aes-unknown-size`, this repository's tree and `testdata/sample` for `--format migration`
+and `--format ncsc`; plus `go test -race ./...` (200 test functions), `gofmt -l`, `go vet`,
+`go build`, `scripts/declared-deps.sh`, `scripts/readme-numbers.sh` and
+`scripts/reproducible-build.sh`, 2026-08-06)*
 ## Numbers this tool published, and signs, that were wrong in its own favour (2026-08-05 audit)
 
 Five more from the same read-only audit, fixed on 2026-08-06 on branch

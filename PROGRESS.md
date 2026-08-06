@@ -221,6 +221,37 @@ CBOM/CNSA -> policy gate (+drift) -> remediation (fix/PR) -> evidence
   binary against a synthetic 40 MiB image that scans as 0 findings on
   567c2ce and reports its MD5 finding after, 2026-08-05)*
 
+- 2026-08-06, the migration plan no longer reads an unread AES key size as a
+  passing one (branch `fix/aes-unknown-size-is-not-a-migration-pass`).
+  `agility.target()`'s AES branch was `KeySize > 0 && KeySize < 256`, so an AES
+  asset whose size no detector established returned an empty target, `Assess`
+  returned `ok=false`, and every consumer of that call (`--format migration`,
+  the dashboard's priority list, the NCSC report's definition of "planned")
+  was told the asset already meets the bar. Eight of the twelve places that
+  build an AES asset leave the size at zero, two of them over source lines that
+  literally name 128, so this was the common shape rather than an edge case.
+  Now only a size that was read and clears 256 exempts an asset. No
+  "not-assessed" status was added: the migration plan has no such concept, AES
+  carries no risk class so the entry sorts below everything that does, and the
+  rationale carries the qualification instead. `rationale()` moved with it,
+  since one flat string ("AES below 256 bits is below the CNSA 2.0 minimum")
+  was returned for every AES asset regardless of size, and listing an unread
+  key under it would have asserted the shortfall as fact. It now splits three
+  ways: unread says the size is the missing fact and where to check it, sub-256
+  names the size that was read, and 256 or better says it meets the minimum
+  (unreachable through `Assess`, fixed anyway because the next caller inherits
+  the string). **This moves a published number** only where a scan holds
+  sizeless AES: `testdata/aes-unknown-size` (the fixture from
+  `fix/aes-unknown-size-is-not-aes-256`, copied here byte-identical) goes
+  `"toMigrate": 0` -> 2; this repo stays at 3 and `testdata/sample` at 6, since
+  neither contains AES, and no NCSC verdict moves on any target. Adding the
+  fixture does move this repo's test-code line, 40 findings / 17 test-only
+  assets -> 43 / 19, which is the count the "Test/production separation" bullet
+  above reports from its own date and which has drifted since.
+  *(@measured: `go test -race ./...` (200 test functions), `gofmt -l`,
+  `go vet`, `go build`, `scripts/declared-deps.sh`, `scripts/readme-numbers.sh`,
+  `scripts/reproducible-build.sh`, plus the real binary from this branch and
+  from `main` at 515864e over the three targets above, 2026-08-06)*
 - 2026-08-05 audit, fixed 2026-08-06: numbers this tool publishes, and the
   signs it puts on findings, were wrong in its own favour (branch
   `fix/numbers-that-flatter-the-scan`). Five defects, one theme: where the
