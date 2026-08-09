@@ -151,7 +151,20 @@ func buildEvidence(res *scan.Result, version string) (evidenceReport, error) {
 // digest, confirms it matches the embedded digest, and verifies the signature
 // against the embedded public key. It returns the algorithm and key fingerprint
 // on success.
-func VerifyEvidence(data []byte) (alg, fingerprint string, err error) {
+//
+// expectedSigner pins WHO signed it. The key travels inside the document, so
+// everything this function checks without a pin is internal consistency: a
+// forger who re-signs a document they rewrote produces one that passes, with
+// their own key reported as the signer. That is the whole of the guarantee and
+// it is worth naming, because as a CI step the unpinned form is a check that
+// cannot fail on a forgery.
+//
+// An empty expectedSigner keeps the old behaviour and is legal: the caller is
+// then reading the fingerprint to decide for themselves, which the CLI supports
+// and says so. A non-empty one must equal the fingerprint attest.Fingerprint
+// produces, and a mismatch is an error rather than a note, because a caller who
+// named a signer asked a yes-or-no question.
+func VerifyEvidence(data []byte, expectedSigner string) (alg, fingerprint string, err error) {
 	var rep evidenceReport
 	if err := json.Unmarshal(data, &rep); err != nil {
 		return "", "", fmt.Errorf("parse evidence: %w", err)
@@ -170,7 +183,16 @@ func VerifyEvidence(data []byte) (alg, fingerprint string, err error) {
 	if err := attest.Verify([]byte(rep.Digest), *rep.Signature); err != nil {
 		return "", "", err
 	}
-	return rep.Signature.Alg, attest.Fingerprint(*rep.Signature), nil
+
+	// The pin is checked AFTER the signature, so a document signed by the wrong
+	// key and a document whose signature does not verify give different errors.
+	// Collapsing them would tell an operator chasing a key rotation that their
+	// evidence is corrupt.
+	got := attest.Fingerprint(*rep.Signature)
+	if expectedSigner != "" && got != expectedSigner {
+		return "", "", fmt.Errorf("signed by %s, expected %s", got, expectedSigner)
+	}
+	return rep.Signature.Alg, got, nil
 }
 
 // assetJSON renders one CNSA entry as the shared per-asset record.

@@ -142,7 +142,7 @@ func TestEvidenceSignAndVerify(t *testing.T) {
 	}
 	signed := buf.Bytes()
 
-	alg, fp, err := VerifyEvidence(signed)
+	alg, fp, err := VerifyEvidence(signed, "")
 	if err != nil {
 		t.Fatalf("signed evidence should verify: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestEvidenceSignAndVerify(t *testing.T) {
 
 	// Mutating the document breaks verification.
 	mutated := bytes.Replace(signed, []byte(`"version": "v"`), []byte(`"version": "x"`), 1)
-	if _, _, err := VerifyEvidence(mutated); err == nil {
+	if _, _, err := VerifyEvidence(mutated, ""); err == nil {
 		t.Error("mutated evidence must not verify")
 	}
 
@@ -161,8 +161,81 @@ func TestEvidenceSignAndVerify(t *testing.T) {
 	if _, err := Evidence(&unsigned, evidenceFixture(), "v", nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := VerifyEvidence(unsigned.Bytes()); err == nil {
+	if _, _, err := VerifyEvidence(unsigned.Bytes(), ""); err == nil {
 		t.Error("unsigned evidence should report not signed")
+	}
+}
+
+// The key travels inside the document, so verifying without naming a signer
+// establishes internal consistency and nothing about authorship. A forger who
+// rewrites a document and re-signs it with their own key produces one that
+// passes, reporting their own fingerprint as the signer.
+//
+// This test builds exactly that: the same evidence, signed by a key nobody
+// expected. Unpinned it passes, which is the behaviour --signer exists to stop
+// being the only behaviour, and it is asserted rather than assumed so that the
+// day the unpinned form starts refusing, somebody has to come here and decide
+// that on purpose.
+func TestEvidenceSignerPinRefusesAnUnexpectedKey(t *testing.T) {
+	signWith := func(t *testing.T) ([]byte, string) {
+		t.Helper()
+		_, priv, err := ed25519.GenerateKey(crand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		der, err := x509.MarshalPKCS8PrivateKey(priv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		keyPath := filepath.Join(t.TempDir(), "k.pem")
+		if err := os.WriteFile(keyPath, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		signer, err := attest.LoadSigner(keyPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var buf bytes.Buffer
+		if _, err := Evidence(&buf, evidenceFixture(), "v", signer); err != nil {
+			t.Fatal(err)
+		}
+		doc := buf.Bytes()
+		_, fp, err := VerifyEvidence(doc, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return doc, fp
+	}
+
+	ours, ourFingerprint := signWith(t)
+	theirs, theirFingerprint := signWith(t)
+	if ourFingerprint == theirFingerprint {
+		t.Fatal("two generated keys produced one fingerprint; the rest of this test proves nothing")
+	}
+
+	// Pinned to us, ours passes.
+	if _, _, err := VerifyEvidence(ours, ourFingerprint); err != nil {
+		t.Errorf("evidence signed by the pinned key must verify: %v", err)
+	}
+
+	// Pinned to us, theirs is refused, and the error names both sides so an
+	// operator chasing a key rotation is not sent to look for corruption.
+	_, _, err := VerifyEvidence(theirs, ourFingerprint)
+	if err == nil {
+		t.Fatal("evidence signed by another key must not verify against a pinned signer")
+	}
+	if !strings.Contains(err.Error(), theirFingerprint) || !strings.Contains(err.Error(), ourFingerprint) {
+		t.Errorf("error must name the key that signed and the key expected, got: %v", err)
+	}
+
+	// Unpinned, the same forgery passes and reports the forger's own key. This
+	// is the guarantee the CLI must not describe as VERIFIED.
+	_, fp, err := VerifyEvidence(theirs, "")
+	if err != nil {
+		t.Fatalf("unpinned verification of a self-consistent document should pass: %v", err)
+	}
+	if fp != theirFingerprint {
+		t.Errorf("unpinned verification reported %q, want the signing key %q", fp, theirFingerprint)
 	}
 }
 

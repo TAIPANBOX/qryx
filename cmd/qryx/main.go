@@ -56,6 +56,7 @@ func run(args []string) error {
 		project   = fs.String("project", "", "GCP project ID (gcp)")
 		location  = fs.String("location", gcpcloud.AllLocations, "GCP KMS location, or - for every location the caller can see (gcp)")
 		vaultURL  = fs.String("vault-url", "", "Azure Key Vault URL, e.g. https://myvault.vault.azure.net/ (azure)")
+		signer    = fs.String("signer", "", "require this key fingerprint, e.g. sha256:0123456789abcdef (verify-evidence); without it the signature is only checked against the key inside the document")
 		write     = fs.Bool("write", false, "apply fixes in place (fix); default prints a unified diff")
 		minRSA    = fs.Int("min-rsa-bits", 3072, "raise RSA keys below this size when fixing (fix)")
 		openPR    = fs.Bool("open-pr", false, "apply fixes and open a GitHub PR via git+gh (fix)")
@@ -71,7 +72,7 @@ func run(args []string) error {
 		withTests = fs.Bool("include-tests", false, "count crypto found in test code (_test.go, testdata/, conftest.py, ...) as part of the production inventory; by default it is reported on stderr and excluded from the graph, the verdict and every format")
 	)
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage:\n  qryx scan [flags] <path>\n  qryx fix [--write] [--open-pr [--branch NAME]] [--min-rsa-bits N] <path>\n  qryx trend <evidence-trail.jsonl>\n  qryx verify-evidence <evidence.json>\n  qryx tls [flags] <host:port>...\n  qryx bin [flags] <file|dir>...\n  qryx image [flags] <image.tar>...\n  qryx aws [flags]\n  qryx gcp --project <id> [flags]\n  qryx azure --vault-url <url> [flags]\n  qryx agents [flags] <path>\n  qryx version\n\nflags:\n")
+		fmt.Fprintf(os.Stderr, "usage:\n  qryx scan [flags] <path>\n  qryx fix [--write] [--open-pr [--branch NAME]] [--min-rsa-bits N] <path>\n  qryx trend <evidence-trail.jsonl>\n  qryx verify-evidence [--signer sha256:...] <evidence.json>\n  qryx tls [flags] <host:port>...\n  qryx bin [flags] <file|dir>...\n  qryx image [flags] <image.tar>...\n  qryx aws [flags]\n  qryx gcp --project <id> [flags]\n  qryx azure --vault-url <url> [flags]\n  qryx agents [flags] <path>\n  qryx version\n\nflags:\n")
 		fs.PrintDefaults()
 	}
 
@@ -140,11 +141,25 @@ func run(args []string) error {
 		if err != nil {
 			return err
 		}
-		alg, fp, err := report.VerifyEvidence(data)
+		alg, fp, err := report.VerifyEvidence(data, *signer)
 		if err != nil {
 			return fmt.Errorf("verify-evidence: %w", err)
 		}
-		fmt.Fprintf(os.Stdout, "evidence: VERIFIED (%s, key %s)\n", alg, fp)
+		// Two different sentences for two different guarantees. The key travels
+		// inside the document, so without --signer the only thing established is
+		// that the document is internally consistent and was signed by whoever
+		// signed it. Saying VERIFIED alone let a forgery read as authentic in a
+		// CI log, which is the defect this flag closes; the word stays for the
+		// pinned case, where it is true.
+		if *signer == "" {
+			fmt.Fprintf(os.Stdout,
+				"evidence: consistent and self-signed (%s, key %s)\n"+
+					"note: no signer was pinned, so this does not establish WHO signed it. "+
+					"Re-run with --signer %s once you have confirmed that key is the one you expect.\n",
+				alg, fp, fp)
+			return nil
+		}
+		fmt.Fprintf(os.Stdout, "evidence: VERIFIED (%s, signed by the expected key %s)\n", alg, fp)
 		return nil
 	}
 
