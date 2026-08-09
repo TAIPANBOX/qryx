@@ -33,6 +33,14 @@ else's infrastructure.
    where the *why* is non-obvious.
 3. **Gates - all must pass before saying done:**
    `go build ./... && gofmt -l . && go vet ./... && go test -race ./...`
+   plus the scripts, which CI runs and this step did not name until
+   2026-08-09, so "all must pass" was a smaller instruction than CI's:
+   ```sh
+   ./scripts/declared-deps.sh
+   ./scripts/readme-numbers.sh
+   ./scripts/reproducible-build.sh   # builds from git archive HEAD: run it after committing
+   ./scripts/gates-have-teeth.sh     # invariant 12; needs a clean tree
+   ```
 4. **Verify end-to-end** when possible: build `/tmp/qryx` and run the real
    command on fixtures or a real target.
 5. **Commit** one logical change, Conventional Commits (`feat:`/`fix:`/`test:`/
@@ -188,6 +196,25 @@ an absent invariant.
     literals at all rather than passing on an empty set. Both go red on
     515864e.)*
 
+12. **A check must be able to tell "did not fail" from "did not run", and every
+    gate here has been made to fail on purpose to prove it can.** Two of the
+    three gates above already refuse when their subject is absent, and
+    invariants 9 and 10 say so. Those sentences were true, were established by
+    hand once in the session that wrote the script, and nothing re-ran them.
+
+    A text parser does not break loudly: it stops matching and reports success.
+    The mutants that proved these gates lived in commit messages and in the
+    `*(gate: ...)*` markers above, which is a record of what was true once.
+    *(gate: `scripts/gates-have-teeth.sh`, 10 cases: five real faults each gate
+    must catch, two non-faults they must not, and three subjects taken away
+    entirely, where the gate must say it measured nothing rather than report
+    OK. Every mutation asserts it applied, because a mutation that changed no
+    bytes is indistinguishable from a gate that passed.)*
+
+    **What it does not cover.** It cannot test itself. It proves each gate
+    catches the faults named in it, not every fault of that kind. It found no
+    hole in any of the three.
+
 ## Decisions that have no gate yet
 
 This list is debt, and it is here to stay visible rather than to be tidy.
@@ -232,6 +259,20 @@ When the user approves a decision, add it here in the same session. Do not
 defer it, because later is where the drift lives.
 
 ## Known pitfalls (already cost us once)
+
+- **Every gate here needs the RC toolchain, and a fresh machine does not have
+  it.** `go.mod` requires `go 1.27` with `toolchain go1.27rc2`, because
+  `crypto/mldsa` (FIPS 204) exists only there. Go does NOT auto-download an RC
+  even with `GOTOOLCHAIN=auto`, so on a machine without it every script fails
+  with `go1.27rc2: not downloaded` and `readme-numbers.sh` correctly reports
+  that it measured nothing. On 2026-08-09 that read as five separate gate
+  failures across the teeth harness, two of them OVEREAGER on an unmutated
+  tree; it was one environment fact wearing five masks. Install it OUTSIDE this
+  module, or the installer itself hits the same requirement:
+  ```sh
+  cd /tmp && GOTOOLCHAIN=local go install golang.org/dl/go1.27rc2@latest
+  ~/go/bin/go1.27rc2 download
+  ```
 - **Map order in fakes/pagination:** Go randomizes map iteration; never derive a
   stable order from `range map` across calls. Sort into a slice. Run
   `go test -race -count=5 ./pkg/` on pagination fakes - this flaked CI once.
