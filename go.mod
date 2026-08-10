@@ -8,7 +8,7 @@ require (
 	cloud.google.com/go/kms v1.31.0
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.13.1
 	github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azkeys v1.5.0
-	github.com/TAIPANBOX/agent-stack-go v0.6.0
+	github.com/TAIPANBOX/agent-stack-go v0.7.0
 	github.com/aws/aws-sdk-go-v2/config v1.32.20
 	github.com/aws/aws-sdk-go-v2/service/acm v1.39.2
 	github.com/aws/aws-sdk-go-v2/service/kms v1.52.2
