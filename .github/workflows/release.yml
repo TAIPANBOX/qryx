@@ -9,20 +9,22 @@ permissions:
   packages: write
 
 
-# `go.mod` requires `go 1.27` with `toolchain go1.27rc2`: `crypto/mldsa` (FIPS
-# 204) exists only in the pre-release toolchain, and taking it over a
-# third-party crypto library was a decision the user approved directly.
+# `go.mod` requires `go 1.27` with `toolchain go1.27.0`: `crypto/mldsa` (FIPS
+# 204) is stdlib as of 1.27, and taking it over a third-party crypto library
+# was a decision the user approved directly.
 #
-# The version below is that same release candidate written the way setup-go
-# wants it. Go calls it `go1.27rc2`; the action takes a semver spec and maps
-# `1.27.0-rc.2` onto it. Passing Go's own spelling (which is what
-# `go-version-file: go.mod` hands over) fails: the action looks for a manifest
-# entry, finds none, and its direct download rejects the string.
+# The version below is that same toolchain, and since GA it is spelled the same
+# way by Go and by setup-go.
 #
-# Until 1 August 2026 this said `1.26.5` while go.mod said 1.27, and Go quietly
-# downloaded the RC underneath every job. setup-go v6 began pinning
+# This one line has been wrong twice, in opposite directions. Until 1 August
+# 2026 it said `1.26.5` while go.mod said 1.27, and Go quietly downloaded the
+# newer toolchain underneath every job; setup-go v6 began pinning
 # GOTOOLCHAIN=local, which turned that silent disagreement into a hard failure
-# and is the only reason it was found.
+# and is the only reason it was found. From then until 20 August 2026 it said
+# `1.27.0-rc.2`, because `crypto/mldsa` existed only in the release candidate:
+# Go spells that toolchain `go1.27rc2`, setup-go accepts only the semver form,
+# and the two spellings had to be kept in sync by hand. Go 1.27.0 GA closed
+# both problems at once.
 
 jobs:
   release:
@@ -31,7 +33,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.27.0-rc.2"
+          go-version: "1.27.0"
           cache: true
 
       - name: build matrix
