@@ -15,9 +15,9 @@
 # path, so this image is a drop-in replacement for the one they used to build
 # on the node.
 # GO_VERSION is the BASE image, not the toolchain this repo compiles with.
-# qryx's go.mod requires go 1.27 with `toolchain go1.27rc2`, because
-# `crypto/mldsa` (FIPS 204) exists only in the pre-release toolchain, so
-# GOTOOLCHAIN=auto below fetches that toolchain during the build. It is the
+# qryx's go.mod requires go 1.27 with `toolchain go1.27.0`, because
+# `crypto/mldsa` (FIPS 204) is stdlib only from 1.27, so GOTOOLCHAIN=auto below
+# fetches that toolchain during the build. It is the
 # same mechanism the stack's own build has used for this service all along:
 # the base image stays on a stable tag and Go arranges the rest.
 #

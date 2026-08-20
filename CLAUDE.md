@@ -260,19 +260,17 @@ defer it, because later is where the drift lives.
 
 ## Known pitfalls (already cost us once)
 
-- **Every gate here needs the RC toolchain, and a fresh machine does not have
-  it.** `go.mod` requires `go 1.27` with `toolchain go1.27rc2`, because
-  `crypto/mldsa` (FIPS 204) exists only there. Go does NOT auto-download an RC
-  even with `GOTOOLCHAIN=auto`, so on a machine without it every script fails
-  with `go1.27rc2: not downloaded` and `readme-numbers.sh` correctly reports
-  that it measured nothing. On 2026-08-09 that read as five separate gate
-  failures across the teeth harness, two of them OVEREAGER on an unmutated
-  tree; it was one environment fact wearing five masks. Install it OUTSIDE this
-  module, or the installer itself hits the same requirement:
-  ```sh
-  cd /tmp && GOTOOLCHAIN=local go install golang.org/dl/go1.27rc2@latest
-  ~/go/bin/go1.27rc2 download
-  ```
+- **A missing toolchain fails every gate at once and does not look like one
+  problem.** `go.mod` requires `go 1.27` (for stdlib `crypto/mldsa`, FIPS 204).
+  This is now a GA release, so `GOTOOLCHAIN=auto` fetches it on a fresh machine
+  and the trap is closed. It was open between 2026-08-06 and 2026-08-20, when
+  the pin was `toolchain go1.27rc2`: Go does NOT auto-download a release
+  candidate, so every script died with `go1.27rc2: not downloaded` and
+  `readme-numbers.sh` correctly reported that it had measured nothing. On
+  2026-08-09 that read as five separate gate failures across the teeth harness,
+  two of them OVEREAGER on an unmutated tree. It was one environment fact
+  wearing five masks. Keep the shape in mind, not the RC: when several
+  unrelated gates go red together, suspect the environment before the code.
 - **Map order in fakes/pagination:** Go randomizes map iteration; never derive a
   stable order from `range map` across calls. Sort into a slice. Run
   `go test -race -count=5 ./pkg/` on pagination fakes - this flaked CI once.
