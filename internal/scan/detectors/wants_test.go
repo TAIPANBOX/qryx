@@ -46,6 +46,14 @@ func TestEachDetectorLooksAtTheFilesItExistsFor(t *testing.T) {
 		},
 		{
 			"tlsconfig", NewTLSConfig().Wants,
+			// nginx.conf and httpd.conf are here because they end in .conf,
+			// which is the ONLY reason they are wanted. Wants had a
+			// name-based case for exactly those two names and it could never
+			// run, since both already carry the extension. Removed after a
+			// mutation renaming them changed nothing any test could see.
+			//
+			// A server config under a name with no .conf extension is a real
+			// shape and is deliberately not covered, here or in the product.
 			[]string{"server.go", "tls.conf", "nginx.conf", "etc/httpd.conf"},
 			[]string{"main.rs", "nginx.conf.bak", "config.yaml", "httpd"},
 		},
