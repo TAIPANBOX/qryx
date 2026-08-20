@@ -34,8 +34,15 @@ func (t *TLSConfig) Wants(path string) bool {
 	case ".conf":
 		return true
 	}
-	base := filepath.Base(path)
-	return base == "nginx.conf" || base == "httpd.conf"
+	// No name-based case here on purpose. It had one, for "nginx.conf" and
+	// "httpd.conf", and it could never run: both end in .conf and are already
+	// answered above. Found by mutation, when renaming those two names to
+	// something else changed nothing that any test could see.
+	//
+	// A web server config under a name with no .conf extension is a real
+	// shape and is NOT handled. Adding it back means matching on the name
+	// alone, not on a name that already carries the extension.
+	return false
 }
 
 func (t *TLSConfig) Detect(f scan.File) []model.Finding {
