@@ -184,9 +184,13 @@ func TestAFailureNamesTheCommandAndCarriesGitsOwnComplaint(t *testing.T) {
 	if !strings.Contains(msg, "git rev-parse") {
 		t.Fatalf("the error does not name the command that failed: %q", msg)
 	}
-	if strings.TrimSpace(msg) == "" || !strings.Contains(msg, "no-such-ref-anywhere") {
+	// Asserted on a word only git says, never on the ref name. The first
+	// version looked for "no-such-ref-anywhere", which is in the ARGS: with
+	// the stderr dropped entirely the message still echoed the arguments and
+	// the test stayed green. Found by dropping it and watching nothing happen.
+	if !strings.Contains(msg, "unknown revision") {
 		t.Fatalf("the error does not carry git's own complaint, so the reader "+
-			"is left with an exit status: %q", msg)
+			"is left with a command line and an exit status: %q", msg)
 	}
 }
 
