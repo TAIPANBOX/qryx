@@ -93,9 +93,35 @@ func (a *AIUsage) Wants(path string) bool {
 // aiNeedle binds a dependency-manifest substring to the provider/SDK label it
 // implies, mirroring deps.go's cryptoLibs.
 type aiNeedle struct {
-	needle string
-	label  string
+	needle   string
+	label    string
+	provider string
+	role     string
 }
+
+// The role a matched row plays, which is orthogonal to where it was found.
+// A row is matched in a manifest, in an import, or as an endpoint literal,
+// and that is evidence; the role is what the matched thing IS, and only the
+// role decides whether a provider can be named at all.
+//
+// roleFramework is the one worth understanding, because its provider is
+// deliberately empty and that emptiness is a fact rather than missing data.
+// Code reaching a model through LangChain or LiteLLM tells an inventory that
+// the tree reaches one and refuses to tell it which: the provider is chosen
+// at runtime, by configuration this detector cannot read. Filling it in with
+// a guess would put a name into an inventory that no evidence supports, and
+// leaving the row out entirely would hide the reach. So it is reported with
+// the provider open, which is the only honest answer and is exactly the
+// indirection limit the package comment already declares.
+//
+// roleLocalRuntime is the other case where a hosted provider is the wrong
+// answer: weights loaded in-process, or a model server on the operator's own
+// machine. It matters to an inventory because nothing leaves.
+const (
+	roleProvider     = "provider"
+	roleFramework    = "framework"
+	roleLocalRuntime = "local-runtime"
+)
 
 // aiManifestNeedles maps a manifest substring to a bare provider/SDK label
 // (no ecosystem qualifier: see withEcosystem, which appends one based on
@@ -113,26 +139,26 @@ type aiNeedle struct {
 // endpoint literal (see aiEndpoints), which only fires for code that actually
 // names the Bedrock runtime endpoint/client.
 var aiManifestNeedles = []aiNeedle{
-	{"anthropic", "Anthropic SDK"},
-	{"openai", "OpenAI SDK"},
-	{"@ai-sdk/", "Vercel AI SDK"},
-	{"langgraph", "LangGraph"},
-	{"langchain", "LangChain"},
-	{"google-generativeai", "Google Generative AI SDK (Gemini)"},
-	{"google-genai", "Google GenAI SDK (Gemini)"},
-	{"cohere", "Cohere SDK"},
-	{"mistralai", "Mistral AI SDK"},
-	{"litellm", "LiteLLM"},
-	{"ollama", "Ollama client"},
-	{"groq", "Groq SDK"},
-	{"together", "Together AI SDK"},
-	{"replicate", "Replicate SDK"},
-	{"huggingface_hub", "Hugging Face Hub client"},
+	{"anthropic", "Anthropic SDK", "anthropic", roleProvider},
+	{"openai", "OpenAI SDK", "openai", roleProvider},
+	{"@ai-sdk/", "Vercel AI SDK", "", roleFramework},
+	{"langgraph", "LangGraph", "", roleFramework},
+	{"langchain", "LangChain", "", roleFramework},
+	{"google-generativeai", "Google Generative AI SDK (Gemini)", "google", roleProvider},
+	{"google-genai", "Google GenAI SDK (Gemini)", "google", roleProvider},
+	{"cohere", "Cohere SDK", "cohere", roleProvider},
+	{"mistralai", "Mistral AI SDK", "mistral", roleProvider},
+	{"litellm", "LiteLLM", "", roleFramework},
+	{"ollama", "Ollama client", "ollama", roleLocalRuntime},
+	{"groq", "Groq SDK", "groq", roleProvider},
+	{"together", "Together AI SDK", "together", roleProvider},
+	{"replicate", "Replicate SDK", "replicate", roleProvider},
+	{"huggingface_hub", "Hugging Face Hub client", "huggingface", roleProvider},
 	// transformers is flagged cautiously: it is HuggingFace's local
 	// model-runtime library (loads and runs weights in-process) as much as it
 	// is an LLM-API client, so it is labeled as local inference rather than a
 	// hosted LLM call.
-	{"transformers", "local model runtime (transformers)"},
+	{"transformers", "local model runtime (transformers)", "", roleLocalRuntime},
 }
 
 // manifestEcosystem names the language/ecosystem a manifest basename implies,
@@ -179,7 +205,7 @@ func (a *AIUsage) detectManifest(f scan.File) []model.Finding {
 	lower := strings.ToLower(string(stripManifestComments(base, f.Content)))
 	var out []model.Finding
 	for _, n := range aiManifestNeedles {
-		idx := strings.Index(lower, n.needle)
+		idx := indexAsToken(lower, n.needle)
 		if idx < 0 {
 			continue
 		}
@@ -193,6 +219,7 @@ func (a *AIUsage) detectManifest(f scan.File) []model.Finding {
 			Evidence: "depends on " + n.needle,
 			Source:   a.Name(),
 			Risk:     aiRisk,
+			Tags:     aiTags(n.provider, n.role),
 		})
 	}
 	return out
@@ -201,8 +228,10 @@ func (a *AIUsage) detectManifest(f scan.File) []model.Finding {
 // aiPattern binds a regex to the label it implies, mirroring cryptocall.go's
 // pattern.
 type aiPattern struct {
-	re    *regexp.Regexp
-	label string
+	re       *regexp.Regexp
+	label    string
+	provider string
+	role     string
 }
 
 // jsImportPattern builds a regex matching an ES module or CommonJS import of
@@ -224,17 +253,17 @@ func pyImport(module string) *regexp.Regexp {
 }
 
 var jsAIPatterns = []aiPattern{
-	{jsImportPattern("openai"), "OpenAI SDK (JS/TS)"},
-	{jsImportPattern("@anthropic-ai/sdk"), "Anthropic SDK (JS/TS)"},
-	{jsImportPattern("@ai-sdk/"), "Vercel AI SDK (JS/TS)"},
-	{jsImportPattern("@langchain/langgraph"), "LangGraph (JS/TS)"},
-	{jsImportPattern("langchain"), "LangChain (JS/TS)"},
-	{jsImportPattern("@google/generative-ai"), "Google Generative AI SDK (JS/TS, Gemini)"},
-	{jsImportPattern("cohere-ai"), "Cohere SDK (JS/TS)"},
-	{jsImportPattern("ollama"), "Ollama client (JS/TS)"},
-	{jsImportPattern("groq-sdk"), "Groq SDK (JS/TS)"},
-	{jsImportPattern("together-ai"), "Together AI SDK (JS/TS)"},
-	{jsImportPattern("replicate"), "Replicate SDK (JS/TS)"},
+	{jsImportPattern("openai"), "OpenAI SDK (JS/TS)", "openai", roleProvider},
+	{jsImportPattern("@anthropic-ai/sdk"), "Anthropic SDK (JS/TS)", "anthropic", roleProvider},
+	{jsImportPattern("@ai-sdk/"), "Vercel AI SDK (JS/TS)", "", roleFramework},
+	{jsImportPattern("@langchain/langgraph"), "LangGraph (JS/TS)", "", roleFramework},
+	{jsImportPattern("langchain"), "LangChain (JS/TS)", "", roleFramework},
+	{jsImportPattern("@google/generative-ai"), "Google Generative AI SDK (JS/TS, Gemini)", "google", roleProvider},
+	{jsImportPattern("cohere-ai"), "Cohere SDK (JS/TS)", "cohere", roleProvider},
+	{jsImportPattern("ollama"), "Ollama client (JS/TS)", "ollama", roleLocalRuntime},
+	{jsImportPattern("groq-sdk"), "Groq SDK (JS/TS)", "groq", roleProvider},
+	{jsImportPattern("together-ai"), "Together AI SDK (JS/TS)", "together", roleProvider},
+	{jsImportPattern("replicate"), "Replicate SDK (JS/TS)", "replicate", roleProvider},
 }
 
 // aiImportPatterns maps a file extension to the LLM SDK import/call patterns
@@ -244,25 +273,25 @@ var jsAIPatterns = []aiPattern{
 // import resolver is not justified for v1 (see the package doc comment).
 var aiImportPatterns = map[string][]aiPattern{
 	".py": {
-		{pyImport("openai"), "OpenAI SDK (python)"},
-		{pyImport("anthropic"), "Anthropic SDK (python)"},
-		{pyImport("langgraph"), "LangGraph (python)"},
+		{pyImport("openai"), "OpenAI SDK (python)", "openai", roleProvider},
+		{pyImport("anthropic"), "Anthropic SDK (python)", "anthropic", roleProvider},
+		{pyImport("langgraph"), "LangGraph (python)", "", roleFramework},
 		// No trailing \b: the modern LangChain ecosystem splits into
 		// underscore-suffixed packages (langchain_openai, langchain_community,
 		// langchain_core, ...) that a \b word-boundary would miss, since "_"
 		// is itself a word character and so never creates a boundary right
 		// after "langchain".
-		{regexp.MustCompile(`\b(?:import|from)\s+langchain`), "LangChain (python)"},
-		{pyImport(`google\.generativeai`), "Google Generative AI SDK (python, Gemini)"},
-		{pyImport(`google\.genai`), "Google GenAI SDK (python, Gemini)"},
-		{pyImport("cohere"), "Cohere SDK (python)"},
-		{pyImport("mistralai"), "Mistral AI SDK (python)"},
-		{pyImport("litellm"), "LiteLLM (python)"},
-		{pyImport("ollama"), "Ollama client (python)"},
-		{pyImport("groq"), "Groq SDK (python)"},
-		{pyImport("replicate"), "Replicate SDK (python)"},
-		{pyImport("huggingface_hub"), "Hugging Face Hub client (python)"},
-		{pyImport("transformers"), "local model runtime (transformers, python)"},
+		{regexp.MustCompile(`\b(?:import|from)\s+langchain`), "LangChain (python)", "", roleFramework},
+		{pyImport(`google\.generativeai`), "Google Generative AI SDK (python, Gemini)", "google", roleProvider},
+		{pyImport(`google\.genai`), "Google GenAI SDK (python, Gemini)", "google", roleProvider},
+		{pyImport("cohere"), "Cohere SDK (python)", "cohere", roleProvider},
+		{pyImport("mistralai"), "Mistral AI SDK (python)", "mistral", roleProvider},
+		{pyImport("litellm"), "LiteLLM (python)", "", roleFramework},
+		{pyImport("ollama"), "Ollama client (python)", "ollama", roleLocalRuntime},
+		{pyImport("groq"), "Groq SDK (python)", "groq", roleProvider},
+		{pyImport("replicate"), "Replicate SDK (python)", "replicate", roleProvider},
+		{pyImport("huggingface_hub"), "Hugging Face Hub client (python)", "huggingface", roleProvider},
+		{pyImport("transformers"), "local model runtime (transformers, python)", "", roleLocalRuntime},
 	},
 	".js":  jsAIPatterns,
 	".ts":  jsAIPatterns,
@@ -270,9 +299,9 @@ var aiImportPatterns = map[string][]aiPattern{
 	".tsx": jsAIPatterns,
 	".mjs": jsAIPatterns,
 	".go": {
-		{regexp.MustCompile(`github\.com/sashabaranov/go-openai`), "OpenAI SDK (Go)"},
-		{regexp.MustCompile(`github\.com/anthropics/anthropic-sdk-go`), "Anthropic SDK (Go)"},
-		{regexp.MustCompile(`github\.com/tmc/langchaingo`), "LangChain (Go)"},
+		{regexp.MustCompile(`github\.com/sashabaranov/go-openai`), "OpenAI SDK (Go)", "openai", roleProvider},
+		{regexp.MustCompile(`github\.com/anthropics/anthropic-sdk-go`), "Anthropic SDK (Go)", "anthropic", roleProvider},
+		{regexp.MustCompile(`github\.com/tmc/langchaingo`), "LangChain (Go)", "", roleFramework},
 	},
 }
 
@@ -296,6 +325,7 @@ func (a *AIUsage) detectPatterns(f scan.File) []model.Finding {
 				Evidence: string(f.Content[loc[0]:loc[1]]),
 				Source:   a.Name(),
 				Risk:     aiRisk,
+				Tags:     aiTags(p.provider, p.role),
 			})
 		}
 	}
@@ -308,21 +338,25 @@ func (a *AIUsage) detectPatterns(f scan.File) []model.Finding {
 // without ever importing the matching SDK, e.g. calling a provider's
 // OpenAI-compatible REST API straight from an http client.
 var aiEndpoints = []aiPattern{
-	{regexp.MustCompile(`api\.openai\.com`), "OpenAI API endpoint"},
-	{regexp.MustCompile(`api\.anthropic\.com`), "Anthropic API endpoint"},
-	{regexp.MustCompile(`generativelanguage\.googleapis\.com`), "Google Generative Language API endpoint (Gemini)"},
+	{regexp.MustCompile(`api\.openai\.com`), "OpenAI API endpoint", "openai", roleProvider},
+	{regexp.MustCompile(`api\.anthropic\.com`), "Anthropic API endpoint", "anthropic", roleProvider},
+	{regexp.MustCompile(`generativelanguage\.googleapis\.com`), "Google Generative Language API endpoint (Gemini)", "google", roleProvider},
 	// Matches both the bare literal and the fuller
 	// *.bedrock-runtime.*.amazonaws.com hostname, since the substring is
 	// contained in both. This is the only Bedrock signal this detector uses;
 	// boto3 alone is never flagged (see aiManifestNeedles).
-	{regexp.MustCompile(`bedrock-runtime`), "AWS Bedrock"},
-	{regexp.MustCompile(`api\.mistral\.ai`), "Mistral AI API endpoint"},
-	{regexp.MustCompile(`api\.cohere\.(?:ai|com)`), "Cohere API endpoint"},
-	{regexp.MustCompile(`api\.groq\.com`), "Groq API endpoint"},
-	{regexp.MustCompile(`api\.together\.xyz`), "Together AI API endpoint"},
-	{regexp.MustCompile(`openrouter\.ai`), "OpenRouter API endpoint"},
-	{regexp.MustCompile(`api\.perplexity\.ai`), "Perplexity API endpoint"},
-	{regexp.MustCompile(`api\.replicate\.com`), "Replicate API endpoint"},
+	{regexp.MustCompile(`bedrock-runtime`), "AWS Bedrock", "aws-bedrock", roleProvider},
+	{regexp.MustCompile(`api\.mistral\.ai`), "Mistral AI API endpoint", "mistral", roleProvider},
+	{regexp.MustCompile(`api\.cohere\.(?:ai|com)`), "Cohere API endpoint", "cohere", roleProvider},
+	{regexp.MustCompile(`api\.groq\.com`), "Groq API endpoint", "groq", roleProvider},
+	{regexp.MustCompile(`api\.together\.xyz`), "Together AI API endpoint", "together", roleProvider},
+	// A router: the operator's data goes to OpenRouter, and which model
+	// finally runs the prompt is chosen there rather than here. The provider
+	// is the address the bytes leave for, which is the question an inventory
+	// is asking.
+	{regexp.MustCompile(`openrouter\.ai`), "OpenRouter API endpoint", "openrouter", roleProvider},
+	{regexp.MustCompile(`api\.perplexity\.ai`), "Perplexity API endpoint", "perplexity", roleProvider},
+	{regexp.MustCompile(`api\.replicate\.com`), "Replicate API endpoint", "replicate", roleProvider},
 }
 
 // detectEndpoints scans for LLM provider endpoint literals.
@@ -340,6 +374,7 @@ func (a *AIUsage) detectEndpoints(f scan.File) []model.Finding {
 				Evidence: string(f.Content[loc[0]:loc[1]]),
 				Source:   a.Name(),
 				Risk:     aiRisk,
+				Tags:     aiTags(e.provider, e.role),
 			})
 		}
 	}
@@ -422,4 +457,78 @@ func stripManifestComments(base string, content []byte) []byte {
 		}
 	}
 	return out
+}
+
+// aiTags carries the canonical provider and role onto the finding, so a
+// consumer joining this inventory against a declaration or an observed
+// egress has a key instead of a prose label to mangle. The keys are
+// namespaced because Tags is shared with cloud connectors, where the map
+// holds a resource's own tags: a provider's tag named "role" is not
+// impossible, and a collision here would be silent.
+//
+// A framework's provider is empty and the key is still written, because a
+// consumer must be able to tell "reaches a model through an indirection this
+// scan cannot resolve" from "this row predates the vocabulary".
+func aiTags(provider, role string) map[string]string {
+	return map[string]string{
+		"qryx.ai.provider": provider,
+		"qryx.ai.role":     role,
+	}
+}
+
+// AIUsageLimits is what this detector cannot see, in the words a reader of a
+// report needs rather than a reader of this file. It is exported because the
+// machine-readable inventory carries it in the document itself: an inventory
+// read as proof of absence is the one way this detector's output can do harm,
+// and a limit that lives only in a doc comment reaches nobody downstream.
+//
+// One owner, deliberately. The same sentences in the package comment above and
+// again in a reporter would be two copies that drift, and the copy that leaves
+// the building is the one that would rot.
+var AIUsageLimits = []string{
+	"Detection is text matching over source, so an import name built at runtime, an endpoint assembled from parts, or a call reached through an indirection the text does not name produces nothing here.",
+	"A mention in code is not a call at runtime. This says the code can reach a provider, never that it did.",
+	"A row whose role is framework names no provider on purpose: the choice is made by configuration this scan cannot read.",
+	"Only files this scan walked are represented. A dependency vendored as a binary, or code outside the scanned path, is not.",
+	"An empty result is not proof that a tree uses no AI.",
+}
+
+// indexAsToken finds needle in hay where it is not part of a longer word:
+// no letter immediately before it, none immediately after. It returns -1
+// when there is no such occurrence.
+//
+// A bare substring is the right shape for a manifest, because one needle has
+// to cover "openai==1.50.0", a go.mod line reading
+// "github.com/sashabaranov/go-openai" and a package.json key
+// "@anthropic-ai/sdk", and demanding a package-name grammar per ecosystem
+// would be five parsers for one question. What it must not do is match inside
+// an English word, and manifests carry prose: "replicate" was found inside
+// "raft-replicated", in a Cargo.toml description, and the row that came out
+// named a provider the code has never called.
+//
+// Only letters bound it. A hyphen, an underscore, a slash, a quote, a digit
+// and a line start all stay legal neighbours, because every one of them is
+// how real package names are actually spelled.
+func indexAsToken(hay, needle string) int {
+	if needle == "" {
+		return -1
+	}
+	for off := 0; ; {
+		i := strings.Index(hay[off:], needle)
+		if i < 0 {
+			return -1
+		}
+		i += off
+		beforeOK := i == 0 || !isASCIILetter(hay[i-1])
+		end := i + len(needle)
+		afterOK := end == len(hay) || !isASCIILetter(hay[end])
+		if beforeOK && afterOK {
+			return i
+		}
+		off = i + 1
+	}
+}
+
+func isASCIILetter(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
 }
