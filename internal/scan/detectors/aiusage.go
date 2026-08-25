@@ -141,11 +141,28 @@ const (
 var aiManifestNeedles = []aiNeedle{
 	{"anthropic", "Anthropic SDK", "anthropic", roleProvider},
 	{"openai", "OpenAI SDK", "openai", roleProvider},
+	// Azure is its own id, not a flavour of openai, because an id names the
+	// API surface the bytes leave for and these bytes go to Microsoft
+	// (agent-passport SPEC 4.7). The needle "openai" matches inside
+	// "@azure/openai", since "/" is a legal token boundary and has to stay
+	// one: that is how a scoped package is spelled. detectManifest's
+	// specificity rule is what stops the contained match from writing its own
+	// row and naming a provider this tree has never called.
+	{"@azure/openai", "Azure OpenAI SDK", "azure-openai", roleProvider},
+	{"azure-ai-inference", "Azure AI Inference SDK", "azure-openai", roleProvider},
+	{"azure-ai-projects", "Azure AI Projects SDK", "azure-openai", roleProvider},
 	{"@ai-sdk/", "Vercel AI SDK", "", roleFramework},
 	{"langgraph", "LangGraph", "", roleFramework},
 	{"langchain", "LangChain", "", roleFramework},
 	{"google-generativeai", "Google Generative AI SDK (Gemini)", "google", roleProvider},
 	{"google-genai", "Google GenAI SDK (Gemini)", "google", roleProvider},
+	// Same reasoning as Azure above, on the other side: Vertex is a Google
+	// Cloud project's own endpoint, not the generative language API, so it
+	// carries its own id rather than "google". "vertexai" sits inside
+	// "@google-cloud/vertexai" and is dropped there by the same rule.
+	{"google-cloud-aiplatform", "Google Vertex AI SDK", "vertex", roleProvider},
+	{"@google-cloud/vertexai", "Google Vertex AI SDK", "vertex", roleProvider},
+	{"vertexai", "Google Vertex AI SDK", "vertex", roleProvider},
 	{"cohere", "Cohere SDK", "cohere", roleProvider},
 	{"mistralai", "Mistral AI SDK", "mistral", roleProvider},
 	{"litellm", "LiteLLM", "", roleFramework},
@@ -194,33 +211,89 @@ func withEcosystem(label, base string) string {
 	return label + " (" + eco + ")"
 }
 
+// aiSpan is one matched region of a file, kept so a more specific row can veto
+// a less specific one lying inside it. See containedIn.
+type aiSpan struct{ start, end int }
+
+// contains reports whether s wholly covers o AND is strictly longer. The
+// length test is what makes this a specificity rule rather than a coin toss:
+// two rows matching exactly the same bytes are not a general-and-specific
+// pair, and if either were allowed to silence the other the survivor would
+// depend on table order.
+func (s aiSpan) contains(o aiSpan) bool {
+	return s.start <= o.start && o.end <= s.end && s.end-s.start > o.end-o.start
+}
+
+// containedIn reports whether span lies inside a longer match from the same
+// table.
+//
+// Two rows can match the same bytes, and when they do the shorter one is
+// wrong. "@azure/openai" contains "openai" and "@google-cloud/vertexai"
+// contains "vertexai", so without this rule one dependency line writes two
+// rows, one of which names a provider the tree has never called. That is the
+// worst output an inventory can produce: not empty, not obviously wrong, a
+// real provider id with a real file and line, and a consumer joining on it
+// reports drift against a passport that is telling the truth.
+//
+// It is deliberately per-table. Manifest needles, import patterns and
+// endpoint literals are three kinds of evidence about one file, and a longer
+// match in one has no business silencing a shorter match in another.
+func containedIn(span aiSpan, others []aiSpan) bool {
+	for _, o := range others {
+		if o.contains(span) {
+			return true
+		}
+	}
+	return false
+}
+
 // detectManifest scans a dependency manifest for LLM/AI SDK entries, mirroring
 // deps.go's Detect: lowercase the whole file and look for each needle as a
-// substring.
+// substring, then drop the matches a longer needle contains.
 func (a *AIUsage) detectManifest(f scan.File) []model.Finding {
 	base := filepath.Base(f.Path)
 	if !aiManifestBases[base] {
 		return nil
 	}
 	lower := strings.ToLower(string(stripManifestComments(base, f.Content)))
-	var out []model.Finding
-	for _, n := range aiManifestNeedles {
-		idx := indexAsToken(lower, n.needle)
-		if idx < 0 {
-			continue
+
+	// Every occurrence of every needle is collected before a single row is
+	// written, because the specificity rule needs to know what else matched
+	// the same bytes. Every occurrence and not just the first: a manifest can
+	// list both "@azure/openai" and "openai", and if the scoped one is listed
+	// first then the shorter needle's FIRST match is the contained one, so
+	// stopping there would silently drop a dependency that is really declared.
+	occ := make([][]aiSpan, len(aiManifestNeedles))
+	var all []aiSpan
+	for i, n := range aiManifestNeedles {
+		for _, idx := range allIndexAsToken(lower, n.needle) {
+			occ[i] = append(occ[i], aiSpan{idx, idx + len(n.needle)})
 		}
-		out = append(out, model.Finding{
-			Asset: model.Asset{
-				Type:      model.TypeAIModel,
-				Algorithm: withEcosystem(n.label, base),
-				Primitive: model.PrimitiveUnknown,
-			},
-			Location: model.Location{File: f.Path, Line: lineNumber(f.Content, idx)},
-			Evidence: "depends on " + n.needle,
-			Source:   a.Name(),
-			Risk:     aiRisk,
-			Tags:     aiTags(n.provider, n.role),
-		})
+		all = append(all, occ[i]...)
+	}
+
+	var out []model.Finding
+	for i, n := range aiManifestNeedles {
+		for _, s := range occ[i] {
+			if containedIn(s, all) {
+				continue
+			}
+			out = append(out, model.Finding{
+				Asset: model.Asset{
+					Type:      model.TypeAIModel,
+					Algorithm: withEcosystem(n.label, base),
+					Primitive: model.PrimitiveUnknown,
+				},
+				Location: model.Location{File: f.Path, Line: lineNumber(f.Content, s.start)},
+				Evidence: "depends on " + n.needle,
+				Source:   a.Name(),
+				Risk:     aiRisk,
+				Tags:     aiTags(n.provider, n.role),
+			})
+			// One row per needle per manifest, as before: a manifest naming
+			// the same dependency twice declares one dependency.
+			break
+		}
 	}
 	return out
 }
@@ -248,12 +321,27 @@ func jsImportPattern(pkgPrefix string) *regexp.Regexp {
 // pyImport builds a regex matching a Python `import x` or `from x import y`
 // for module x, requiring a word boundary after the module name so e.g.
 // "openai" doesn't also match an unrelated "openaiwrapper".
+//
+// module is spelled the way Python spells it, dots and all: this function
+// quotes it, so pre-escaping is not merely redundant, it is wrong. Passing
+// `google\.generativeai` produced `google\\\.generativeai`, a pattern
+// demanding a literal backslash in the source, and both google rows matched
+// nothing any Python file has ever contained. Nothing went red, because a
+// dead regex reports no match exactly like a tree with no such import.
 func pyImport(module string) *regexp.Regexp {
 	return regexp.MustCompile(`\b(?:import|from)\s+` + regexp.QuoteMeta(module) + `\b`)
 }
 
 var jsAIPatterns = []aiPattern{
 	{jsImportPattern("openai"), "OpenAI SDK (JS/TS)", "openai", roleProvider},
+	// The JS table needs no specificity rule to tell these from plain openai:
+	// jsImportPattern anchors the package name to immediately after the
+	// opening quote, so "openai" cannot match inside `from "@azure/openai"` in
+	// the first place. That is a property of one line of jsImportPattern, and
+	// TestAIUsageJSAzureImportNamesAzureOnly is what holds it.
+	{jsImportPattern("@azure/openai"), "Azure OpenAI SDK (JS/TS)", "azure-openai", roleProvider},
+	{jsImportPattern("@azure-rest/ai-inference"), "Azure AI Inference SDK (JS/TS)", "azure-openai", roleProvider},
+	{jsImportPattern("@google-cloud/vertexai"), "Google Vertex AI SDK (JS/TS)", "vertex", roleProvider},
 	{jsImportPattern("@anthropic-ai/sdk"), "Anthropic SDK (JS/TS)", "anthropic", roleProvider},
 	{jsImportPattern("@ai-sdk/"), "Vercel AI SDK (JS/TS)", "", roleFramework},
 	{jsImportPattern("@langchain/langgraph"), "LangGraph (JS/TS)", "", roleFramework},
@@ -274,6 +362,21 @@ var jsAIPatterns = []aiPattern{
 var aiImportPatterns = map[string][]aiPattern{
 	".py": {
 		{pyImport("openai"), "OpenAI SDK (python)", "openai", roleProvider},
+		// How most Azure users actually write it: the class comes from the
+		// openai package, so the only text naming Azure on the line is the
+		// class name. The match deliberately spans the whole statement rather
+		// than just the class, because that span is what lets the specificity
+		// rule drop the plain openai row sitting inside it. Those bytes leave
+		// for Microsoft, and an openai row here is the same false attribution
+		// as "@azure/openai" in a manifest.
+		//
+		// openai.AzureOpenAI is matched too, which is a deliberate exception
+		// to this table's "declared imports, not attribute access" rule: an
+		// openai.OpenAI() call adds nothing to the import line above it, while
+		// this one names a provider that would otherwise be missed entirely.
+		{regexp.MustCompile(`\b(?:from\s+openai(?:\.[\w.]+)?\s+import\s+[^\n]*\b(?:Async)?AzureOpenAI|openai\.(?:Async)?AzureOpenAI)\b`), "Azure OpenAI SDK (python)", "azure-openai", roleProvider},
+		{pyImport("azure.ai.inference"), "Azure AI Inference SDK (python)", "azure-openai", roleProvider},
+		{pyImport("azure.ai.projects"), "Azure AI Projects SDK (python)", "azure-openai", roleProvider},
 		{pyImport("anthropic"), "Anthropic SDK (python)", "anthropic", roleProvider},
 		{pyImport("langgraph"), "LangGraph (python)", "", roleFramework},
 		// No trailing \b: the modern LangChain ecosystem splits into
@@ -282,8 +385,12 @@ var aiImportPatterns = map[string][]aiPattern{
 		// is itself a word character and so never creates a boundary right
 		// after "langchain".
 		{regexp.MustCompile(`\b(?:import|from)\s+langchain`), "LangChain (python)", "", roleFramework},
-		{pyImport(`google\.generativeai`), "Google Generative AI SDK (python, Gemini)", "google", roleProvider},
-		{pyImport(`google\.genai`), "Google GenAI SDK (python, Gemini)", "google", roleProvider},
+		{pyImport("google.generativeai"), "Google Generative AI SDK (python, Gemini)", "google", roleProvider},
+		{pyImport("google.genai"), "Google GenAI SDK (python, Gemini)", "google", roleProvider},
+		{pyImport("vertexai"), "Google Vertex AI SDK (python)", "vertex", roleProvider},
+		// "from google.cloud import aiplatform" is the spelling Vertex code
+		// actually uses, and a module-path pattern alone matches none of it.
+		{regexp.MustCompile(`\b(?:import|from)\s+google\.cloud\.aiplatform\b|\bfrom\s+google\.cloud\s+import\s+[^\n]*\baiplatform\b`), "Google Vertex AI SDK (python)", "vertex", roleProvider},
 		{pyImport("cohere"), "Cohere SDK (python)", "cohere", roleProvider},
 		{pyImport("mistralai"), "Mistral AI SDK (python)", "mistral", roleProvider},
 		{pyImport("litellm"), "LiteLLM (python)", "", roleFramework},
@@ -301,6 +408,8 @@ var aiImportPatterns = map[string][]aiPattern{
 	".go": {
 		{regexp.MustCompile(`github\.com/sashabaranov/go-openai`), "OpenAI SDK (Go)", "openai", roleProvider},
 		{regexp.MustCompile(`github\.com/anthropics/anthropic-sdk-go`), "Anthropic SDK (Go)", "anthropic", roleProvider},
+		{regexp.MustCompile(`cloud\.google\.com/go/vertexai`), "Google Vertex AI SDK (Go)", "vertex", roleProvider},
+		{regexp.MustCompile(`cloud\.google\.com/go/aiplatform`), "Google Vertex AI SDK (Go)", "vertex", roleProvider},
 		{regexp.MustCompile(`github\.com/tmc/langchaingo`), "LangChain (Go)", "", roleFramework},
 	},
 }
@@ -312,22 +421,45 @@ func (a *AIUsage) detectPatterns(f scan.File) []model.Finding {
 	if !ok {
 		return nil
 	}
-	var out []model.Finding
+	return a.findingsFromPatterns(f, pats)
+}
+
+// findingsFromPatterns runs one table of patterns over a file and writes a
+// finding per match, minus the matches a longer match from the same table
+// contains: `from openai import AzureOpenAI` is one statement about one
+// provider, and the openai row lying inside it names the wrong one.
+func (a *AIUsage) findingsFromPatterns(f scan.File, pats []aiPattern) []model.Finding {
+	type match struct {
+		span aiSpan
+		p    aiPattern
+	}
+	var matches []match
+	var spans []aiSpan
 	for _, p := range pats {
 		for _, loc := range p.re.FindAllIndex(f.Content, -1) {
-			out = append(out, model.Finding{
-				Asset: model.Asset{
-					Type:      model.TypeAIModel,
-					Algorithm: p.label,
-					Primitive: model.PrimitiveUnknown,
-				},
-				Location: model.Location{File: f.Path, Line: lineNumber(f.Content, loc[0])},
-				Evidence: string(f.Content[loc[0]:loc[1]]),
-				Source:   a.Name(),
-				Risk:     aiRisk,
-				Tags:     aiTags(p.provider, p.role),
-			})
+			s := aiSpan{loc[0], loc[1]}
+			matches = append(matches, match{s, p})
+			spans = append(spans, s)
 		}
+	}
+
+	var out []model.Finding
+	for _, m := range matches {
+		if containedIn(m.span, spans) {
+			continue
+		}
+		out = append(out, model.Finding{
+			Asset: model.Asset{
+				Type:      model.TypeAIModel,
+				Algorithm: m.p.label,
+				Primitive: model.PrimitiveUnknown,
+			},
+			Location: model.Location{File: f.Path, Line: lineNumber(f.Content, m.span.start)},
+			Evidence: string(f.Content[m.span.start:m.span.end]),
+			Source:   a.Name(),
+			Risk:     aiRisk,
+			Tags:     aiTags(m.p.provider, m.p.role),
+		})
 	}
 	return out
 }
@@ -339,8 +471,20 @@ func (a *AIUsage) detectPatterns(f scan.File) []model.Finding {
 // OpenAI-compatible REST API straight from an http client.
 var aiEndpoints = []aiPattern{
 	{regexp.MustCompile(`api\.openai\.com`), "OpenAI API endpoint", "openai", roleProvider},
+	// The three addresses Azure hands out for the same models: the resource's
+	// own host, the older Cognitive Services host, and AI Foundry. All three
+	// are Microsoft, none of them is api.openai.com, and an Azure OpenAI URL
+	// carries "/openai/" in its PATH, which is why every one of these is
+	// anchored on the host labels rather than on the word.
+	{regexp.MustCompile(`openai\.azure\.com`), "Azure OpenAI endpoint", "azure-openai", roleProvider},
+	{regexp.MustCompile(`cognitiveservices\.azure\.com`), "Azure OpenAI endpoint (Cognitive Services)", "azure-openai", roleProvider},
+	{regexp.MustCompile(`services\.ai\.azure\.com`), "Azure AI Foundry endpoint", "azure-openai", roleProvider},
 	{regexp.MustCompile(`api\.anthropic\.com`), "Anthropic API endpoint", "anthropic", roleProvider},
 	{regexp.MustCompile(`generativelanguage\.googleapis\.com`), "Google Generative Language API endpoint (Gemini)", "google", roleProvider},
+	// A different address from the one above and a different id: the regional
+	// Vertex host serves a Google Cloud project, not the generative language
+	// API, and the two are what SPEC 4.7 separates as vertex and google.
+	{regexp.MustCompile(`aiplatform\.googleapis\.com`), "Google Vertex AI endpoint", "vertex", roleProvider},
 	// Matches both the bare literal and the fuller
 	// *.bedrock-runtime.*.amazonaws.com hostname, since the substring is
 	// contained in both. This is the only Bedrock signal this detector uses;
@@ -359,26 +503,15 @@ var aiEndpoints = []aiPattern{
 	{regexp.MustCompile(`api\.replicate\.com`), "Replicate API endpoint", "replicate", roleProvider},
 }
 
-// detectEndpoints scans for LLM provider endpoint literals.
+// detectEndpoints scans for LLM provider endpoint literals. It goes through
+// the same path as the import patterns, so the specificity rule covers this
+// table too. It has nothing to drop today, and that is a measured result
+// rather than an assumption: every row is a full hostname anchored by dots on
+// both sides of each label, so no host in the table lies inside another, and
+// TestAIUsageEndpointLiteralNamesExactlyOneProvider checks all fifteen. The
+// rule is here for the row somebody adds next.
 func (a *AIUsage) detectEndpoints(f scan.File) []model.Finding {
-	var out []model.Finding
-	for _, e := range aiEndpoints {
-		for _, loc := range e.re.FindAllIndex(f.Content, -1) {
-			out = append(out, model.Finding{
-				Asset: model.Asset{
-					Type:      model.TypeAIModel,
-					Algorithm: e.label,
-					Primitive: model.PrimitiveUnknown,
-				},
-				Location: model.Location{File: f.Path, Line: lineNumber(f.Content, loc[0])},
-				Evidence: string(f.Content[loc[0]:loc[1]]),
-				Source:   a.Name(),
-				Risk:     aiRisk,
-				Tags:     aiTags(e.provider, e.role),
-			})
-		}
-	}
-	return out
+	return a.findingsFromPatterns(f, aiEndpoints)
 }
 
 func (a *AIUsage) Detect(f scan.File) []model.Finding {
@@ -510,23 +643,40 @@ var AIUsageLimits = []string{
 // and a line start all stay legal neighbours, because every one of them is
 // how real package names are actually spelled.
 func indexAsToken(hay, needle string) int {
-	if needle == "" {
-		return -1
+	if idx := allIndexAsToken(hay, needle); len(idx) > 0 {
+		return idx[0]
 	}
-	for off := 0; ; {
+	return -1
+}
+
+// allIndexAsToken returns every offset indexAsToken could return, in order.
+// The specificity rule needs all of them: a manifest listing both
+// "@azure/openai" and "openai" has the shorter needle's first occurrence
+// inside the longer package name, and a rule that saw only that one would
+// drop a dependency the manifest really declares.
+//
+// The boundary rule itself lives here and only here, so the two callers
+// cannot drift apart on what counts as a token.
+func allIndexAsToken(hay, needle string) []int {
+	if needle == "" {
+		return nil
+	}
+	var out []int
+	for off := 0; off+len(needle) <= len(hay); {
 		i := strings.Index(hay[off:], needle)
 		if i < 0 {
-			return -1
+			break
 		}
 		i += off
 		beforeOK := i == 0 || !isASCIILetter(hay[i-1])
 		end := i + len(needle)
 		afterOK := end == len(hay) || !isASCIILetter(hay[end])
 		if beforeOK && afterOK {
-			return i
+			out = append(out, i)
 		}
 		off = i + 1
 	}
+	return out
 }
 
 func isASCIILetter(b byte) bool {
