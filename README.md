@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-281-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-290-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Status](https://img.shields.io/badge/phase-4%20(governance)-success.svg)
 
@@ -207,23 +207,42 @@ code-inventory expectations around AI system usage.
 It detects three things, each with a file and line:
 
 - **Dependency-manifest entries**: `openai`, `anthropic`, `@anthropic-ai/sdk`,
-  `@ai-sdk/*`, `langchain`/`langgraph`, `google-generativeai`/`google-genai`,
-  `cohere`, `mistralai`, `litellm`, `ollama`, `groq`, `together`, `replicate`,
+  `@azure/openai`, `azure-ai-inference`, `azure-ai-projects`, `@ai-sdk/*`,
+  `langchain`/`langgraph`, `google-generativeai`/`google-genai`,
+  `google-cloud-aiplatform`, `vertexai`, `@google-cloud/vertexai`, `cohere`,
+  `mistralai`, `litellm`, `ollama`, `groq`, `together`, `replicate`,
   `huggingface_hub` in `go.mod` · `requirements.txt` · `package.json` ·
   `Cargo.toml` · `pom.xml`. `transformers` is flagged too, but labeled "local
   model runtime" rather than a hosted LLM call, since it is HuggingFace's
   local inference library as much as an API client. `boto3` alone is never
   flagged: it is AWS's general-purpose SDK, not an LLM SDK.
 - **Source-level imports/calls**: `import openai`, `from anthropic import`,
-  `require('openai')`, `import Anthropic from '@anthropic-ai/sdk'`, and the Go
-  import paths `github.com/sashabaranov/go-openai` /
-  `github.com/anthropics/anthropic-sdk-go`, across Python, JS/TS and Go.
+  `from openai import AzureOpenAI`, `from azure.ai.inference import`,
+  `import vertexai`, `from google.cloud import aiplatform`,
+  `require('openai')`, `import Anthropic from '@anthropic-ai/sdk'`,
+  `from '@azure/openai'`, `from '@azure-rest/ai-inference'`,
+  `from '@google-cloud/vertexai'`, and the Go import paths
+  `github.com/sashabaranov/go-openai` /
+  `github.com/anthropics/anthropic-sdk-go` /
+  `cloud.google.com/go/vertexai` / `cloud.google.com/go/aiplatform`, across
+  Python, JS/TS and Go.
 - **API endpoint literals**: `api.openai.com`, `api.anthropic.com`,
-  `generativelanguage.googleapis.com`, the AWS Bedrock runtime endpoint,
+  `*.openai.azure.com`, `*.cognitiveservices.azure.com`,
+  `*.services.ai.azure.com`, `generativelanguage.googleapis.com`,
+  `*-aiplatform.googleapis.com`, the AWS Bedrock runtime endpoint,
   `api.mistral.ai`, `api.cohere.ai`/`api.cohere.com`, `api.groq.com`,
   `api.together.xyz`, `openrouter.ai`, `api.perplexity.ai`,
   `api.replicate.com`, anywhere they appear as a string literal, not only in
   code recognized by the two passes above.
+
+**A provider id names where the bytes go, not which model runs.** Azure OpenAI
+is `azure-openai` and Vertex AI is `vertex`, never `openai` and never `google`:
+the same model reached through Azure is a request to Microsoft, and through
+Vertex a request to a Google Cloud project rather than to the generative
+language API. Where one package name contains another, the longer match wins
+and the shorter one is dropped, so a tree depending only on `@azure/openai` is
+never reported as calling OpenAI, and a tree depending on both is reported as
+both.
 
 **It is informational, never a cryptographic risk.** Every finding carries a
 new `ai-usage` asset type (`model.TypeAIModel`), not one of the cryptographic

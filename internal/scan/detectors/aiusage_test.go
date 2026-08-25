@@ -541,6 +541,259 @@ func TestIndexAsTokenGuards(t *testing.T) {
 	}
 }
 
+// providersFound collects the distinct provider id -> label pairs one file
+// produced. Most of the Azure and Vertex cases below assert on this shape
+// rather than on a finding count, because the question they ask is never "is
+// there a row" but "is there a row naming a provider the bytes never leave
+// for".
+func providersFound(t *testing.T, path, content string) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	for _, f := range NewAIUsage().Detect(scan.File{Path: path, Content: []byte(content)}) {
+		out[f.Tags["qryx.ai.provider"]] = f.Asset.Algorithm
+	}
+	return out
+}
+
+// TestAIUsageAzureOpenAIIsNotOpenAI is the false attribution this change was
+// written for, and it was live: a package.json depending on "@azure/openai"
+// was reported as provider "openai", because the "openai" needle matches
+// inside "@azure/openai" ("/" is a legal token boundary, and it has to be, it
+// is how scoped packages are spelled).
+//
+// It is the worst shape an inventory can produce. The row is not empty and it
+// is not obviously wrong: it names a real provider, with a real file and line,
+// for a tree that has never sent a byte to OpenAI. A consumer joining on the
+// id reports the passport as declaring a provider it does not use, and a
+// reader has no way to tell that from real drift. Where the bytes go is the
+// whole question: through Azure they go to Microsoft (agent-passport SPEC
+// 4.7).
+func TestAIUsageAzureOpenAIIsNotOpenAI(t *testing.T) {
+	got := providersFound(t, "package.json", `{"dependencies":{"@azure/openai":"^2.0.0"}}`)
+	if _, wrong := got["openai"]; wrong {
+		t.Errorf("named openai for a dependency whose bytes go to Microsoft: %+v", got)
+	}
+	if label, ok := got["azure-openai"]; !ok {
+		t.Errorf("no azure-openai row, got %+v", got)
+	} else if label != "Azure OpenAI SDK (JS/TS)" {
+		t.Errorf("label = %q, want %q", label, "Azure OpenAI SDK (JS/TS)")
+	}
+	if len(got) != 1 {
+		t.Errorf("expected exactly one provider, got %+v", got)
+	}
+}
+
+// TestAIUsageManifestSpecificityKeepsBothRealDependencies is the other
+// direction of the specificity rule, and it is the one that stops the fix
+// above from being a silent recall cut. A tree really can depend on both, and
+// then both rows are true. Both orderings are here on purpose: the shorter
+// needle's FIRST occurrence is the one inside the longer package name when
+// "@azure/openai" is listed first, so a rule that looked only at the first
+// match would drop a dependency that is really there.
+func TestAIUsageManifestSpecificityKeepsBothRealDependencies(t *testing.T) {
+	for _, content := range []string{
+		`{"dependencies":{"openai":"^4.50.0","@azure/openai":"^2.0.0"}}`,
+		`{"dependencies":{"@azure/openai":"^2.0.0","openai":"^4.50.0"}}`,
+	} {
+		got := providersFound(t, "package.json", content)
+		if _, ok := got["openai"]; !ok {
+			t.Errorf("%s: lost the real openai dependency: %+v", content, got)
+		}
+		if _, ok := got["azure-openai"]; !ok {
+			t.Errorf("%s: no azure-openai row: %+v", content, got)
+		}
+	}
+}
+
+// TestAIUsageAzureAndVertexManifestNeedles pins the manifest half of the two
+// new ids. Every line here is how the ecosystem actually spells the
+// dependency.
+func TestAIUsageAzureAndVertexManifestNeedles(t *testing.T) {
+	for _, tc := range []struct {
+		path, line, provider, label string
+	}{
+		{"package.json", `    "@azure/openai": "^2.0.0"`, "azure-openai", "Azure OpenAI SDK (JS/TS)"},
+		{"requirements.txt", "azure-ai-inference==1.0.0b9", "azure-openai", "Azure AI Inference SDK (python)"},
+		{"requirements.txt", "azure-ai-projects==1.0.0b5", "azure-openai", "Azure AI Projects SDK (python)"},
+		{"requirements.txt", "google-cloud-aiplatform==1.60.0", "vertex", "Google Vertex AI SDK (python)"},
+		{"requirements.txt", "vertexai==1.60.0", "vertex", "Google Vertex AI SDK (python)"},
+		{"package.json", `    "@google-cloud/vertexai": "^1.9.0"`, "vertex", "Google Vertex AI SDK (JS/TS)"},
+		{"go.mod", "\tcloud.google.com/go/vertexai v0.12.0", "vertex", "Google Vertex AI SDK (Go)"},
+	} {
+		got := providersFound(t, tc.path, tc.line+"\n")
+		label, ok := got[tc.provider]
+		if !ok {
+			t.Errorf("%s: %q named no %q provider, got %+v", tc.path, tc.line, tc.provider, got)
+			continue
+		}
+		if label != tc.label {
+			t.Errorf("%s: %q label = %q, want %q", tc.path, tc.line, label, tc.label)
+		}
+		if len(got) != 1 {
+			t.Errorf("%s: %q named more than one provider: %+v", tc.path, tc.line, got)
+		}
+	}
+}
+
+// TestAIUsagePythonAzureOpenAIImportNamesAzureOnly covers how Azure users
+// actually write it: the class comes from the openai package, so the only
+// text naming Azure on the line is the class name. Without the specificity
+// rule the same line produces an openai row too, which is the same false
+// attribution as the manifest case and just as live.
+//
+// The second case is the boundary: a tree that imports the module and then
+// builds an Azure client is reaching both spellings, and both rows are true.
+func TestAIUsagePythonAzureOpenAIImportNamesAzureOnly(t *testing.T) {
+	got := providersFound(t, "agent.py", "from openai import AzureOpenAI\n")
+	if _, wrong := got["openai"]; wrong {
+		t.Errorf("named openai for a client that talks to Microsoft: %+v", got)
+	}
+	if label := got["azure-openai"]; label != "Azure OpenAI SDK (python)" {
+		t.Errorf("azure-openai label = %q, want %q (got %+v)", label, "Azure OpenAI SDK (python)", got)
+	}
+
+	both := providersFound(t, "agent.py", "import openai\n\nclient = openai.AzureOpenAI()\n")
+	if _, ok := both["openai"]; !ok {
+		t.Errorf("the plain module import is real evidence and must stay: %+v", both)
+	}
+	if _, ok := both["azure-openai"]; !ok {
+		t.Errorf("openai.AzureOpenAI names Azure and must be reported: %+v", both)
+	}
+}
+
+// TestAIUsageJSAzureImportNamesAzureOnly is the same question asked of the
+// JS/TS table, and the answer there is different: jsImportPattern anchors the
+// package name to immediately after the opening quote, so "openai" never
+// matches inside `from "@azure/openai"` in the first place. This test is here
+// to hold that property rather than to fix it, because it is held today by one
+// line of jsImportPattern that a later edit could relax without noticing.
+func TestAIUsageJSAzureImportNamesAzureOnly(t *testing.T) {
+	for _, src := range []string{
+		"import { AzureOpenAI } from \"@azure/openai\";\n",
+		"const { AzureOpenAI } = require('@azure/openai');\n",
+	} {
+		got := providersFound(t, "route.ts", src)
+		if _, wrong := got["openai"]; wrong {
+			t.Errorf("%q: named openai, got %+v", src, got)
+		}
+		if _, ok := got["azure-openai"]; !ok {
+			t.Errorf("%q: no azure-openai row, got %+v", src, got)
+		}
+	}
+}
+
+// TestAIUsageAzureAndVertexSourceImports pins the import half of the two new
+// ids across the three languages the detector reads.
+func TestAIUsageAzureAndVertexSourceImports(t *testing.T) {
+	for _, tc := range []struct {
+		path, src, provider string
+	}{
+		{"a.py", "from azure.ai.inference import ChatCompletionsClient\n", "azure-openai"},
+		{"a.py", "from azure.ai.projects import AIProjectClient\n", "azure-openai"},
+		{"a.py", "import vertexai\n", "vertex"},
+		{"a.py", "from vertexai.generative_models import GenerativeModel\n", "vertex"},
+		{"a.py", "import google.cloud.aiplatform\n", "vertex"},
+		// The spelling Vertex code actually uses, which a module-name
+		// pattern alone would miss.
+		{"a.py", "from google.cloud import aiplatform\n", "vertex"},
+		{"route.ts", "import { AzureOpenAI } from \"@azure/openai\";\n", "azure-openai"},
+		{"route.ts", "import ModelClient from \"@azure-rest/ai-inference\";\n", "azure-openai"},
+		{"route.ts", "import { VertexAI } from \"@google-cloud/vertexai\";\n", "vertex"},
+		{"client.go", "\t\"cloud.google.com/go/vertexai/genai\"\n", "vertex"},
+		{"client.go", "\taiplatform \"cloud.google.com/go/aiplatform/apiv1\"\n", "vertex"},
+	} {
+		got := providersFound(t, tc.path, tc.src)
+		if _, ok := got[tc.provider]; !ok {
+			t.Errorf("%s: %q named no %q provider, got %+v", tc.path, tc.src, tc.provider, got)
+		}
+	}
+}
+
+// TestAIUsageEndpointLiteralNamesExactlyOneProvider asks the containment
+// question of the endpoint table, for every row in it rather than only the new
+// ones. An endpoint literal is a full hostname anchored by dots on both sides
+// of each label, so one host matching two rows would take a deliberate
+// coincidence: this is the test that says so instead of assuming it.
+func TestAIUsageEndpointLiteralNamesExactlyOneProvider(t *testing.T) {
+	for _, tc := range []struct{ host, provider string }{
+		{"https://api.openai.com/v1", "openai"},
+		{"https://api.anthropic.com/v1/messages", "anthropic"},
+		{"https://generativelanguage.googleapis.com/v1beta", "google"},
+		{"bedrock-runtime.us-east-1.amazonaws.com", "bedrock"},
+		{"https://api.mistral.ai/v1", "mistral"},
+		{"https://api.cohere.com/v1", "cohere"},
+		{"https://api.groq.com/openai/v1", "groq"},
+		{"https://api.together.xyz/v1", "together"},
+		{"https://openrouter.ai/api/v1", "openrouter"},
+		{"https://api.perplexity.ai", "perplexity"},
+		{"https://api.replicate.com/v1", "replicate"},
+		// The four new ones, in the shapes Azure and Google Cloud hand an
+		// operator. The Azure OpenAI one carries "/openai/" in its path,
+		// which is exactly the kind of coincidence this test exists to catch.
+		{"https://my-res.openai.azure.com/openai/deployments/gpt-4o/chat/completions", "azure-openai"},
+		{"https://my-res.cognitiveservices.azure.com/", "azure-openai"},
+		{"https://my-proj.services.ai.azure.com/models", "azure-openai"},
+		{"https://us-central1-aiplatform.googleapis.com/v1/projects/p/locations/l", "vertex"},
+	} {
+		got := providersFound(t, "conf.txt", "url = \""+tc.host+"\"\n")
+		if _, ok := got[tc.provider]; !ok {
+			t.Errorf("%q named no %q provider, got %+v", tc.host, tc.provider, got)
+			continue
+		}
+		if len(got) != 1 {
+			t.Errorf("%q named more than one provider: %+v", tc.host, got)
+		}
+	}
+}
+
+// TestAIUsagePythonDottedModuleImports covers a defect that predates the
+// Azure and Vertex rows and would have been copied straight into them: the
+// google rows passed pyImport a module name with the dots ALREADY escaped, and
+// pyImport quotes what it is given, so the backslash was quoted too. The
+// compiled pattern demanded a literal backslash in the source and matched
+// nothing any Python file has ever contained. Two rows of the table were dead
+// and every gate was green, because nothing scanned a file that imported them.
+func TestAIUsagePythonDottedModuleImports(t *testing.T) {
+	for _, tc := range []struct{ src, label string }{
+		{"import google.generativeai as genai\n", "Google Generative AI SDK (python, Gemini)"},
+		{"from google.generativeai import GenerativeModel\n", "Google Generative AI SDK (python, Gemini)"},
+		{"from google.genai import types\n", "Google GenAI SDK (python, Gemini)"},
+	} {
+		got := providersFound(t, "a.py", tc.src)
+		if label := got["google"]; label != tc.label {
+			t.Errorf("%q: google label = %q, want %q (got %+v)", tc.src, label, tc.label, got)
+		}
+	}
+	// And the boundary the escaping was there to hold in the first place: a
+	// dot is a dot, not "any character".
+	if got := providersFound(t, "a.py", "import googleXgenerativeai\n"); len(got) != 0 {
+		t.Errorf("a dot matched a letter: %+v", got)
+	}
+}
+
+// TestAISpanContainment holds the rule directly, including the case the
+// length comparison exists for: two rows that match exactly the same bytes are
+// not a specificity question, and neither may silence the other.
+func TestAISpanContainment(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		outer aiSpan
+		inner aiSpan
+		want  bool
+	}{
+		{"strictly inside", aiSpan{0, 13}, aiSpan{7, 13}, true},
+		{"same start, longer", aiSpan{0, 13}, aiSpan{0, 6}, true},
+		{"identical spans", aiSpan{0, 6}, aiSpan{0, 6}, false},
+		{"disjoint", aiSpan{0, 6}, aiSpan{10, 16}, false},
+		{"overlapping but not contained", aiSpan{0, 10}, aiSpan{5, 15}, false},
+		{"inner is the longer one", aiSpan{7, 13}, aiSpan{0, 13}, false},
+	} {
+		if got := tc.outer.contains(tc.inner); got != tc.want {
+			t.Errorf("%s: %+v.contains(%+v) = %v, want %v", tc.name, tc.outer, tc.inner, got, tc.want)
+		}
+	}
+}
+
 // TestProviderIdsAreTheRegisteredOnes pins the whole vocabulary this detector
 // emits, rather than only the row that was wrong.
 //
@@ -559,8 +812,14 @@ func TestProviderIdsAreTheRegisteredOnes(t *testing.T) {
 	// agent-passport SPEC 4.7, as of 2026-08-25. Ids are appended there, never
 	// renamed, so a value dropping off this list means a row was renamed here
 	// and not there.
+	//
+	// azure-openai and vertex arrived with SPEC 4.7's PR #39, and they are the
+	// clearest statement of what the rule means: an id names the API surface
+	// the bytes leave for, so the same model is azure-openai through Azure and
+	// vertex through Vertex, never openai and never google.
 	registered := map[string]bool{
-		"anthropic": true, "openai": true, "google": true, "bedrock": true,
+		"anthropic": true, "openai": true, "azure-openai": true,
+		"google": true, "vertex": true, "bedrock": true,
 		"mistral": true, "cohere": true, "groq": true, "together": true,
 		"perplexity": true, "replicate": true, "openrouter": true,
 		"huggingface": true, "ollama": true,

@@ -61,3 +61,37 @@ Feature: Where does my own code reach an AI model
     Given the manifest lines real ecosystems actually write
     When the inventory is written
     Then each one still names its provider
+
+  # @test:TestAIUsageAzureOpenAIIsNotOpenAI
+  Scenario: The same model, but the bytes leave for a different company
+    Given the tree depends on "@azure/openai"
+    When the operator asks who this code talks to
+    Then the answer is Azure OpenAI
+    And nothing in the inventory says this tree calls OpenAI, because it never has
+
+  # @test:TestAIUsageManifestSpecificityKeepsBothRealDependencies
+  Scenario: A tree that really uses both is still reported as both
+    Given the same manifest depends on "openai" and on "@azure/openai"
+    When the operator asks who this code talks to
+    Then both providers are named
+    And it does not matter which of the two the manifest lists first
+
+  # @test:TestAIUsagePythonAzureOpenAIImportNamesAzureOnly
+  Scenario: Azure code written the way Azure code is actually written
+    Given the tree imports AzureOpenAI from the openai package
+    When the operator asks who this code talks to
+    Then the answer is Azure OpenAI alone, because that is where the request goes
+
+  # @test:TestAIUsageEndpointLiteralNamesExactlyOneProvider
+  Scenario: One address, one answer
+    Given a config file naming a provider endpoint and nothing else
+    When the inventory is written
+    Then exactly one provider is named for that address
+    And a Vertex AI host is not filed under the Gemini API, nor an Azure host under OpenAI
+
+  # @test:TestAIUsagePythonDottedModuleImports
+  Scenario: A rule that quietly stopped asking its question
+    Given python code that imports a provider SDK by a dotted module path
+    When the inventory is written
+    Then the provider is named
+    And the check that was meant to catch this can be shown failing without it
