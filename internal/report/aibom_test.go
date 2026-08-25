@@ -162,3 +162,55 @@ func TestAIInventoryIsDeterministic(t *testing.T) {
 		t.Errorf("provider order = %v", order)
 	}
 }
+
+// TestAIInventoryOrderIsTotal reaches the tie-breaks the determinism test
+// above never touches. Its rows all have distinct providers, so it proved
+// ordering by provider and nothing else, and the two comparisons underneath
+// were carried by no assertion that could go red.
+//
+// They are the ones that matter, because a provider legitimately produces
+// several rows: OpenAI as an SDK import and again as a bare endpoint literal
+// is one provider and two labels, which is the shape every real scan on this
+// machine produced.
+func TestAIInventoryOrderIsTotal(t *testing.T) {
+	res := &scan.Result{Root: "/tree", Findings: []model.Finding{
+		aiFinding("OpenAI SDK (python)", "openai", "provider", "b.py", 9),
+		aiFinding("OpenAI SDK (python)", "openai", "provider", "b.py", 2),
+		aiFinding("OpenAI API endpoint", "openai", "provider", "a.py", 1),
+		// Same provider, different role: the second comparison.
+		aiFinding("Ollama client (python)", "openai", "local-runtime", "c.py", 1),
+	}}
+
+	doc := decodeInventory(t, res)
+	entries, _ := doc["entries"].([]any)
+	if len(entries) != 3 {
+		t.Fatalf("entries = %d, want 3", len(entries))
+	}
+
+	var got []string
+	for _, e := range entries {
+		row, _ := e.(map[string]any)
+		got = append(got, row["role"].(string)+"/"+row["label"].(string))
+	}
+	want := []string{
+		"local-runtime/Ollama client (python)", // role sorts before "provider"
+		"provider/OpenAI API endpoint",         // same role, label decides
+		"provider/OpenAI SDK (python)",
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("row %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+
+	// And within one row, two occurrences in one file are ordered by line.
+	last, _ := entries[2].(map[string]any)
+	occs, _ := last["occurrences"].([]any)
+	if len(occs) != 2 {
+		t.Fatalf("occurrences = %d, want 2", len(occs))
+	}
+	first, _ := occs[0].(map[string]any)
+	if first["line"].(float64) != 2 {
+		t.Errorf("first occurrence line = %v, want 2", first["line"])
+	}
+}
