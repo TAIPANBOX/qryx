@@ -50,6 +50,11 @@ jobs:
       - name: the README's numbers are true
         run: ./scripts/readme-numbers.sh
 
+      # A scenario with no test is a paragraph about what somebody wanted, and
+      # a binding pointing at a renamed test is worse: it reads as held.
+      - name: every scenario names a test that exists
+        run: ./scripts/features-are-bound.sh
+
       # A scanner asks to be believed about somebody else's cryptography. The
       # honest answer to "why should I trust your binary" is not that the source
       # is open, which it always was, but that you can rebuild the release and

@@ -341,3 +341,144 @@ func TestAIUsageStillSeesARealManifestDependency(t *testing.T) {
 		t.Errorf("line %d, want 3: blanking must keep positions", got[0].Location.Line)
 	}
 }
+
+// TestAIUsageCarriesACanonicalProvider pins the field that makes this
+// detector's output joinable with the rest of the estate. The human label is
+// prose ("Anthropic SDK (python)"), and a consumer correlating it against a
+// Passport's declared provider or against an observed egress host would be
+// left mangling that string. The canonical id is the join key, and it is
+// carried on the finding rather than derived downstream, so there is one row
+// per provider instead of a second copy of the vocabulary in every consumer.
+func TestAIUsageCarriesACanonicalProvider(t *testing.T) {
+	cases := []struct {
+		name     string
+		path     string
+		content  string
+		provider string
+		role     string
+	}{
+		{"manifest", "requirements.txt", "anthropic==0.34.0\n", "anthropic", "provider"},
+		{"python import", "a.py", "import openai\n", "openai", "provider"},
+		{"endpoint literal", "cfg.yaml", "url: https://api.mistral.ai/v1\n", "mistral", "provider"},
+		{"bedrock endpoint", "cfg.yaml", "host: bedrock-runtime.eu-west-1.amazonaws.com\n", "aws-bedrock", "provider"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := NewAIUsage().Detect(scan.File{Path: tc.path, Content: []byte(tc.content)})
+			if len(got) != 1 {
+				t.Fatalf("expected 1 finding, got %d: %+v", len(got), got)
+			}
+			if p := got[0].Tags["qryx.ai.provider"]; p != tc.provider {
+				t.Errorf("provider = %q, want %q", p, tc.provider)
+			}
+			if r := got[0].Tags["qryx.ai.role"]; r != tc.role {
+				t.Errorf("role = %q, want %q", r, tc.role)
+			}
+		})
+	}
+}
+
+// TestAIUsageFrameworkNamesNoProvider is the other half, and it is a fact
+// rather than missing data: a tree that reaches an LLM through LangChain or
+// LiteLLM tells you it reaches one and not which. An empty provider is what
+// an inventory consumer must show as "reaches a model through an indirection
+// this scan cannot resolve", and filling it in with a guess would be worse
+// than leaving it open.
+func TestAIUsageFrameworkNamesNoProvider(t *testing.T) {
+	for _, tc := range []struct {
+		content string
+		role    string
+	}{
+		{"import langchain\n", "framework"},
+		{"import litellm\n", "framework"},
+		{"import transformers\n", "local-runtime"},
+	} {
+		got := NewAIUsage().Detect(scan.File{Path: "a.py", Content: []byte(tc.content)})
+		if len(got) != 1 {
+			t.Fatalf("%q: expected 1 finding, got %d", tc.content, len(got))
+		}
+		if p := got[0].Tags["qryx.ai.provider"]; p != "" {
+			t.Errorf("%q: provider = %q, want empty", tc.content, p)
+		}
+		if r := got[0].Tags["qryx.ai.role"]; r != tc.role {
+			t.Errorf("%q: role = %q, want %q", tc.content, r, tc.role)
+		}
+	}
+}
+
+// TestEveryAIUsageLabelHasACanonicalRow walks every row of all three tables
+// and requires a role on each, so a provider added later cannot ship without
+// one. It fails loudly on an empty walk rather than passing on nothing.
+func TestEveryAIUsageLabelHasACanonicalRow(t *testing.T) {
+	rows := 0
+	check := func(where, label, role string) {
+		rows++
+		if role == "" {
+			t.Errorf("%s: %q has no role", where, label)
+		}
+	}
+	for _, n := range aiManifestNeedles {
+		check("aiManifestNeedles", n.label, n.role)
+	}
+	for ext, pats := range aiImportPatterns {
+		for _, p := range pats {
+			check("aiImportPatterns"+ext, p.label, p.role)
+		}
+	}
+	for _, e := range aiEndpoints {
+		check("aiEndpoints", e.label, e.role)
+	}
+	if rows == 0 {
+		t.Fatal("walked no rows: this test measured nothing, which is a failure of the test")
+	}
+}
+
+// TestAIUsageManifestNeedleIsAWholeToken is a real false positive, from
+// tokenfuse/crates/cluster/Cargo.toml, caught the first time this detector's
+// output was read by another program rather than by a person.
+//
+// The needle "replicate" matched inside the word "raft-replicated", in a
+// description field, and the row that came out named Replicate as a provider
+// the code has never heard of. A person reading a table might squint at it;
+// a consumer joining on the provider id reports AI usage that does not exist,
+// which is the one failure an inventory must not have.
+func TestAIUsageManifestNeedleIsAWholeToken(t *testing.T) {
+	content := []byte("[package]\nname = \"tokenfuse-cluster\"\ndescription = \"HA budget counters for TokenFuse: a raft-replicated ledger (openraft)\"\n")
+	got := NewAIUsage().Detect(scan.File{Path: "Cargo.toml", Content: content})
+	if len(got) != 0 {
+		t.Fatalf("expected 0 findings, got %d: %+v", len(got), got)
+	}
+}
+
+// TestAIUsageManifestStillMatchesRealPackageNames is the other direction, and
+// it is the one that stops the fix above from being a silent recall cut. Every
+// case here is a real dependency line from a real ecosystem.
+func TestAIUsageManifestStillMatchesRealPackageNames(t *testing.T) {
+	for _, tc := range []struct {
+		path, line, provider string
+	}{
+		{"requirements.txt", "openai==1.50.0", "openai"},
+		{"requirements.txt", "anthropic==0.40.0", "anthropic"},
+		{"requirements.txt", "langchain-openai==0.2.0", "openai"},
+		{"go.mod", "\tgithub.com/sashabaranov/go-openai v1.32.0", "openai"},
+		{"go.mod", "\tgithub.com/anthropics/anthropic-sdk-go v0.2.0", "anthropic"},
+		{"package.json", "    \"@anthropic-ai/sdk\": \"^0.30.0\"", "anthropic"},
+		{"requirements.txt", "huggingface_hub==0.26.0", "huggingface"},
+		{"requirements.txt", "mistralai==1.2.0", "mistral"},
+	} {
+		got := NewAIUsage().Detect(scan.File{Path: tc.path, Content: []byte(tc.line + "\n")})
+		if len(got) == 0 {
+			t.Errorf("%s: %q produced no finding, want provider %q", tc.path, tc.line, tc.provider)
+			continue
+		}
+		found := false
+		for _, f := range got {
+			if f.Tags["qryx.ai.provider"] == tc.provider {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%s: %q named no %q provider, got %+v", tc.path, tc.line, tc.provider, got)
+		}
+	}
+}

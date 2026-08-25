@@ -228,6 +228,36 @@ run_case "reproducible-build: no asset name left to read" fail \
 	"$(py 'edit(".github/workflows/release.yml", "out=\"qryx_", "unused=\"qryx_")')" \
 	"no release asset name"
 
+# features-are-bound: the two directions that actually rot.
+#
+# A binding pointing at a renamed test is the failure that happens on its own,
+# because nothing links the pointer to the test but a string. A scenario with
+# no binding is the one somebody adds in a hurry, and it reads as held.
+run_case "features-are-bound: a binding naming a test that does not exist" fail \
+	'./scripts/features-are-bound.sh' \
+	"$(py 'edit("features/ai-inventory.feature", "@test:TestAIInventoryCarriesProviderAndRole", "@test:TestAIInventoryCarriesProviderAndRoleRenamed")')" \
+	"DANGLING"
+
+run_case "features-are-bound: a scenario with no binding above it" fail \
+	'./scripts/features-are-bound.sh' \
+	"$(py 'edit("features/ai-inventory.feature", "  # @test:TestAIInventoryIsDeterministic\n", "")')" \
+	"UNBOUND"
+
+# The non-fault: prose is what these files are for, and a gate that fires on an
+# edited sentence is one people learn to skip.
+run_case "features-are-bound: a reworded step" pass \
+	'./scripts/features-are-bound.sh' \
+	"$(py 'edit("features/ai-inventory.feature", "Given a source tree the operator owns", "Given a source tree that belongs to the operator")')"
+
+# And the subject taken away: an empty feature file passes every check above,
+# because there is nothing in it to be wrong.
+run_case "features-are-bound: a feature file with no scenarios left" fail \
+	'./scripts/features-are-bound.sh' \
+	"$(py 'import re
+b = open("features/ai-inventory.feature").read()
+open("features/ai-inventory.feature", "w").write(re.sub(r"(?s)  # @test.*", "", b))')" \
+	"a feature file with no scenarios"
+
 echo
 if [ -n "$(git status --porcelain)" ]; then
 	printf 'FAIL: this script left the tree dirty, so it cannot be trusted about anything above\n'

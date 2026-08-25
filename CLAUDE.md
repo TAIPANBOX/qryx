@@ -38,6 +38,7 @@ else's infrastructure.
    ```sh
    ./scripts/declared-deps.sh
    ./scripts/readme-numbers.sh
+   ./scripts/features-are-bound.sh   # invariant 15
    ./scripts/reproducible-build.sh   # builds from git archive HEAD: run it after committing
    ./scripts/gates-have-teeth.sh     # invariant 12; needs a clean tree
    ```
@@ -205,15 +206,66 @@ an absent invariant.
     A text parser does not break loudly: it stops matching and reports success.
     The mutants that proved these gates lived in commit messages and in the
     `*(gate: ...)*` markers above, which is a record of what was true once.
-    *(gate: `scripts/gates-have-teeth.sh`, 10 cases: five real faults each gate
-    must catch, two non-faults they must not, and three subjects taken away
+    *(gate: `scripts/gates-have-teeth.sh`, 14 cases: seven real faults each gate
+    must catch, three non-faults they must not, and four subjects taken away
     entirely, where the gate must say it measured nothing rather than report
     OK. Every mutation asserts it applied, because a mutation that changed no
     bytes is indistinguishable from a gate that passed.)*
 
     **What it does not cover.** It cannot test itself. It proves each gate
     catches the faults named in it, not every fault of that kind. It found no
-    hole in any of the three.
+    hole in any of the four.
+
+13. **A provider id is written once, in the detector's own tables, and every
+    consumer joins on it.** The AI inventory has two names for one thing: a
+    human label ("Anthropic SDK (python)") and a canonical id (`anthropic`).
+    The label is prose and may be reworded; the id is a join key that another
+    program in the estate correlates against a Passport's declared provider and
+    against an observed egress host. A consumer deriving the id from the label
+    would be a second copy of the vocabulary, kept by hand, in a repository
+    that cannot see this one, which is invariant 11's failure with a longer
+    blast radius: `sourceAgility` at least lives in the same tree.
+
+    Two rows carry no provider and that is the design rather than missing data.
+    A `framework` row means the tree reaches a model through an indirection
+    whose target is chosen by configuration a text scan cannot read, and a
+    `local-runtime` row means nothing leaves the machine. Filling either in
+    with a guess would put a provider into an inventory that no evidence
+    supports.
+    *(test: `TestEveryAIUsageLabelHasACanonicalRow` walks all three tables and
+    requires a role on every row, failing loudly on an empty walk rather than
+    passing on nothing; `TestAIUsageCarriesACanonicalProvider` and
+    `TestAIUsageFrameworkNamesNoProvider` hold the two halves at the detector,
+    and `TestAIInventoryCarriesProviderAndRole` holds it at the document)*
+
+14. **A manifest needle matches a whole token, never inside a longer word.**
+    Manifests carry prose as well as dependencies, and a bare substring reads
+    both. `replicate` matched inside "raft-replicated" in a Cargo.toml
+    description, and the row that came out named a provider that code has never
+    called. A person reading a table might squint at it; a program joining on
+    the id reports AI usage that does not exist, which is the one failure an
+    inventory cannot survive. Only letters bound a needle: a hyphen, an
+    underscore, a slash, a quote, a digit and a line start all stay legal, since
+    that is how real package names are spelled.
+    *(test: `TestAIUsageManifestNeedleIsAWholeToken`, verified red against the
+    real Cargo.toml line that produced it, and
+    `TestAIUsageManifestStillMatchesRealPackageNames` beside it, because the
+    obvious over-correction is a recall cut nobody would notice: it pins eight
+    dependency lines real ecosystems actually write)*
+
+15. **Every scenario in `features/` names a test that exists, and every
+    scenario names one at all.** The feature files are what a reader reads
+    instead of a diff, and a scenario with no binding is a paragraph describing
+    what somebody wanted. A binding pointing at a renamed test is worse, because
+    it reads as held. What this does NOT check is that the test asserts what the
+    scenario says: the steps are prose and the binding is a pointer, so a
+    scenario can drift from its test and stay green. What it catches is the
+    pointer breaking, which is the failure that happens on its own.
+    *(gate: `scripts/features-are-bound.sh`, which also refuses a feature file
+    with no scenarios and reports that it measured nothing rather than passing
+    on an empty set. Four cases in `scripts/gates-have-teeth.sh`: a dangling
+    binding, an unbound scenario, a reworded step that must NOT fire, and every
+    scenario taken away.)*
 
 ## Decisions that have no gate yet
 
@@ -230,8 +282,12 @@ The rule that follows: set a marker from evidence, both ways. Before writing
 open the test and check it asserts what the invariant claims.
 
 **Held by this file alone: invariants 2, 4 and 6.** Invariants 7 and 8 are
-half held. Invariant 3 is `scripts/declared-deps.sh` and invariant 9 is
-`scripts/reproducible-build.sh`.
+half held. Invariant 3 is `scripts/declared-deps.sh`, invariant 9 is
+`scripts/reproducible-build.sh`, and invariant 15 is
+`scripts/features-are-bound.sh`. Invariants 13 and 14 are tests: what a script
+could check about them is that a table has a role in every row, which the walk
+test already does from inside the package, where it can see the tables rather
+than grep for them.
 
 Invariant 3 is now `scripts/declared-deps.sh`. Writing it corrected the
 invariant's own prose, which listed "pgx, the cloud SDKs, and hcl/v2" and
