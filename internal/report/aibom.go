@@ -31,7 +31,7 @@ const AIInventorySchema = "qryx.ai-inventory/v1"
 // format's AI extensions are built to carry, and dressing the evidence up in a
 // standard's vocabulary would overstate what a regex over source text knows.
 //
-// WHAT A CONSUMER JOINS ON
+// # WHAT A CONSUMER JOINS ON
 //
 // The provider id, not the label. The label is prose for a person; the id is
 // the join key, and it comes from the detector's own tables rather than being

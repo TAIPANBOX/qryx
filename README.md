@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-267-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-276-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Status](https://img.shields.io/badge/phase-4%20(governance)-success.svg)
 
@@ -249,7 +249,46 @@ disabled branch, a comment, or a code path never exercised. This detector is
 the static, code-side half of the inventory; confirming that a call actually
 happens at runtime is a different source (idryx's eBPF network view), and
 correlating the two (declared-but-never-called, or called-but-undeclared) is
-a future step, not something this detector does today.
+a separate step that this detector does not perform.
+
+### Reading it from another program
+
+`--format ai-inventory` writes the same findings as JSON. Every row names the
+provider by a stable id rather than by the sentence a person reads, so a
+consumer joins on `anthropic` rather than on `Anthropic SDK (python)`, and the
+id comes off the detector's own tables, so the whole tool has one row per
+provider and no second copy anywhere downstream.
+
+```json
+{
+  "schema": "qryx.ai-inventory/v1",
+  "entries": [
+    { "provider": "anthropic", "role": "provider", "label": "Anthropic SDK (python)",
+      "occurrences": [ { "file": "src/agent.py", "line": 2, "evidence": "import anthropic" } ] }
+  ],
+  "limits": [ "..." ]
+}
+```
+
+`role` is one of three, and the distinction is what keeps the document honest:
+
+- `provider`, a named provider the code can reach.
+- `framework`, where the code reaches a model through LangChain, LiteLLM or a
+  similar indirection. Its `provider` is **empty on purpose**: the tree does
+  reach a model, and which one is chosen by configuration a text scan cannot
+  read. An empty id there is a fact, not a gap.
+- `local-runtime`, weights loaded in-process or a model server on the
+  operator's own machine, where nothing leaves.
+
+`limits` is in every document, including an empty one. An inventory that finds
+nothing looks exactly like a tree that uses no AI, and only those sentences say
+otherwise.
+
+This is what lets the code-side answer meet the other two the stack already
+holds: what an agent's Passport **declares** it uses (`models`, SPEC 4.5), and
+what idryx **observed** it reach. Three answers to one question, from three
+places that cannot see each other, and the interesting rows are the ones where
+they disagree.
 
 ---
 
@@ -432,6 +471,7 @@ qryx scan --format evidence <path> > evidence.json  # tamper-evident compliance 
 qryx scan --format evidence --sign-key key.pem <path> > evidence.json  # ...signed (ed25519/ECDSA/ML-DSA)
 qryx verify-evidence evidence.json     # verify a signed attestation
 qryx scan --format dashboard <path> > dashboard.html # one-page governance dashboard
+qryx scan --format ai-inventory <path>  # where this tree reaches an AI model (JSON)
 qryx scan --save-evidence trail.jsonl <path>   # append a dated compliance record
 qryx trend trail.jsonl                 # show the compliance-score history
 qryx trend --html trail.jsonl > trend.html     # ...as an SVG chart
