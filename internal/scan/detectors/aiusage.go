@@ -345,7 +345,7 @@ var aiEndpoints = []aiPattern{
 	// *.bedrock-runtime.*.amazonaws.com hostname, since the substring is
 	// contained in both. This is the only Bedrock signal this detector uses;
 	// boto3 alone is never flagged (see aiManifestNeedles).
-	{regexp.MustCompile(`bedrock-runtime`), "AWS Bedrock", "aws-bedrock", roleProvider},
+	{regexp.MustCompile(`bedrock-runtime`), "AWS Bedrock", "bedrock", roleProvider},
 	{regexp.MustCompile(`api\.mistral\.ai`), "Mistral AI API endpoint", "mistral", roleProvider},
 	{regexp.MustCompile(`api\.cohere\.(?:ai|com)`), "Cohere API endpoint", "cohere", roleProvider},
 	{regexp.MustCompile(`api\.groq\.com`), "Groq API endpoint", "groq", roleProvider},

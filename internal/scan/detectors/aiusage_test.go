@@ -360,7 +360,7 @@ func TestAIUsageCarriesACanonicalProvider(t *testing.T) {
 		{"manifest", "requirements.txt", "anthropic==0.34.0\n", "anthropic", "provider"},
 		{"python import", "a.py", "import openai\n", "openai", "provider"},
 		{"endpoint literal", "cfg.yaml", "url: https://api.mistral.ai/v1\n", "mistral", "provider"},
-		{"bedrock endpoint", "cfg.yaml", "host: bedrock-runtime.eu-west-1.amazonaws.com\n", "aws-bedrock", "provider"},
+		{"bedrock endpoint", "cfg.yaml", "host: bedrock-runtime.eu-west-1.amazonaws.com\n", "bedrock", "provider"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -538,5 +538,58 @@ func TestIndexAsTokenGuards(t *testing.T) {
 		if got := indexAsToken(tc.hay, tc.needle); got != tc.want {
 			t.Errorf("indexAsToken(%q, %q) = %d, want %d", tc.hay, tc.needle, got, tc.want)
 		}
+	}
+}
+
+// TestProviderIdsAreTheRegisteredOnes pins the whole vocabulary this detector
+// emits, rather than only the row that was wrong.
+//
+// The ids are a join key: another product correlates them against a Passport's
+// declared provider and against an observed egress host, and agent-passport
+// SPEC 4.7 is where the agreed spelling lives. A misspelling here is not a
+// cosmetic defect. It reports a provider as undeclared on a passport that
+// declares it, and the reader has no way to tell that from real drift.
+//
+// This test cannot read that SPEC: it is another repository, and the sentence
+// this comment is in is the only thing tying the two together. What it does
+// instead is make the vocabulary visible in one place, so adding a provider is
+// a deliberate edit to a list somebody has to look at, rather than one more
+// row appended to a table of forty.
+func TestProviderIdsAreTheRegisteredOnes(t *testing.T) {
+	// agent-passport SPEC 4.7, as of 2026-08-25. Ids are appended there, never
+	// renamed, so a value dropping off this list means a row was renamed here
+	// and not there.
+	registered := map[string]bool{
+		"anthropic": true, "openai": true, "google": true, "bedrock": true,
+		"mistral": true, "cohere": true, "groq": true, "together": true,
+		"perplexity": true, "replicate": true, "openrouter": true,
+		"huggingface": true, "ollama": true,
+	}
+
+	seen := map[string]bool{}
+	check := func(where, provider, role string) {
+		if provider == "" {
+			// A framework or a local runtime names no provider, and that is
+			// the design: see roleFramework.
+			return
+		}
+		seen[provider] = true
+		if !registered[provider] {
+			t.Errorf("%s: provider %q is not registered in agent-passport SPEC 4.7", where, provider)
+		}
+	}
+	for _, n := range aiManifestNeedles {
+		check("aiManifestNeedles", n.provider, n.role)
+	}
+	for ext, pats := range aiImportPatterns {
+		for _, p := range pats {
+			check("aiImportPatterns"+ext, p.provider, p.role)
+		}
+	}
+	for _, e := range aiEndpoints {
+		check("aiEndpoints", e.provider, e.role)
+	}
+	if len(seen) == 0 {
+		t.Fatal("walked no provider at all: this test measured nothing")
 	}
 }
