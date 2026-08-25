@@ -482,3 +482,61 @@ func TestAIUsageManifestStillMatchesRealPackageNames(t *testing.T) {
 		}
 	}
 }
+
+// TestAIUsageMavenManifest covers the pom.xml path, which was reachable by
+// any Java operator and exercised by nothing: pom.xml is in aiManifestBases,
+// so a scan walks it, and three separate branches were carried by no test at
+// all. Its comment syntax spans lines, so comments are deliberately left in
+// place rather than half-stripped, and the ecosystem tag it produces is the
+// one a reader sees in the label.
+func TestAIUsageMavenManifest(t *testing.T) {
+	content := []byte("<project>\n  <dependency>\n    <artifactId>openai-java</artifactId>\n  </dependency>\n</project>\n")
+	got := NewAIUsage().Detect(scan.File{Path: "pom.xml", Content: content})
+	if len(got) != 1 {
+		t.Fatalf("expected 1 finding, got %d: %+v", len(got), got)
+	}
+	if got[0].Asset.Algorithm != "OpenAI SDK (Java)" {
+		t.Errorf("label = %q, want \"OpenAI SDK (Java)\"", got[0].Asset.Algorithm)
+	}
+	if p := got[0].Tags["qryx.ai.provider"]; p != "openai" {
+		t.Errorf("provider = %q, want openai", p)
+	}
+}
+
+// TestAIUsageLabelWithItsOwnParentheticalKeepsIt pins withEcosystem's early
+// return. A label that already names something more specific than the
+// language must not collect a second, clashing bracket.
+func TestAIUsageLabelWithItsOwnParentheticalKeepsIt(t *testing.T) {
+	got := NewAIUsage().Detect(scan.File{
+		Path:    "requirements.txt",
+		Content: []byte("google-generativeai==0.8.0\n"),
+	})
+	if len(got) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(got))
+	}
+	if want := "Google Generative AI SDK (Gemini)"; got[0].Asset.Algorithm != want {
+		t.Errorf("label = %q, want %q", got[0].Asset.Algorithm, want)
+	}
+}
+
+// TestIndexAsTokenGuards holds the boundary rule directly, including the
+// empty needle, which no table row can produce and which would loop forever
+// on strings.Index if the guard were dropped.
+func TestIndexAsTokenGuards(t *testing.T) {
+	for _, tc := range []struct {
+		hay, needle string
+		want        int
+	}{
+		{"anything at all", "", -1},
+		{"a raft-replicated ledger", "replicate", -1},
+		{"replicated then replicate", "replicate", 16},
+		{"go-openai v1.32.0", "openai", 3},
+		{"openai==1.50.0", "openai", 0},
+		{"langchain_openai", "langchain", 0},
+		{"myopenaiclient", "openai", -1},
+	} {
+		if got := indexAsToken(tc.hay, tc.needle); got != tc.want {
+			t.Errorf("indexAsToken(%q, %q) = %d, want %d", tc.hay, tc.needle, got, tc.want)
+		}
+	}
+}
