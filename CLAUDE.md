@@ -46,9 +46,13 @@ else's infrastructure.
    command on fixtures or a real target.
 5. **Commit** one logical change, Conventional Commits (`feat:`/`fix:`/`test:`/
    `docs:`/`refactor:`/`chore:`), end with the `Co-Authored-By` trailer.
-6. **Push** to `origin/main` (GitHub `TAIPANBOX/qryx`).
-7. **Check CI**: `gh run list --branch main --limit 1`; wait for it; both `build`
-   and `integration` jobs must be green. Fix forward if red.
+6. **Push the branch** and open a PR with `gh` (GitHub `TAIPANBOX/qryx`).
+   `main` is protected and refuses a direct push: `build`, `security` and
+   `integration` are required checks, and the rule applies to admins too, so
+   there is no account here that can put an unverified commit on `main`.
+7. **Check CI**: `gh pr checks <n>`; all three must be green before merging.
+   `gh pr merge <n> --squash --auto` queues the merge and GitHub performs it
+   when they pass. Fix forward if red, never force-push.
 
 ## Architecture & conventions (reuse these - do not reinvent)
 - **One model:** every connector produces `model.Finding` (internal/model).
