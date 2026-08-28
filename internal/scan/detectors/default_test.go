@@ -4,7 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"io/fs"
+	"os"
 	"sort"
 	"strings"
 	"testing"
@@ -24,20 +24,38 @@ import (
 // hand-kept list is the same problem one level up: it would need editing by
 // the same person who forgot to edit Default().
 func TestEveryDetectorInThisPackageIsInTheDefaultSet(t *testing.T) {
-	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, ".", func(fi fs.FileInfo) bool {
-		return !strings.HasSuffix(fi.Name(), "_test.go")
-	}, 0)
+	// The directory is walked by hand rather than with parser.ParseDir, which
+	// is deprecated as of Go 1.25 for ignoring build tags. That blindness is
+	// wanted here: a constructor placed behind a tag is still a detector
+	// somebody wrote, and leaving it out of Default() is the same silent gap
+	// this test exists to catch. golang.org/x/tools/go/packages, the suggested
+	// replacement, would honour the tag and stop looking.
+	entries, err := os.ReadDir(".")
 	if err != nil {
-		t.Fatalf("parsing this package: %v", err)
+		t.Fatalf("reading this package's directory: %v", err)
 	}
-	pkg, ok := pkgs["detectors"]
-	if !ok {
+	fset := token.NewFileSet()
+	var files []*ast.File
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatalf("parsing %s: %v", name, err)
+		}
+		if f.Name.Name != "detectors" {
+			continue
+		}
+		files = append(files, f)
+	}
+	if len(files) == 0 {
 		t.Fatal("the detectors package did not parse, so this measured nothing")
 	}
 
 	var constructors []string
-	for _, f := range pkg.Files {
+	for _, f := range files {
 		for _, d := range f.Decls {
 			fn, ok := d.(*ast.FuncDecl)
 			if !ok || fn.Recv != nil || !strings.HasPrefix(fn.Name.Name, "New") {
