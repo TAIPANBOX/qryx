@@ -36,6 +36,20 @@ jobs:
         run: test -z "$(gofmt -l .)" || (gofmt -l .; exit 1)
       - name: vet
         run: go vet ./...
+
+      # This repository was the only Go one in the estate with no staticcheck
+      # at all, which was invisible: its CI has more steps than most, so the
+      # gap read as thoroughness. On 2026-08-28 the same analyser, restored to
+      # costcrew after being wrongly removed, found three real defects there
+      # in its first run.
+      #
+      # 2026.2.1 is also the first release that understands Go 1.27, which this
+      # repository requires for `crypto/mldsa`; 2026.1 could not have checked
+      # it at all.
+      - name: staticcheck
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@2026.2.1
+          staticcheck ./...
       - name: test
         run: go test -race ./...
       - name: build
