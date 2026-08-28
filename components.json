@@ -1,0 +1,64 @@
+{
+  "$comment": [
+    "What this repository contributes to a running stack, and what a check may",
+    "believe about it. `checked` is proved against this repository by",
+    "internal/manifest/manifest_test.go in this repository's own CI; `declared` is",
+    "a statement nobody can verify and carries its own `why`.",
+    "",
+    "IT READS NO ENVIRONMENT AT ALL, AND THAT IS A CLAIM RATHER THAN AN ABSENCE.",
+    "Every other manifest in this estate lists variables and the test fails when",
+    "it finds none, on the grounds that finding none means the reader broke. Here",
+    "finding none is the truth: there is no QRYX_ name in any file, test files",
+    "included. So the claim is inverted and checked as such, and the day somebody",
+    "adds one, this goes red and the manifest has to say so.",
+    "",
+    "THE EXIT CODES ARE THE OPPOSITE OF MOCKRYX'S, IN THE SAME ESTATE.",
+    "",
+    "  qryx scan   0 the scan completed, however much it found",
+    "              1 a tool or usage error",
+    "              2 findings, and only when --fail-on/--fail-on-new/--policy",
+    "                asked for that",
+    "",
+    "  mockryx run 0 the drill ran and everything held",
+    "              1 the drill ran and scenarios failed",
+    "              2 refused for configuration",
+    "",
+    "So 1 and 2 mean opposite kinds of thing in two tools a single routine file",
+    "calls, and a caller that assumed one convention would misread the other.",
+    "stack-up's routine gets this right and says why in a comment; nothing on this",
+    "side asserted it until now.",
+    "",
+    "FINDINGS ALONE DO NOT CHANGE THE EXIT CODE. That is the part worth proving:",
+    "a scan of a file with three real findings exits 0 unless a flag asked",
+    "otherwise, so a caller reading 0 as `nothing found` would be wrong every",
+    "time."
+  ],
+  "schema": "taipanbox.dev/components/v1",
+  "repo": "TAIPANBOX/qryx",
+  "components": [
+    {
+      "name": "qryx-trend",
+      "class": "tool",
+      "checked": {
+        "package": "github.com/TAIPANBOX/qryx/cmd/qryx",
+        "subcommand": "scan",
+        "env": {},
+        "reads_no_environment": true,
+        "completed_exit_code": 0,
+        "tool_error_exit_code": 1,
+        "findings_when_asked_exit_code": 2,
+        "findings_alone_do_not_change_the_exit_code": true
+      },
+      "declared": {
+        "the_cluster_pulls_a_published_image": {
+          "value": "ghcr.io/taipanbox/qryx",
+          "why": "Unlike most of this estate, qryx publishes an image and stack-k8s pulls it rather than building from source. Which tag a deployment pins is its decision and C1 already watches for a lag, so no version is claimed here."
+        },
+        "the_routine_name_is_not_a_binary_name": {
+          "value": "qryx-trend",
+          "why": "estate.json's `runs` carries the ROUTINE's name. The binary is `qryx` and the routine is `qryx scan --save-evidence <dir> <path>`, which is why this component maps to a subcommand."
+        }
+      }
+    }
+  ]
+}
