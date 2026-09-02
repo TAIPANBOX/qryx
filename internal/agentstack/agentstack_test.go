@@ -180,7 +180,21 @@ func TestEventsNoHashChain(t *testing.T) {
 // prev_hash must NOT be reported tamper-evident. The old check ("chained >
 // 0") called any stream with at least one chained event fully tamper-evident:
 // a 1000-event stream with a single chained event passed the same as a
-// fully chained one. This fixture has 3 events, only 2 of them chained.
+// fully chained one. This fixture has 3 events: event 1 carries a prev_hash,
+// event 2 carries none, event 3 carries a prev_hash.
+//
+// What "not tamper-evident" means for this exact fixture changed with the
+// head-aware pass 1 added alongside TestARealTokenFuseChainWithAHeadIsVerified.
+// Event 2's missing prev_hash is no longer read as a gap: per SPEC.md §6.5, an
+// event with no prev_hash is a legitimate head, and a head anywhere but line
+// one is a legal restart, so pass 1 now treats event 2 as the second of two
+// heads and lets the stream through to cryptographic verification. It is pass
+// 2 (event.VerifyChain) that catches this fixture now: event 3's stored
+// prev_hash was hand-typed to look plausible and does not actually equal the
+// real hash of event 2, so it comes back a genuine break, not a structural
+// gap. The regression this test protects against -- a stream that is not
+// genuinely, fully chained must never be reported verified -- still holds;
+// it is now caught one layer deeper, by recomputation instead of shape.
 func TestEventsPartiallyChainedNotTamperEvident(t *testing.T) {
 	got := mustScan(t, "testdata/events-partially-chained.ndjson")
 	if len(got) != 1 {
@@ -188,10 +202,16 @@ func TestEventsPartiallyChainedNotTamperEvident(t *testing.T) {
 	}
 	f := got[0]
 	if f.Risk.Class != model.RiskMisconfig {
-		t.Errorf("risk class = %q, want %q (a partially-chained stream is not tamper-evident)", f.Risk.Class, model.RiskMisconfig)
+		t.Errorf("risk class = %q, want %q (a stream that does not genuinely chain is not tamper-evident)", f.Risk.Class, model.RiskMisconfig)
 	}
 	if f.Asset.Algorithm == "SHA-256" {
-		t.Error("a partially-chained stream must not report the tamper-evident SHA-256 asset")
+		t.Error("this stream must not report the tamper-evident SHA-256 asset")
+	}
+	if f.Asset.Algorithm != "hash-chain-broken" {
+		t.Errorf("algorithm = %q, want %q: event 2's missing prev_hash is now a legal restart, so this is caught by cryptographic verification finding event 3's hash does not check out, not by the structural pass", f.Asset.Algorithm, "hash-chain-broken")
+	}
+	if !strings.Contains(f.Evidence, "line 3") {
+		t.Errorf("evidence must name the broken line (3): %q", f.Evidence)
 	}
 }
 
@@ -306,6 +326,50 @@ func TestEventsGenuinelyChainedVerified(t *testing.T) {
 	}
 	if !strings.Contains(f.Evidence, "cryptographically verified") {
 		t.Errorf("evidence should say the chain was cryptographically verified: %q", f.Evidence)
+	}
+}
+
+// TestARealTokenFuseChainWithAHeadIsVerified is the regression test for the
+// gap TestEventsGenuinelyChainedVerified's "drop the head" construction left
+// open: a stream that genuinely, properly opens with an empty-prev_hash head
+// at line one -- the ordinary shape any real producer following
+// agent-passport SPEC.md §6.5 writes, and the one shape neither
+// TestEventsChained nor TestEventsGenuinelyChainedVerified could exercise,
+// because both were built (or, for the pre-existing fixture, patched) to
+// satisfy the OLD pass 1, which required every event including the first to
+// carry a prev_hash.
+//
+// testdata/events-tokenfuse-real.ndjson is not synthetic: it is a byte-for-
+// byte copy of a real agent-event stream written by a real container,
+// ghcr.io/taipanbox/tokenfuse:v0.4.1, run with TOKENFUSE_EVENTS_PATH set,
+// stopped with SIGINT to flush. Three API calls against a 1-microdollar
+// budget each tripped the breaker, so the gateway wrote three
+// breaker_tripped events; the fourth call in the same run (a real budget)
+// did not trip the breaker and is absent, which is why this file has three
+// lines, not four. Line 1 carries no prev_hash at all (the expected head);
+// its independently-recomputed event.ChainHash matches line 2's prev_hash
+// exactly, and line 2's matches line 3's, confirmed by hand before writing
+// this test. Before this change, pass 1 rejected this genuinely correct
+// file as "only partially hash-chained" and never reached cryptographic
+// verification at all -- a check red on a correct build, the worst shape a
+// check can take.
+func TestARealTokenFuseChainWithAHeadIsVerified(t *testing.T) {
+	got := mustScan(t, "testdata/events-tokenfuse-real.ndjson")
+	if len(got) != 1 {
+		t.Fatalf("want 1 finding, got %d: %+v", len(got), got)
+	}
+	f := got[0]
+	if f.Asset.Type != model.TypeAlgorithm || f.Asset.Algorithm != "SHA-256" {
+		t.Errorf("asset = %+v, want algorithm/SHA-256 (genuinely verified)", f.Asset)
+	}
+	if f.Risk.Class != "" {
+		t.Errorf("risk class = %q, want empty: a real chain with a proper head is not a finding to flag", f.Risk.Class)
+	}
+	if !strings.Contains(f.Evidence, "cryptographically verified") {
+		t.Errorf("evidence should say the chain was cryptographically verified: %q", f.Evidence)
+	}
+	if !strings.Contains(f.Evidence, "1 head") {
+		t.Errorf("evidence should say how many heads it saw (1: one continuous chain): %q", f.Evidence)
 	}
 }
 
@@ -525,6 +589,73 @@ func TestEventStreamHostileInputs(t *testing.T) {
 			t.Errorf("a lone stray prev_hash with nothing to contradict it must not be reported broken, got %+v", got[0])
 		}
 	})
+
+	t.Run("non_head_prev_hash_not_sha256_shaped", func(t *testing.T) {
+		// A genuinely NEW structural category the head-aware pass 1
+		// introduces: an event that is not a head (its prev_hash field is
+		// present, so SPEC.md §6.5 does not exempt it) but whose value is
+		// not even sha256:-shaped. Before this field existed as a thing to
+		// check, this line was indistinguishable from any other
+		// "not chained" event; now it is its own reason, caught structurally,
+		// never reaching the expensive cryptographic pass.
+		head := event.Event{Schema: event.SchemaV02, TS: "2026-08-10T09:00:00Z", Source: "tokenfuse", Type: "budget_exhausted", AgentID: agentID, Data: map[string]any{"n": 1}}
+		bogus := event.Event{Schema: event.SchemaV02, TS: "2026-08-10T09:01:00Z", Source: "engram", Type: "memory_written", AgentID: agentID, Data: map[string]any{"n": 2}, PrevHash: "not-a-real-hash-at-all"}
+		path := filepath.Join(t.TempDir(), "malformed-shape.ndjson")
+		writeEvents(t, path, head, bogus)
+
+		got := mustScan(t, path)
+		if len(got) != 1 {
+			t.Fatalf("want 1 finding, got %d: %+v", len(got), got)
+		}
+		f := got[0]
+		if f.Asset.Algorithm != "no-hash-chain" {
+			t.Errorf("algorithm = %q, want %q: a malformed-shape prev_hash on a non-head event is a structural rejection, never reaching event.VerifyChain", f.Asset.Algorithm, "no-hash-chain")
+		}
+		if f.Risk.Class != model.RiskMisconfig {
+			t.Errorf("risk class = %q, want %q", f.Risk.Class, model.RiskMisconfig)
+		}
+		if !strings.Contains(f.Evidence, "not sha256:-shaped") {
+			t.Errorf("evidence must name the specific problem (not sha256:-shaped): %q", f.Evidence)
+		}
+	})
+
+	t.Run("restart_mid_file_is_verified_with_two_heads_reported", func(t *testing.T) {
+		// Two genuinely chained two-event segments concatenated in one file
+		// (segment 1: head -> link; segment 2: another head -> link), the
+		// shape a rotated log or a process that restarted mid-stream
+		// produces. SPEC.md §6.5 makes the second head a legal restart, not
+		// a break, so this must verify -- and because "verified" alone would
+		// wrongly read as "one continuous 4-event history," the evidence
+		// must say 2 heads, so a reader can tell it is two chains.
+		head1 := event.Event{Schema: event.SchemaV02, TS: "2026-08-10T09:00:00Z", Source: "tokenfuse", Type: "budget_exhausted", AgentID: agentID, Data: map[string]any{"n": 1}}
+		hash1, err := event.ChainHash(head1)
+		if err != nil {
+			t.Fatalf("ChainHash(head1): %v", err)
+		}
+		link1 := event.Event{Schema: event.SchemaV02, TS: "2026-08-10T09:01:00Z", Source: "engram", Type: "memory_written", AgentID: agentID, Data: map[string]any{"n": 2}, PrevHash: hash1}
+
+		head2 := event.Event{Schema: event.SchemaV02, TS: "2026-08-10T09:02:00Z", Source: "wardryx", Type: "policy_violation", AgentID: agentID, Data: map[string]any{"n": 3}}
+		hash2, err := event.ChainHash(head2)
+		if err != nil {
+			t.Fatalf("ChainHash(head2): %v", err)
+		}
+		link2 := event.Event{Schema: event.SchemaV02, TS: "2026-08-10T09:03:00Z", Source: "verdryx", Type: "verification_failed", AgentID: agentID, Data: map[string]any{"n": 4}, PrevHash: hash2}
+
+		path := filepath.Join(t.TempDir(), "two-segments.ndjson")
+		writeEvents(t, path, head1, link1, head2, link2)
+
+		got := mustScan(t, path)
+		if len(got) != 1 {
+			t.Fatalf("want 1 finding, got %d: %+v", len(got), got)
+		}
+		f := got[0]
+		if f.Asset.Algorithm != "SHA-256" || f.Risk.Class != "" {
+			t.Errorf("two internally-consistent chained segments must verify, not break, got %+v", f)
+		}
+		if !strings.Contains(f.Evidence, "2 heads") {
+			t.Errorf("evidence must say 2 heads (two separate chains), not imply one continuous history: %q", f.Evidence)
+		}
+	})
 }
 
 // TestEventsMixedMalformedLinesTolerated exercises the "count, skip, never
@@ -586,6 +717,7 @@ func TestScanDirectory(t *testing.T) {
 		"events-partially-chained.ndjson":  1,
 		"events-dummy-chain.ndjson":        1,
 		"events-chained-fabricated.ndjson": 1,
+		"events-tokenfuse-real.ndjson":     1,
 	}
 	for file, n := range want {
 		if byFile[file] != n {

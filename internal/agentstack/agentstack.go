@@ -265,15 +265,22 @@ func findingTags(p passport) map[string]string {
 // eventStreamFindings judges one NDJSON stream's tamper-evidence in two
 // passes.
 //
-// Pass 1, cheap and structural: a stream can only be tamper-evident when
-// EVERY event carries a sha256 prev_hash (all, not any: a 1000-event stream
-// with a single chained event is not tamper-evident, it just has one chained
-// event) and those hashes are not all the same fixed value (a real chain
-// links each event to a different predecessor, so a repeated hash is the
-// signature of a dummy/placeholder value rather than a genuine one). This
-// alone does not prove a chain is real: a stream of well-formed, mutually
-// distinct, but fabricated hashes passes it too, which is exactly what makes
-// it cheap -- it never reads past the prev_hash field itself.
+// Pass 1, cheap and structural: classifies every event as a HEAD (no
+// prev_hash at all -- agent-passport SPEC.md §6.5 keeps the field optional
+// precisely so a chain can legitimately restart: line one is the expected
+// head, and a later head is a legal restart, e.g. a rotated log segment or a
+// process that could not resume), a CHAIN LINK (a well-formed sha256:-shaped
+// prev_hash), or MALFORMED (a prev_hash that is present but not even
+// sha256:-shaped -- not a head, since something is there, and not a
+// candidate link either). A stream can only be tamper-evident when every
+// non-head event is a chain link (a 1000-event stream with a single chained
+// event is not tamper-evident, it just has one chained event), nothing is
+// malformed, and the chain-link hashes are not all the same fixed value (a
+// real chain links each event to a different predecessor, so a repeated hash
+// is the signature of a dummy/placeholder value rather than a genuine one).
+// This alone does not prove a chain is real: a stream of well-formed,
+// mutually distinct, but fabricated hashes passes it too, which is exactly
+// what makes it cheap -- it never reads past the prev_hash field itself.
 //
 // Pass 2, cryptographic: only reached once pass 1 passes (there is no point
 // recomputing hashes for a stream that is not even structurally chained).
@@ -285,11 +292,12 @@ func findingTags(p passport) map[string]string {
 // sorts into three outcomes:
 //
 //   - verified: no genuine break, and no malformed line poisoned any part of
-//     the check. (A lone unverifiable head -- this stream opens mid-chain, a
-//     legal chain restart per SPEC.md §6.5 -- does not by itself disqualify
-//     this: pass 1 already required every event, including the first, to
-//     carry a prev_hash, so an isolated head is the expected shape of a
-//     resumed segment, not a sign of tampering.)
+//     the check. A stream can contain more than one head (each one after the
+//     first is a restart, legal per SPEC.md §6.5, not a sign of tampering),
+//     so the finding names how many heads VerifyChain actually saw: 1 means
+//     one continuous chain, more than 1 means that many separate chains
+//     concatenated, so a reader is never left assuming "verified" means "one
+//     unbroken history" when it does not.
 //   - broken: VerifyChain found at least one event whose prev_hash does not
 //     match the hash of the event before it -- a genuine mismatch, not an
 //     artifact of parsing. Severity matches or exceeds the no-hash-chain
@@ -299,32 +307,36 @@ func findingTags(p passport) map[string]string {
 //     stream poisoned verification of the event that followed it, so part of
 //     the chain could not be checked either way.
 func eventStreamFindings(path string, events []agentEvent, content []byte) []model.Finding {
-	chained := 0
+	chained, heads, malformed := 0, 0, 0
 	seen := map[string]bool{}
 	duplicate := false
 	for _, e := range events {
-		if !strings.HasPrefix(e.PrevHash, "sha256:") {
-			continue
+		switch {
+		case e.PrevHash == "":
+			heads++
+		case strings.HasPrefix(e.PrevHash, "sha256:"):
+			chained++
+			if seen[e.PrevHash] {
+				duplicate = true
+			}
+			seen[e.PrevHash] = true
+		default:
+			malformed++
 		}
-		chained++
-		if seen[e.PrevHash] {
-			duplicate = true
-		}
-		seen[e.PrevHash] = true
 	}
 
-	if !(len(events) > 0 && chained == len(events) && !duplicate) {
+	if !(len(events) > 0 && malformed == 0 && chained > 0 && !duplicate) {
 		reason := "agent event stream is not tamper-evident (no hash chain)"
 		switch {
+		case malformed > 0:
+			reason = "agent event stream has a prev_hash value that is not sha256:-shaped on a non-head event"
 		case duplicate:
 			reason = "agent event stream reuses the same prev_hash value across multiple events (not a genuine per-event chain)"
-		case chained > 0:
-			reason = "agent event stream is only partially hash-chained: not every event carries a prev_hash"
 		}
 		return []model.Finding{{
 			Asset:    model.Asset{Type: model.TypeProtocol, Algorithm: "no-hash-chain", Primitive: model.PrimitiveHash},
 			Location: model.Location{File: path},
-			Evidence: fmt.Sprintf("event stream hash-chain covers %d/%d event(s): %s", chained, len(events), reason),
+			Evidence: fmt.Sprintf("event stream hash-chain covers %d/%d event(s), %d head(s): %s", chained, len(events), heads, reason),
 			Source:   "agentstack",
 			Risk:     model.Risk{Class: model.RiskMisconfig, Severity: model.SeverityLow, Reason: reason},
 		}}
@@ -348,7 +360,7 @@ func eventStreamFindings(path string, events []agentEvent, content []byte) []mod
 		return []model.Finding{{
 			Asset:    model.Asset{Type: model.TypeProtocol, Algorithm: "hash-chain-broken", Primitive: model.PrimitiveHash},
 			Location: model.Location{File: path},
-			Evidence: fmt.Sprintf("event stream hash-chain checked cryptographically (agent-stack-go event.VerifyChain): %d break(s), first at line %d; %d/%d event(s) genuinely chained", len(report.Breaks), first.Line, report.Chained, report.Lines),
+			Evidence: fmt.Sprintf("event stream hash-chain checked cryptographically (agent-stack-go event.VerifyChain): %d break(s), first at line %d; %d/%d event(s) genuinely chained across %d head(s)", len(report.Breaks), first.Line, report.Chained, report.Lines, len(report.HeadLines)),
 			Source:   "agentstack",
 			Risk:     model.Risk{Class: model.RiskMisconfig, Severity: model.SeverityMedium, Reason: reason},
 		}}
@@ -356,15 +368,25 @@ func eventStreamFindings(path string, events []agentEvent, content []byte) []mod
 		return []model.Finding{{
 			Asset:    model.Asset{Type: model.TypeProtocol, Algorithm: "hash-chain-unverifiable", Primitive: model.PrimitiveHash},
 			Location: model.Location{File: path},
-			Evidence: fmt.Sprintf("event stream hash-chain checked cryptographically (agent-stack-go event.VerifyChain): %d malformed line(s) left %d event(s) unverifiable; %d/%d event(s) genuinely chained, no genuine break found", report.Malformed, len(report.Unverifiable), report.Chained, report.Lines),
+			Evidence: fmt.Sprintf("event stream hash-chain checked cryptographically (agent-stack-go event.VerifyChain): %d malformed line(s) left %d event(s) unverifiable; %d/%d event(s) genuinely chained across %d head(s), no genuine break found", report.Malformed, len(report.Unverifiable), report.Chained, report.Lines, len(report.HeadLines)),
 			Source:   "agentstack",
 			Risk:     model.Risk{Class: model.RiskMisconfig, Severity: model.SeverityLow, Reason: "malformed line(s) in the stream prevented full cryptographic chain verification"},
 		}}
 	default:
+		heads := len(report.HeadLines)
+		var headNote string
+		switch heads {
+		case 0:
+			headNote = "0 heads: this file opens already mid-chain, continuing a segment written elsewhere"
+		case 1:
+			headNote = "1 head: one continuous chain"
+		default:
+			headNote = fmt.Sprintf("%d heads: %d separate chains (a restart partway through the stream, legal per SPEC.md §6.5)", heads, heads)
+		}
 		return []model.Finding{{
 			Asset:    model.Asset{Type: model.TypeAlgorithm, Algorithm: "SHA-256", Primitive: model.PrimitiveHash},
 			Location: model.Location{File: path},
-			Evidence: fmt.Sprintf("event stream is tamper-evident: %d/%d event(s) form a cryptographically verified sha256 prev_hash chain (agent-stack-go event.VerifyChain)", report.Chained, report.Lines),
+			Evidence: fmt.Sprintf("event stream is tamper-evident: %d/%d event(s) form a cryptographically verified sha256 prev_hash chain (agent-stack-go event.VerifyChain); %s", report.Chained, report.Lines, headNote),
 			Source:   "agentstack",
 		}}
 	}
