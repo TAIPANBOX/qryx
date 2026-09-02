@@ -271,6 +271,29 @@ an absent invariant.
     binding, an unbound scenario, a reworded step that must NOT fire, and every
     scenario taken away.)*
 
+16. **An event-stream tamper-evidence finding recomputes the chain; it does
+    not infer tamper-evidence from shape alone.** A stream where every event
+    carries a well-formed, mutually distinct sha256 `prev_hash` looks exactly
+    like a real hash chain and is cheap to check that way, but agent-passport
+    SPEC.md §6.5 defines `prev_hash` as the actual hash of the canonical
+    predecessor, and a fabricated-but-well-formed value passes the cheap,
+    shape-only check just as well as a genuine one does.
+    `internal/agentstack.eventStreamFindings` uses the cheap structural pass
+    only as a first filter; anything that passes it is then independently
+    reverified with agent-stack-go's `event.VerifyChain`, which recomputes
+    the RFC 8785 (JCS) canonical hash of each event and reports a stream
+    verified only when that recomputation actually matches. A
+    cryptographically broken chain is graded at least as severely as a
+    stream with no chain at all: presenting fabricated evidence of integrity
+    is at least as concerning as presenting none.
+    *(test: `TestEventsChainedFabricatedHashesNotVerified` is the regression
+    test for the exact defect, well-formed, mutually distinct, but
+    fabricated hashes used to read as verified; `TestEventsGenuinelyChainedVerified`
+    holds the positive case, built with real `event.ChainHash` values;
+    `TestEventStreamHostileInputs` covers a malformed line, an oversized
+    line past both this package's and agent-stack-go's own scan buffers, a
+    wrong-length hash, and a stream that opens mid-chain)*
+
 ## Decisions that have no gate yet
 
 This list is debt, and it is here to stay visible rather than to be tidy.

@@ -1,9 +1,12 @@
 package agentstack
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/TAIPANBOX/agent-stack-go/event"
 	"github.com/TAIPANBOX/qryx/internal/model"
 )
 
@@ -210,17 +213,344 @@ func TestEventsDuplicateHashNotTamperEvident(t *testing.T) {
 	}
 }
 
+// TestEventsChainedFabricatedHashesNotVerified is the regression test for the
+// defect this change fixes: eventStreamFindings used to judge a stream
+// tamper-evident purely structurally (every event carries a well-formed,
+// mutually distinct sha256 prev_hash), never recomputing the RFC 8785 (JCS)
+// canonical hash SPEC.md 6.5 actually defines prev_hash to be. This fixture's
+// three events each carry a well-formed, mutually distinct prev_hash
+// (0xa1..., 0xb2..., 0xc3... repeated to 64 hex chars) that structurally
+// looks exactly like a real chain and is NOT: none of them is the actual
+// hash of the event before it. A stream like this must be reported broken,
+// never verified.
+func TestEventsChainedFabricatedHashesNotVerified(t *testing.T) {
+	got := mustScan(t, "testdata/events-chained-fabricated.ndjson")
+	if len(got) != 1 {
+		t.Fatalf("want 1 finding, got %d: %+v", len(got), got)
+	}
+	f := got[0]
+	if f.Asset.Algorithm == "SHA-256" && f.Risk.Class == "" {
+		t.Fatalf("fabricated-but-well-formed hashes must not be reported verified: %+v", f)
+	}
+	if f.Risk.Class != model.RiskMisconfig {
+		t.Errorf("risk class = %q, want %q (a cryptographically broken chain is a misconfig, same vocabulary as a missing one)", f.Risk.Class, model.RiskMisconfig)
+	}
+	if f.Risk.Severity < model.SeverityLow {
+		t.Errorf("risk severity = %v, want at least %v (what a missing chain gets today)", f.Risk.Severity, model.SeverityLow)
+	}
+	if !strings.Contains(f.Risk.Reason, "cryptograph") && !strings.Contains(f.Evidence, "cryptograph") {
+		t.Errorf("reason/evidence must say the chain was checked cryptographically: reason=%q evidence=%q", f.Risk.Reason, f.Evidence)
+	}
+	if !strings.Contains(f.Evidence, "line 2") {
+		t.Errorf("evidence must name the first broken line (2): %q", f.Evidence)
+	}
+}
+
+// TestEventsGenuinelyChainedVerified is the positive twin of
+// TestEventsChainedFabricatedHashesNotVerified: a stream built with
+// event.ChainHash itself, so its hashes are provably real rather than merely
+// well-formed and distinct, is reported verified once cryptographic
+// verification runs.
+//
+// The file written here is the SECOND and THIRD of three real, chained
+// events; the true head (empty prev_hash) is computed but deliberately never
+// written, mirroring how a rotated log segment opens mid-chain (SPEC.md
+// §6.5 legally allows this). That is also the only way to reach the
+// cryptographic check at all: the cheap structural pass this function still
+// runs first requires every event in the file, including the first, to
+// carry a well-formed prev_hash (see TestEventsPartiallyChainedNotTamperEvident),
+// so a stream that genuinely opens with an empty-prev_hash head never gets
+// past pass 1 -- a pre-existing property of the cheap pass, unchanged here.
+func TestEventsGenuinelyChainedVerified(t *testing.T) {
+	head := event.Event{
+		Schema: event.SchemaV02, TS: "2026-08-10T09:00:00Z", Source: "wardryx",
+		Type: "policy_violation", AgentID: "agent://acme-bank.example/support/tier1-bot",
+		Severity: "high", Data: map[string]any{"rule": "no-plaintext-secrets"},
+	}
+	headHash, err := event.ChainHash(head)
+	if err != nil {
+		t.Fatalf("ChainHash(head): %v", err)
+	}
+
+	mid := event.Event{
+		Schema: event.SchemaV02, TS: "2026-08-10T09:01:00Z", Source: "verdryx",
+		Type: "verification_failed", AgentID: "agent://acme-bank.example/support/tier1-bot",
+		Severity: "medium", Data: map[string]any{"check": "output-provenance"},
+		PrevHash: headHash,
+	}
+	midHash, err := event.ChainHash(mid)
+	if err != nil {
+		t.Fatalf("ChainHash(mid): %v", err)
+	}
+
+	tail := event.Event{
+		Schema: event.SchemaV02, TS: "2026-08-10T09:02:00Z", Source: "engram",
+		Type: "memory_written", AgentID: "agent://acme-bank.example/support/tier1-bot",
+		Severity: "info", Data: map[string]any{"memory_id": "mem-9"},
+		PrevHash: midHash,
+	}
+
+	path := filepath.Join(t.TempDir(), "events-real-chain.ndjson")
+	writeEvents(t, path, mid, tail)
+
+	got := mustScan(t, path)
+	if len(got) != 1 {
+		t.Fatalf("want 1 finding, got %d: %+v", len(got), got)
+	}
+	f := got[0]
+	if f.Asset.Type != model.TypeAlgorithm || f.Asset.Algorithm != "SHA-256" {
+		t.Errorf("asset = %+v, want algorithm/SHA-256 (genuinely verified)", f.Asset)
+	}
+	if f.Risk.Class != "" {
+		t.Errorf("risk class = %q, want empty: a genuinely chained stream is not a finding to flag", f.Risk.Class)
+	}
+	if !strings.Contains(f.Evidence, "cryptographically verified") {
+		t.Errorf("evidence should say the chain was cryptographically verified: %q", f.Evidence)
+	}
+}
+
+// writeEvents marshals each event as one NDJSON line and writes them to path.
+func writeEvents(t *testing.T, path string, events ...event.Event) {
+	t.Helper()
+	var buf []byte
+	for _, e := range events {
+		line, err := event.Marshal(e)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		buf = append(buf, line...)
+		buf = append(buf, '\n')
+	}
+	if err := os.WriteFile(path, buf, 0o600); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+// TestEventStreamHostileInputs covers the inputs a real product's event
+// stream could plausibly contain that are not simply "well-formed" or
+// "malformed" in the ways the tests above already exercise: each case here
+// must yield a finding or a clean refusal (a file this package does not
+// recognize, or nothing to say), and must never panic.
+func TestEventStreamHostileInputs(t *testing.T) {
+	agentID := "agent://acme-bank.example/support/tier1-bot"
+
+	t.Run("malformed_json_line_in_the_middle", func(t *testing.T) {
+		e1 := event.Event{Schema: event.SchemaV02, TS: "2026-08-10T09:00:00Z", Source: "tokenfuse", Type: "budget_exhausted", AgentID: agentID, Data: map[string]any{"n": 1}, PrevHash: "sha256:" + strings.Repeat("d4", 32)}
+		e3 := event.Event{Schema: event.SchemaV02, TS: "2026-08-10T09:02:00Z", Source: "engram", Type: "memory_written", AgentID: agentID, Data: map[string]any{"n": 3}, PrevHash: "sha256:" + strings.Repeat("e5", 32)}
+		l1, err := event.Marshal(e1)
+		if err != nil {
+			t.Fatalf("marshal e1: %v", err)
+		}
+		l3, err := event.Marshal(e3)
+		if err != nil {
+			t.Fatalf("marshal e3: %v", err)
+		}
+		content := string(l1) + "\n" + "{this is not valid json" + "\n" + string(l3) + "\n"
+		path := filepath.Join(t.TempDir(), "malformed-middle.ndjson")
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+
+		got := mustScan(t, path)
+		if len(got) != 1 {
+			t.Fatalf("want 1 finding (never a panic, never fatal), got %d: %+v", len(got), got)
+		}
+		if got[0].Risk.Class != model.RiskMisconfig {
+			t.Errorf("risk class = %q, want %q: a malformed line in the middle must not let the stream read as verified", got[0].Risk.Class, model.RiskMisconfig)
+		}
+	})
+
+	t.Run("empty_file", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "empty.ndjson")
+		if err := os.WriteFile(path, nil, 0o600); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		got, err := Scan(path)
+		if err != nil {
+			t.Fatalf("an empty file must be a clean refusal, not an error: %v", err)
+		}
+		if len(got) != 0 {
+			t.Errorf("want 0 findings for an empty file, got %d: %+v", len(got), got)
+		}
+	})
+
+	t.Run("line_over_1MiB_is_a_clean_refusal_upstream", func(t *testing.T) {
+		// A single line past parseEvents' own 1 MiB scanner buffer (matching
+		// Scan's documented tolerance) makes the file unrecognizable as an
+		// event stream before eventStreamFindings is ever reached: no
+		// events are extracted, so scanFile logs and skips it, same as any
+		// other file it cannot classify. This is upstream of this change and
+		// documents the boundary the next case tests on the other side of.
+		e := event.Event{Schema: event.SchemaV02, TS: "2026-08-10T09:00:00Z", Source: "engram", Type: "memory_written", AgentID: agentID, Data: map[string]any{"pad": strings.Repeat("x", 1_200_000)}}
+		line, err := event.Marshal(e)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		if len(line) <= 1<<20 {
+			t.Fatalf("fixture line is only %d bytes, want > 1 MiB", len(line))
+		}
+		path := filepath.Join(t.TempDir(), "giant-line.ndjson")
+		if err := os.WriteFile(path, append(line, '\n'), 0o600); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+
+		got, err := Scan(path)
+		if err != nil {
+			t.Fatalf("never a panic, never fatal: %v", err)
+		}
+		if len(got) != 0 {
+			t.Errorf("want 0 findings (unrecognized, logged and skipped), got %d: %+v", len(got), got)
+		}
+	})
+
+	t.Run("line_over_1MiB_reaches_verify_chain", func(t *testing.T) {
+		// agent-stack-go's own VerifyChain scans with a 4 MiB buffer, larger
+		// than parseEvents' 1 MiB, so a line this package's OWN loose parser
+		// could never have produced can still legitimately reach
+		// eventStreamFindings once the structural pass has already been
+		// satisfied by some other means -- exactly what a caller bypassing
+		// parseEvents' limit (a future larger buffer, a different producer)
+		// would look like. This calls eventStreamFindings directly with a
+		// hand-built events slice standing in for what an uncapped parse
+		// would have extracted, and a raw content buffer that genuinely
+		// contains the oversized line, to prove the cryptographic path
+		// itself does not choke on it.
+		giant := event.Event{
+			Schema: event.SchemaV02, TS: "2026-08-10T09:00:00Z", Source: "engram", Type: "memory_written",
+			AgentID: agentID, Data: map[string]any{"pad": strings.Repeat("x", 1_200_000)},
+			PrevHash: "sha256:" + strings.Repeat("d4", 32), // placeholder: always unverifiable as line 1, value irrelevant
+		}
+		giantLine, err := event.Marshal(giant)
+		if err != nil {
+			t.Fatalf("marshal giant: %v", err)
+		}
+		if n := len(giantLine); n <= 1<<20 || n >= 4<<20 {
+			t.Fatalf("fixture line is %d bytes, want strictly between 1 MiB and 4 MiB", n)
+		}
+		giantHash, err := event.ChainHash(giant)
+		if err != nil {
+			t.Fatalf("ChainHash(giant): %v", err)
+		}
+		second := event.Event{
+			Schema: event.SchemaV02, TS: "2026-08-10T09:01:00Z", Source: "tokenfuse", Type: "spend_spike",
+			AgentID: agentID, Data: map[string]any{"budget_usd": 1.0}, PrevHash: giantHash,
+		}
+		secondLine, err := event.Marshal(second)
+		if err != nil {
+			t.Fatalf("marshal second: %v", err)
+		}
+		content := append(append(giantLine, '\n'), append(secondLine, '\n')...)
+
+		events := []agentEvent{
+			{Schema: giant.Schema, AgentID: giant.AgentID, PrevHash: giant.PrevHash},
+			{Schema: second.Schema, AgentID: second.AgentID, PrevHash: second.PrevHash},
+		}
+
+		got := eventStreamFindings("giant.ndjson", events, content)
+		if len(got) != 1 {
+			t.Fatalf("want 1 finding, got %d: %+v", len(got), got)
+		}
+		if got[0].Asset.Algorithm != "SHA-256" || got[0].Risk.Class != "" {
+			t.Errorf("a genuinely chained stream with one oversized-but-real event should still verify, got %+v", got[0])
+		}
+	})
+
+	t.Run("line_over_4MiB_verify_chain_itself_cannot_scan_it", func(t *testing.T) {
+		// event.VerifyChain scans with its own 4 MiB buffer and, unlike
+		// parseEvents, surfaces a scan failure as a returned error rather
+		// than silently truncating. A line past even that must still
+		// produce a finding, not a panic, and must say verification did
+		// not complete rather than claim anything about the chain.
+		massive := event.Event{
+			Schema: event.SchemaV02, TS: "2026-08-10T09:00:00Z", Source: "engram", Type: "memory_written",
+			AgentID: agentID, Data: map[string]any{"pad": strings.Repeat("x", 4_300_000)},
+			PrevHash: "sha256:" + strings.Repeat("d4", 32),
+		}
+		massiveLine, err := event.Marshal(massive)
+		if err != nil {
+			t.Fatalf("marshal massive: %v", err)
+		}
+		if len(massiveLine) <= 4<<20 {
+			t.Fatalf("fixture line is only %d bytes, want > 4 MiB", len(massiveLine))
+		}
+		content := append(massiveLine, '\n')
+		events := []agentEvent{{Schema: massive.Schema, AgentID: massive.AgentID, PrevHash: massive.PrevHash}}
+
+		got := eventStreamFindings("massive.ndjson", events, content)
+		if len(got) != 1 {
+			t.Fatalf("want 1 finding, got %d: %+v", len(got), got)
+		}
+		f := got[0]
+		if f.Risk.Class != model.RiskMisconfig {
+			t.Errorf("risk class = %q, want %q", f.Risk.Class, model.RiskMisconfig)
+		}
+		if !strings.Contains(f.Evidence, "could not be checked") {
+			t.Errorf("evidence must say verification did not complete, not claim a verdict: %q", f.Evidence)
+		}
+	})
+
+	t.Run("prev_hash_right_prefix_wrong_length", func(t *testing.T) {
+		e1 := event.Event{Schema: event.SchemaV02, TS: "2026-08-10T09:00:00Z", Source: "tokenfuse", Type: "budget_exhausted", AgentID: agentID, Data: map[string]any{"n": 1}, PrevHash: "sha256:" + strings.Repeat("d4", 32)}
+		// Right prefix, nowhere near the required 64 hex chars.
+		e2 := event.Event{Schema: event.SchemaV02, TS: "2026-08-10T09:01:00Z", Source: "engram", Type: "memory_written", AgentID: agentID, Data: map[string]any{"n": 2}, PrevHash: "sha256:deadbeef"}
+		path := filepath.Join(t.TempDir(), "wrong-length.ndjson")
+		writeEvents(t, path, e1, e2)
+
+		got := mustScan(t, path)
+		if len(got) != 1 {
+			t.Fatalf("want 1 finding, got %d: %+v", len(got), got)
+		}
+		f := got[0]
+		if f.Risk.Class != model.RiskMisconfig {
+			t.Errorf("risk class = %q, want %q: a wrong-length hash cannot match a real 64-hex-char digest", f.Risk.Class, model.RiskMisconfig)
+		}
+		if !strings.Contains(f.Evidence, "line 2") {
+			t.Errorf("evidence must name the broken line (2): %q", f.Evidence)
+		}
+	})
+
+	t.Run("first_event_carries_a_prev_hash", func(t *testing.T) {
+		// There is no previous event in this file at all -- SPEC.md §6.5
+		// treats this as a legal chain restart (a rotated segment), not
+		// tampering, so VerifyChain must not report it broken.
+		lone := event.Event{Schema: event.SchemaV02, TS: "2026-08-10T09:00:00Z", Source: "tokenfuse", Type: "budget_exhausted", AgentID: agentID, Data: map[string]any{"n": 1}, PrevHash: "sha256:" + strings.Repeat("d4", 32)}
+		path := filepath.Join(t.TempDir(), "stray-head.ndjson")
+		writeEvents(t, path, lone)
+
+		got := mustScan(t, path)
+		if len(got) != 1 {
+			t.Fatalf("want 1 finding, got %d: %+v", len(got), got)
+		}
+		if got[0].Risk.Class != "" || got[0].Asset.Algorithm != "SHA-256" {
+			t.Errorf("a lone stray prev_hash with nothing to contradict it must not be reported broken, got %+v", got[0])
+		}
+	})
+}
+
 // TestEventsMixedMalformedLinesTolerated exercises the "count, skip, never
 // fatal" requirement: a stream with an unparseable line and a line with the
-// wrong schema alongside one valid, chained event must still yield the
-// chained-stream finding, not an error.
+// wrong schema alongside one valid, chained-looking event must still yield
+// one finding, not an error or a panic. It must NOT be the verified/SHA-256
+// finding, though: cryptographic verification (event.VerifyChain) sees the
+// same two bad lines in the raw stream, and the one recognized event's
+// prev_hash cannot actually be checked against anything, since nothing
+// legitimate precedes it -- that is the "malformed lines poisoned
+// verification" outcome, correctly less confident than the old structural-
+// only check, which had no way to notice the difference.
 func TestEventsMixedMalformedLinesTolerated(t *testing.T) {
 	got := mustScan(t, "testdata/events-mixed.ndjson")
 	if len(got) != 1 {
 		t.Fatalf("want 1 finding (malformed lines skipped, not fatal), got %d: %+v", len(got), got)
 	}
-	if got[0].Asset.Algorithm != "SHA-256" {
-		t.Errorf("want the sha256 chain finding from the one valid event, got %+v", got[0].Asset)
+	f := got[0]
+	if f.Asset.Algorithm == "SHA-256" {
+		t.Errorf("a lone event preceded by malformed lines must not be reported verified, got %+v", f.Asset)
+	}
+	if f.Risk.Class != model.RiskMisconfig {
+		t.Errorf("risk class = %q, want %q", f.Risk.Class, model.RiskMisconfig)
+	}
+	if !strings.Contains(f.Evidence, "malformed") {
+		t.Errorf("evidence must say malformed lines are why verification is incomplete: %q", f.Evidence)
 	}
 }
 
@@ -247,14 +577,15 @@ func TestScanDirectory(t *testing.T) {
 	}
 
 	want := map[string]int{
-		"passport-spiffe.json":            1,
-		"passport-none.json":              1,
-		"events-chained.ndjson":           1,
-		"events-chained-v02.ndjson":       1,
-		"events-nohash.ndjson":            1,
-		"events-mixed.ndjson":             1,
-		"events-partially-chained.ndjson": 1,
-		"events-dummy-chain.ndjson":       1,
+		"passport-spiffe.json":             1,
+		"passport-none.json":               1,
+		"events-chained.ndjson":            1,
+		"events-chained-v02.ndjson":        1,
+		"events-nohash.ndjson":             1,
+		"events-mixed.ndjson":              1,
+		"events-partially-chained.ndjson":  1,
+		"events-dummy-chain.ndjson":        1,
+		"events-chained-fabricated.ndjson": 1,
 	}
 	for file, n := range want {
 		if byFile[file] != n {
