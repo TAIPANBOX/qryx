@@ -271,6 +271,60 @@ an absent invariant.
     binding, an unbound scenario, a reworded step that must NOT fire, and every
     scenario taken away.)*
 
+16. **An event-stream tamper-evidence finding recomputes the chain; it does
+    not infer tamper-evidence from shape alone, and an event with no
+    `prev_hash` is a legal chain head, not a gap.** A stream where every
+    non-head event carries a well-formed, mutually distinct sha256
+    `prev_hash` looks exactly like a real hash chain and is cheap to check
+    that way, but agent-passport SPEC.md §6.5 defines `prev_hash` as the
+    actual hash of the canonical predecessor, and a fabricated-but-
+    well-formed value passes the cheap, shape-only check just as well as a
+    genuine one does. `internal/agentstack.eventStreamFindings` uses the
+    cheap structural pass only as a first filter; anything that passes it is
+    then independently reverified with agent-stack-go's `event.VerifyChain`,
+    which recomputes the RFC 8785 (JCS) canonical hash of each event and
+    reports a stream verified only when that recomputation actually
+    matches. A cryptographically broken chain is graded at least as
+    severely as a stream with no chain at all: presenting fabricated
+    evidence of integrity is at least as concerning as presenting none.
+
+    SPEC.md §6.5 keeps `prev_hash` optional precisely so a chain can
+    legitimately restart (a rotated log segment, a process that could not
+    resume): line one carrying no `prev_hash` is the expected head, and a
+    later event carrying none is a legal restart, not tampering, no matter
+    how many times it happens in one file. The cheap structural pass
+    classifies every event as a head (no `prev_hash`), a chain link
+    (well-formed sha256-shaped `prev_hash`), or malformed (a `prev_hash`
+    present but not even sha256-shaped, the one shape a head's absence
+    cannot be confused with); it passes once every non-head event is a
+    chain link, nothing is malformed, and the chain-link hashes are not all
+    the same repeated value. A verified finding names how many heads
+    `event.VerifyChain` actually saw, because "verified" alone would read
+    as "one continuous history" even when the stream is several independent
+    chains concatenated. Before this, the structural pass required every
+    event, including the first, to carry a `prev_hash`, so a stream that
+    genuinely opened with a proper head, the ordinary shape any real
+    producer writes, was graded "only partially hash-chained" and never
+    reached cryptographic verification at all: a check red on a correct
+    build, worse than no check.
+    *(test: `TestEventsChainedFabricatedHashesNotVerified` is the regression
+    test for the fabricated-hash defect, well-formed, mutually distinct,
+    but fabricated hashes used to read as verified;
+    `TestEventsGenuinelyChainedVerified` holds a synthetic positive case,
+    built with real `event.ChainHash` values;
+    `TestARealTokenFuseChainWithAHeadIsVerified` is the regression test for
+    the head-rejection defect, a byte-for-byte copy of a real agent-event
+    stream written by `ghcr.io/taipanbox/tokenfuse:v0.4.1`, head at line
+    one, genuinely chained after it, that the structural pass used to
+    reject; `TestEventsPartiallyChainedNotTamperEvident` holds that a
+    stream which is not genuinely, fully chained is still never reported
+    verified now that a missing `prev_hash` alone no longer disqualifies it
+    structurally; `TestEventStreamHostileInputs` covers a malformed line,
+    an oversized line past both this package's and agent-stack-go's own
+    scan buffers, a wrong-length hash, a non-head event whose `prev_hash`
+    is not sha256-shaped, a stream that opens mid-chain, and a stream with
+    two genuinely chained segments verifying as two heads, not one)*
+
 ## Decisions that have no gate yet
 
 This list is debt, and it is here to stay visible rather than to be tidy.
