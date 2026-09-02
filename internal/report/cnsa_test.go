@@ -124,6 +124,23 @@ func TestCnsaMisconfigRemediationFollowsTheFinding(t *testing.T) {
 			notWant: "TLS 1.3",
 		},
 		{
+			// A chain that presents hashes and fails their recomputation is
+			// worse than one that presents none, and the fix is different:
+			// nothing to add, something to find.
+			name:    "event stream whose chain breaks under cryptographic verification",
+			node:    misconfigNode(model.TypeProtocol, "hash-chain-broken", "agent event stream fails cryptographic chain verification: prev_hash at line 3 does not match the hash of the event before it"),
+			want:    "first break",
+			notWant: "no CNSA 2.0 remediation",
+		},
+		{
+			// Unproven is not disproven, and the remediation must say so
+			// rather than send an operator after a tamper that may not exist.
+			name:    "event stream whose chain could not be verified in full",
+			node:    misconfigNode(model.TypeProtocol, "hash-chain-unverifiable", "malformed line(s) in the stream prevented full cryptographic chain verification"),
+			want:    "unproven rather than disproven",
+			notWant: "no CNSA 2.0 remediation",
+		},
+		{
 			name: "real TLS misconfiguration from the config detector",
 			node: misconfigNode(model.TypeProtocol, "TLS 1.0", "TLS 1.0 is deprecated"),
 			want: "TLS 1.3",
@@ -192,7 +209,16 @@ func TestCnsaRemediationForRealAgentstackFindings(t *testing.T) {
 		t.Fatalf("invalid JSON: %v", err)
 	}
 
-	want := map[string]string{"no-attestation": "attestation", "no-hash-chain": "prev_hash"}
+	// Every pseudo-algorithm agentstack emits for a misconfiguration, with
+	// the word only its tailored remediation carries. The two chain verdicts
+	// come from the fixtures events-chained-fabricated.ndjson (broken) and
+	// events-mixed.ndjson (unverifiable).
+	want := map[string]string{
+		"no-attestation":          "attestation",
+		"no-hash-chain":           "prev_hash",
+		"hash-chain-broken":       "first break",
+		"hash-chain-unverifiable": "unproven rather than disproven",
+	}
 	seen := map[string]bool{}
 	for _, a := range rep.Assets {
 		w, ok := want[a.Algorithm]
@@ -205,6 +231,11 @@ func TestCnsaRemediationForRealAgentstackFindings(t *testing.T) {
 		}
 		if strings.Contains(a.Action, "TLS 1.3") {
 			t.Errorf("%s: the compliance pack tells an operator to %q", a.Algorithm, a.Action)
+		}
+		// The generic default is honest and is not a remediation: a
+		// pseudo-algorithm this report knows must get its own sentence.
+		if strings.Contains(a.Action, "no CNSA 2.0 remediation specific to") {
+			t.Errorf("%s: fell through to the generic default: %q", a.Algorithm, a.Action)
 		}
 	}
 	for algo := range want {

@@ -179,10 +179,13 @@ func cnsaStatus(n graph.AssetNode) cnsaEntry {
 //
 // The smallest discriminator that separates them is the asset's algorithm,
 // which is the field each connector already sets to say what it found: the
-// pseudo-algorithms "no-attestation" and "no-hash-chain" come from
-// internal/agentstack (passportFindings / eventStreamFindings), and every TLS
-// misconfiguration arrives as a protocol named TLS or SSL from
-// internal/probe or the tlsconfig detector.
+// pseudo-algorithms "no-attestation", "no-hash-chain", "hash-chain-broken"
+// and "hash-chain-unverifiable" come from internal/agentstack
+// (passportFindings / eventStreamFindings), and every TLS misconfiguration
+// arrives as a protocol named TLS or SSL from internal/probe or the
+// tlsconfig detector. The two chain verdicts get their own sentences because
+// their fix is the opposite of no-hash-chain's: nothing to add, something to
+// find (a rewrite after hashing) or to repair (a line that is not an event).
 //
 // The default is deliberately not the TLS line. A misconfiguration this
 // report has no rule for gets the detector's own reason and an admission that
@@ -195,6 +198,10 @@ func misconfigAction(n graph.AssetNode) string {
 		return "Agent Passport declares no attestation method; bind the identity to real key material (mTLS certificate, SPIFFE SVID or enclave key) per agent-passport SPEC.md §4."
 	case "NO-HASH-CHAIN":
 		return "Agent event stream is not tamper-evident; emit a distinct sha256 prev_hash on every event so the log is chained, per agent-passport SPEC.md §6.5."
+	case "HASH-CHAIN-BROKEN":
+		return "Agent event stream fails cryptographic chain verification: a prev_hash is not the sha256 of the RFC 8785 canonical form of the event before it, so the log is not tamper-evident from the first break onward; treat the events after it as unverified, find what rewrote them after they were hashed, and re-emit through a writer that computes prev_hash per agent-passport SPEC.md §6.5."
+	case "HASH-CHAIN-UNVERIFIABLE":
+		return "Agent event stream could not be verified in full: malformed lines left the events after them unchecked, so tamper-evidence is unproven rather than disproven; repair or remove the lines that are not one JSON event each, fix the producer that wrote them, and re-run, so every prev_hash can be recomputed per agent-passport SPEC.md §6.5."
 	}
 	if strings.HasPrefix(algo, "TLS") || strings.HasPrefix(algo, "SSL") {
 		return "TLS misconfiguration; enforce TLS 1.3 per CNSA 2.0."
