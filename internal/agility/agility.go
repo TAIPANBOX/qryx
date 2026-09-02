@@ -53,8 +53,9 @@ var sourceAgility = map[string]Level{
 	"terraform": Medium,
 	// A passport or event document is configuration. No asset agentstack
 	// currently emits (X509, enclave-key, OIDC, no-attestation, SHA-256,
-	// no-hash-chain) is one target() maps, so this row is unexercised today
-	// and is here to keep the lists reconciled.
+	// no-hash-chain, hash-chain-broken, hash-chain-unverifiable) is one
+	// target() maps, so this row is unexercised today and is here to keep
+	// the lists reconciled.
 	"agentstack": Medium,
 
 	"goast":      Low,
