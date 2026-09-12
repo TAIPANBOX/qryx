@@ -489,6 +489,31 @@ compiler that produced it.
 
 > Maintainers: a release is cut automatically by CI on `git tag vX.Y.Z && git push --tags`.
 
+## Verify a download
+
+Every release is signed keyless with Sigstore and carries a build-provenance
+attestation and an SBOM. With `cosign` and `gh` installed:
+
+```sh
+tag=<tag>
+cosign verify-blob --bundle SHA256SUMS.sigstore.json \
+  --certificate-identity "https://github.com/TAIPANBOX/qryx/.github/workflows/release.yml@refs/tags/${tag}" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com SHA256SUMS
+sha256sum -c SHA256SUMS
+gh attestation verify qryx_darwin_arm64.tar.gz -R TAIPANBOX/qryx
+```
+
+The image:
+
+```sh
+cosign verify ghcr.io/taipanbox/qryx:<tag> \
+  --certificate-identity-regexp '^https://github.com/TAIPANBOX/qryx/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+gh attestation verify oci://ghcr.io/taipanbox/qryx:<tag> -R TAIPANBOX/qryx
+```
+
+Releases through v0.3.1 have none of this; the tags say so.
+
 ## Quick start
 
 ```bash

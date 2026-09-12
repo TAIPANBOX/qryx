@@ -35,6 +35,7 @@
   ],
   "schema": "taipanbox.dev/components/v1",
   "repo": "TAIPANBOX/qryx",
+  "distribution": "ghcr.io/taipanbox/qryx; per-target archives with SHA256SUMS on each GitHub Release",
   "components": [
     {
       "name": "qryx-trend",
