@@ -40,6 +40,7 @@ else's infrastructure.
    ./scripts/readme-numbers.sh
    ./scripts/features-are-bound.sh   # invariant 15
    ./scripts/reproducible-build.sh   # builds from git archive HEAD: run it after committing
+   ./scripts/compat-surface.sh       # invariant 17
    ./scripts/gates-have-teeth.sh     # invariant 12; needs a clean tree
    ```
 4. **Verify end-to-end** when possible: build `/tmp/qryx` and run the real
@@ -210,8 +211,8 @@ an absent invariant.
     A text parser does not break loudly: it stops matching and reports success.
     The mutants that proved these gates lived in commit messages and in the
     `*(gate: ...)*` markers above, which is a record of what was true once.
-    *(gate: `scripts/gates-have-teeth.sh`, 14 cases: seven real faults each gate
-    must catch, three non-faults they must not, and four subjects taken away
+    *(gate: `scripts/gates-have-teeth.sh`, 21 cases: eleven real faults each gate
+    must catch, four non-faults they must not, and six subjects taken away
     entirely, where the gate must say it measured nothing rather than report
     OK. Every mutation asserts it applied, because a mutation that changed no
     bytes is indistinguishable from a gate that passed.)*
@@ -324,6 +325,46 @@ an absent invariant.
     scan buffers, a wrong-length hash, a non-head event whose `prev_hash`
     is not sha256-shaped, a stream that opens mid-chain, and a stream with
     two genuinely chained segments verifying as two heads, not one)*
+
+17. **The surface `compat/1.0.json` promises is present in the code, and
+    `COMPATIBILITY.md` is rendered from it, never typed.** SemVer's item 5:
+    version 1.0.0 defines the public API, so a 1.0 is a promise about a
+    surface, and a promise nobody can point at is a mood. The estate's first
+    two 1.0 tags (agent-passport, agent-stack-go, 2026-09-12) each came with
+    the surface written down and a gate that fails when it moves; this
+    repository writes its surface before its 1.0 so that the tag, when it
+    comes, freezes something already held: the twelve subcommands, the four
+    agent-event types this repository emits, the three schema strings
+    `internal/agentstack` still accepts on read, and the CBOM and
+    evidence-trail literals a consumer parses.
+
+    Exit codes are a real contract too (`components.json`'s `checked` block),
+    but no named Go constant anywhere in this repository holds one, so there is
+    nothing for a textual `name=value` check to point at; they stay out of
+    `frozen` rather than being faked against a bare integer, and a future named
+    constant can bring them in. `env` and `http.routes` are absent for a
+    different reason: this repository reads no environment variable and serves
+    no HTTP route at all, so each would be a kind with zero names, which the
+    gate itself refuses to accept rather than pass on nothing.
+
+    Additive things (a detector, a new connector's own subcommand, a flag on an
+    existing one, an output format, a schema version added to what
+    `internal/agentstack` accepts, and the schema version this repository
+    itself emits, which moves in its own release per agent-passport SPEC
+    6.4.1) are listed as such and never checked; experimental things (the
+    dashboard and the other `*-html` report pages, the `trend --html` chart)
+    may change in any release.
+
+    The check is textual by design and says so: a name must appear as a quoted
+    literal in the file the manifest says holds it, so a comment does not
+    count, and `lhs=rhs` entries are read as assignments. It does not prove the
+    code does what the name says, and it does not prove a name absent from the
+    manifest is not part of the surface.
+    *(gate: `scripts/compat-surface.sh`; seven cases in `gates-have-teeth.sh`:
+    a frozen subcommand renamed, an emitted event type gone from its file, an
+    accepted schema string gone from its file, the human form edited by hand,
+    an additive subcommand that must pass, and the manifest and a named file
+    taken away, both of which must read as measured nothing)*
 
 ## Decisions that have no gate yet
 

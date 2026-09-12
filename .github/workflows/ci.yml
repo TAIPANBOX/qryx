@@ -85,6 +85,13 @@ jobs:
       - name: a release can be rebuilt byte for byte
         run: ./scripts/reproducible-build.sh
 
+      # A 1.0 is a promise about a surface, and a promise nobody can point at
+      # is a mood. This repository is still 0.x; compat/1.0.json names what
+      # its 1.0 will freeze and COMPATIBILITY.md is rendered from it, never
+      # typed, so the two cannot drift apart between commits.
+      - name: the surface 1.0 will freeze is still held
+        run: ./scripts/compat-surface.sh
+
       # Last, because it mutates tracked files and restores them. It needs a
       # clean tree and says so plainly, so it also reports any earlier step
       # that starts writing into the checkout.

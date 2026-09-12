@@ -1,0 +1,34 @@
+{
+  "schema": "taipanbox.dev/compat/v1",
+  "repo": "TAIPANBOX/qryx",
+  "major": 1,
+  "status": "proposed: this repository is at 0.x, and the surface named here is what its 1.0 will freeze; the gate holds it from today so that 1.0 is a tag and not a rewrite",
+  "frozen": {
+    "cli.subcommands": ["scan", "fix", "trend", "verify-evidence", "tls", "bin", "image", "aws", "gcp", "azure", "agents", "version"],
+    "events.emitted": ["crypto_finding", "crypto_drift", "policy_violation", "evidence_signed"],
+    "events.schemas_accepted": ["taipanbox.dev/agent-event/v0.1", "taipanbox.dev/agent-event/v0.2", "taipanbox.dev/agent-passport/v0.1"],
+    "formats.cbom": ["CycloneDX", "1.6"],
+    "formats.evidence_trail": ["createdAt", "root", "version", "scorePct", "compliant", "nonCompliant", "issues", "notAssessed", "total", "digest"]
+  },
+  "where": {
+    "cli.subcommands": ["cmd/qryx/main.go"],
+    "events.emitted": ["internal/exporter/exporter.go"],
+    "events.schemas_accepted": ["internal/agentstack/agentstack.go"],
+    "formats.cbom": ["internal/report/cbom.go"],
+    "formats.evidence_trail": ["internal/store/evidence.go"]
+  },
+  "additive": [
+    "a detector registered in internal/scan/detectors: a new one is a new finding, never a removed one",
+    "a new CLI subcommand behind a connector that does not fit the file walker, the pattern already behind tls, bin, image, aws, gcp, azure and agents",
+    "a CLI flag on an existing subcommand",
+    "an output format added to --format",
+    "a schema version added to what internal/agentstack accepts on read",
+    "the agent-event schema version this repository emits, which moves in its own release (agent-passport SPEC 6.4.1)",
+    "an environment variable, since none exists today (components.json's reads_no_environment claim)",
+    "an HTTP surface, since qryx serves none today: no listen address, no health path, a one-shot CLI"
+  ],
+  "experimental": [
+    "the dashboard HTML (--format dashboard)",
+    "the html, cnsa-html and ncsc-html report pages, and the trend --html chart"
+  ]
+}
