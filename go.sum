@@ -28,8 +28,8 @@ github.com/AzureAD/microsoft-authentication-extensions-for-go/cache v0.1.1 h1:WJ
 github.com/AzureAD/microsoft-authentication-extensions-for-go/cache v0.1.1/go.mod h1:tCcJZ0uHAmvjsVYzEFivsRTN00oz5BEsRgQHu5JZ9WE=
 github.com/AzureAD/microsoft-authentication-library-for-go v1.7.0 h1:4iB+IesclUXdP0ICgAabvq2FYLXrJWKx1fJQ+GxSo3Y=
 github.com/AzureAD/microsoft-authentication-library-for-go v1.7.0/go.mod h1:HKpQxkWaGLJ+D/5H8QRpyQXA1eKjxkFlOMwck5+33Jk=
-github.com/TAIPANBOX/agent-stack-go v0.8.0 h1:A8foI6pTm9SXkvkZtGmm0V8IlQL5YgceQ9jGyCRXKc8=
-github.com/TAIPANBOX/agent-stack-go v0.8.0/go.mod h1:VZBhZRvoY1uq3qeAwc4k0fu7p71sBQVGdGnv3LIqAxI=
+github.com/TAIPANBOX/agent-stack-go v1.0.0 h1:mFDuHuj5WZOGLYDq8p2Y5LyNTX0L/8swb8SrJFbzk94=
+github.com/TAIPANBOX/agent-stack-go v1.0.0/go.mod h1:xu1X3vVrIpMv8U53Gq2E7LTU/tnmNdOldMNytJk/ZiA=
 github.com/agext/levenshtein v1.2.1 h1:QmvMAjj2aEICytGiWzmxoE0x2KZvE0fvmqMOfy2tjT8=
 github.com/agext/levenshtein v1.2.1/go.mod h1:JEDfjyjHDjOF/1e4FlBE/PkbqA9OfWu2ki2W0IB5558=
 github.com/apparentlymart/go-textseg/v15 v15.0.0 h1:uYvfpb3DyLSCGWnctWKGj857c6ew1u1fNQOlOtuGxQY=
