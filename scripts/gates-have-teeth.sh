@@ -259,6 +259,77 @@ open("features/ai-inventory.feature", "w").write(re.sub(r"(?s)  # @test.*", "", 
 	"a feature file with no scenarios"
 
 echo
+echo "=== compat-surface: the surface 1.0 will freeze ==="
+
+# A global, quote-aware substitution rather than the `py()` helper's
+# first-occurrence replace: a frozen name can legitimately appear more than
+# once in its file (a membership check and a switch case, for two), and a
+# case that only silences the FIRST occurrence would leave the literal still
+# findable, still green, and prove nothing (measured: "agents" and
+# "evidence_signed" each sit in their file twice). subn with no count
+# replaces every quoted occurrence at once; json.dumps builds each Python
+# string literal so the file/old/new arguments never need hand escaping.
+pyq() {
+	local file_lit old_lit new_lit
+	file_lit=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$1")
+	old_lit=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$2")
+	new_lit=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$3")
+	printf 'p = %s\nold = %s\nnew = %s\n' "$file_lit" "$old_lit" "$new_lit"
+	cat <<'PYEOF'
+import re
+s = open(p).read()
+pat = re.compile("[\"'`]" + re.escape(old) + "[\"'`]")
+new_s, n = pat.subn(lambda m: m.group(0)[0] + new + m.group(0)[-1], s)
+assert n >= 1, "no quoted occurrence of " + old + " in " + p
+open(p, "w").write(new_s)
+PYEOF
+}
+
+run_case "compat-surface: a frozen subcommand renamed" fail \
+	'./scripts/compat-surface.sh' \
+	"$(pyq "cmd/qryx/main.go" "agents" "agentz")" \
+	"cli.subcommands: 'agents' is promised"
+
+run_case "compat-surface: an emitted event type gone from its file" fail \
+	'./scripts/compat-surface.sh' \
+	"$(pyq "internal/exporter/exporter.go" "evidence_signed" "evidence_signedx")" \
+	"events.emitted: 'evidence_signed' is promised"
+
+run_case "compat-surface: an accepted schema string gone from its file" fail \
+	'./scripts/compat-surface.sh' \
+	"$(pyq "internal/agentstack/agentstack.go" "taipanbox.dev/agent-event/v0.2" "taipanbox.dev/agent-event/v0.2-old")" \
+	"events.schemas_accepted: 'taipanbox.dev/agent-event/v0.2' is promised"
+
+run_case "compat-surface: COMPATIBILITY.md edited by hand" fail \
+	'./scripts/compat-surface.sh' \
+	"$(py 'edit("COMPATIBILITY.md", "## Support", "## Hand-edited\n\n## Support")')" \
+	"is not the rendering of"
+
+echo
+echo "=== and what it must NOT catch ==="
+
+# Purely additive: a second subcommand recognised alongside "agents", nothing
+# frozen removed. The gate must not care that the code grew a new name it
+# never promised to freeze.
+run_case "compat-surface: an additive subcommand added" pass \
+	'./scripts/compat-surface.sh' \
+	"$(py 'edit("cmd/qryx/main.go", "cmd != \"agents\" {", "cmd != \"agents\" && cmd != \"diag\" {")')"
+
+echo
+echo "=== and the one this estate learned the hard way ==="
+echo "    a gate whose subject is gone must SAY so, not report OK on nothing"
+
+run_case "compat-surface: the manifest removed" fail \
+	'./scripts/compat-surface.sh' \
+	"$(printf 'import os\np = "compat/1.0.json"\nassert os.path.isfile(p), p + " missing before the mutation"\nos.remove(p)\n')" \
+	"compat/1.0.json is not there"
+
+run_case "compat-surface: a named where-file removed" fail \
+	'./scripts/compat-surface.sh' \
+	"$(printf 'import os\np = "internal/exporter/exporter.go"\nassert os.path.isfile(p), p + " missing before the mutation"\nos.remove(p)\n')" \
+	"is said to live, is not there"
+
+echo
 if [ -n "$(git status --porcelain)" ]; then
 	printf 'FAIL: this script left the tree dirty, so it cannot be trusted about anything above\n'
 	git status --porcelain | head -5
