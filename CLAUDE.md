@@ -366,6 +366,30 @@ an absent invariant.
     an additive subcommand that must pass, and the manifest and a named file
     taken away, both of which must read as measured nothing)*
 
+18. **A CBOM says only what CycloneDX 1.6 lets it say.** The internal
+    vocabulary (`model.Primitive`, `model.AssetType`) is wider than the spec's
+    closed enums on purpose: a detector reading an OpenSSL symbol knows
+    "encryption", not whether AES ran as a block cipher or in GCM, and the
+    binary scanner finds libraries (libcrypto) the spec has no cryptographic
+    asset type for. Until 2026-09-13 `internal/report/cbom.go` copied the
+    internal strings into `cryptoProperties`, and `qryx image --format cbom` on
+    a real image failed schema validation with nine errors (primitives
+    `encryption` and `key-exchange`, asset type `library`), found by POL-5 of
+    the 1.0 proving run on a GCP box with jsonschema 4.19.2 against the 1.6
+    schema; the source scan had happened to emit only signature, hash and
+    unknown, and validated. Every value written into a closed enum now passes
+    through `cbom_vocab.go`: `cdxPrimitive` decides by primitive AND algorithm
+    name (AES and DES block-cipher, RC4 and ChaCha20 stream-cipher, RSA pke,
+    EVP_CIPHER other, ECDH and DH key-agree, ML-KEM kem, HMAC mac), a protocol
+    asset gets `protocolProperties`, a key `relatedCryptoMaterialProperties`,
+    and a library is a `library` component with no `cryptoProperties`.
+    *(test: `TestCBOMStaysInsideCycloneDX16Vocabulary` walks the whole internal
+    vocabulary with the algorithm names the detectors emit against the enums
+    copied from the schema, and `TestCBOMPrimitiveMappingIsSpecific` pins the
+    mapping so "everything is other" cannot pass; both red on the old writer.
+    Not held: validation against the live schema file, which would need a
+    schema library; the enums are copied, with the schema version named.)*
+
 ## Decisions that have no gate yet
 
 This list is debt, and it is here to stay visible rather than to be tidy.

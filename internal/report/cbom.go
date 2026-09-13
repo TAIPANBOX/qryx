@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/TAIPANBOX/qryx/internal/graph"
+	"github.com/TAIPANBOX/qryx/internal/model"
 	"github.com/TAIPANBOX/qryx/internal/scan"
 )
 
@@ -47,8 +48,22 @@ type cbomComp struct {
 }
 
 type cryptoProps struct {
-	AssetType      string          `json:"assetType"`
-	AlgorithmProps *algorithmProps `json:"algorithmProperties,omitempty"`
+	AssetType      string                `json:"assetType"`
+	AlgorithmProps *algorithmProps       `json:"algorithmProperties,omitempty"`
+	ProtocolProps  *protocolProps        `json:"protocolProperties,omitempty"`
+	RelatedProps   *relatedMaterialProps `json:"relatedCryptoMaterialProperties,omitempty"`
+}
+
+// protocolProps is CycloneDX 1.6's protocolProperties, the part this writer
+// fills: the protocol type (tls, ssh, ...).
+type protocolProps struct {
+	Type string `json:"type"`
+}
+
+// relatedMaterialProps is CycloneDX 1.6's relatedCryptoMaterialProperties,
+// the part this writer fills: what kind of key material was found.
+type relatedMaterialProps struct {
+	Type string `json:"type"`
 }
 
 type algorithmProps struct {
@@ -122,16 +137,14 @@ func toComponent(n graph.AssetNode) cbomComp {
 		}
 	}
 
+	// The CycloneDX 1.6 boundary (cbom_vocab.go): the internal asset type and
+	// primitive are wider than the spec's enums and are mapped here, never
+	// copied. A library is not a cryptographic asset to the spec at all; it is
+	// a `library` component carrying the same evidence and qryx properties.
 	comp := cbomComp{
-		Type:   "cryptographic-asset",
-		BOMRef: bomRef(n),
-		Name:   name,
-		CryptoProperties: &cryptoProps{
-			AssetType: string(n.Asset.Type),
-			AlgorithmProps: &algorithmProps{
-				Primitive: string(n.Asset.Primitive),
-			},
-		},
+		Type:     "cryptographic-asset",
+		BOMRef:   bomRef(n),
+		Name:     name,
 		Evidence: &cbomEvidence{Occurrences: occ},
 		Properties: []cbomProperty{
 			{Name: "qryx:detectors", Value: joinSorted(sources)},
@@ -144,8 +157,33 @@ func toComponent(n graph.AssetNode) cbomComp {
 		comp.Properties = append(comp.Properties,
 			cbomProperty{Name: "qryx:reason", Value: n.Risk.Reason})
 	}
-	if n.Asset.KeySize > 0 {
-		comp.CryptoProperties.AlgorithmProps.ParameterSetID = fmt.Sprintf("%d", n.Asset.KeySize)
+	switch n.Asset.Type {
+	case model.TypeLibrary:
+		comp.Type = "library"
+	case model.TypeProtocol:
+		comp.CryptoProperties = &cryptoProps{
+			AssetType:     "protocol",
+			ProtocolProps: &protocolProps{Type: cdxProtocolType(n.Asset.Algorithm)},
+		}
+	case model.TypeKey:
+		comp.CryptoProperties = &cryptoProps{
+			AssetType:    "related-crypto-material",
+			RelatedProps: &relatedMaterialProps{Type: cdxKeyMaterialType(n.Asset.Algorithm)},
+		}
+	default: // algorithm and certificate
+		assetType := "algorithm"
+		if n.Asset.Type == model.TypeCertificate {
+			assetType = "certificate"
+		}
+		comp.CryptoProperties = &cryptoProps{
+			AssetType: assetType,
+			AlgorithmProps: &algorithmProps{
+				Primitive: cdxPrimitive(n.Asset.Algorithm, n.Asset.Primitive),
+			},
+		}
+		if n.Asset.KeySize > 0 {
+			comp.CryptoProperties.AlgorithmProps.ParameterSetID = fmt.Sprintf("%d", n.Asset.KeySize)
+		}
 	}
 	return comp
 }
