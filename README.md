@@ -405,9 +405,8 @@ tar -xzf qryx_$P.tar.gz
 
 The version is still there, in the binary rather than in the filename:
 `qryx version` prints the tag it was built from. That is the harder of the two
-places to fake, since anything between us and you can rename a file. That
-command is new in this release: it was named in this README, was missing from
-the binary, and exited 1.
+places to fake, since anything between us and you can rename a file. It
+prints `qryx <tag>` and exits 0.
 
 Or build from source (Go 1.27; the pinned go1.27.0 toolchain auto-downloads on first build):
 
