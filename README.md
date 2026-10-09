@@ -408,7 +408,7 @@ The version is still there, in the binary rather than in the filename:
 places to fake, since anything between us and you can rename a file. It
 prints `qryx <tag>` and exits 0.
 
-Or build from source (Go 1.27; the pinned go1.27.0 toolchain auto-downloads on first build):
+Or build from source (Go 1.27; the pinned go1.27.2 toolchain auto-downloads on first build):
 
 ```bash
 make build   # → ./bin/qryx
@@ -890,7 +890,7 @@ qryx trend 'postgres://user:pass@host:5432/db'
   agent-governance stack's own trust surface (Agent Passport attestation crypto,
   agent-event NDJSON hash-chain integrity) into the same asset graph
 - [x] ML-DSA signing (`internal/attest`): stdlib `crypto/mldsa` (Go 1.27,
-  `toolchain go1.27.0` in `go.mod`), additive 3rd case in the
+  `toolchain go1.27.2` in `go.mod`), additive 3rd case in the
   existing ed25519/ECDSA switch; live-verified against real openssl-generated
   keys end to end, all three security levels (`ML-DSA-44/65/87`)
 - [x] Agent-event export (`--events`, `internal/exporter`): the emitter half
