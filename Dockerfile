@@ -15,7 +15,7 @@
 # path, so this image is a drop-in replacement for the one they used to build
 # on the node.
 # GO_VERSION is the BASE image, not the toolchain this repo compiles with.
-# qryx's go.mod requires go 1.27 with `toolchain go1.27.0`, because
+# qryx's go.mod requires go 1.27 with `toolchain go1.27.2`, because
 # `crypto/mldsa` (FIPS 204) is stdlib only from 1.27, so GOTOOLCHAIN=auto below
 # fetches that toolchain during the build. It is the
 # same mechanism the stack's own build has used for this service all along:
@@ -30,7 +30,7 @@
 # fifteen times slower).
 #
 # Measured 2026-08-03 on an Ubuntu node whose docker had no buildx.
-ARG GO_VERSION=1.27
+ARG GO_VERSION=1.27.2
 
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS build
 ENV GOTOOLCHAIN=auto
