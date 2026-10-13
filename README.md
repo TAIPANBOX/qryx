@@ -100,7 +100,8 @@ Run the whole open stack locally with one command via [**stack-up**](https://git
 
 Before any public launch, Qryx was run against 25,586 real Linux ELF binaries, a real container image,
 and a live TLS endpoint: no crashes, and a live scan of `api.anthropic.com` correctly flagged its
-certificate as quantum-vulnerable under the NCSC 2035 timeline.
+certificate as quantum-vulnerable under the NCSC 2035 timeline. The run is
+recorded in [`VALIDATION.md`](VALIDATION.md), first committed 2026-07-13.
 
 ![Qryx crypto inventory: 4 real targets scanned, 20 assets in /usr/bin, live TLS handshake against api.anthropic.com flagged](assets/08-qryx.png)
 
@@ -134,12 +135,15 @@ for the scanner itself.
 </div>
 
 NIST standardized post-quantum algorithms in 2024 (FIPS 203/204/205) and
-**CNSA 2.0** fixes the deadlines: new systems on PQC by 2027, legacy migration
-by 2030, complete by 2035. **"Harvest now, decrypt later"** means data encrypted
+qryx grades against the **CNSA 2.0** working dates: 2027 for new systems,
+2030 for legacy migration and 2035 for completion (`internal/report/cnsa.go`).
+The repository does not carry the NSA text those dates come from. **"Harvest now, decrypt later"** means data encrypted
 with quantum-vulnerable crypto today can be captured now and decrypted once a
 cryptographically relevant quantum computer exists - so the exposure is already
-real. Migration starts with **discovery**, and organizations consistently find
-**3-5× more cryptographic assets than expected**. You can't migrate what you
+real. Migration starts with **discovery**. The planning note behind qryx says
+organizations find **3-5× more cryptographic assets than expected**
+(`qryx-plan.md`); that is the note's own figure, not a measurement in this
+repository. You can't migrate what you
 can't see.
 
 ---
@@ -189,7 +193,8 @@ so an inline test module inside a production `.rs` file is set aside just like
 a `_test.go` file, while the production code around it still counts.
 
 This is not cosmetic. Scanning this repository, 8 of 13 assets existed **only**
-in test fixtures, and 21 of 40 occurrences were test code. A hardcoded-key
+in test fixtures, and 21 of 40 occurrences were test code (measured on this
+repository when the split was added; the numbers are in `PROGRESS.md`). A hardcoded-key
 finding in a sibling repo reported three occurrences, two of which were fixtures
 in `tests/`. Counting those inflates the number an operator is trying to drive to
 zero and buries the findings they actually have to migrate.
@@ -369,8 +374,8 @@ depending on it, a missing snapshot stays a warning and an exit 0.
 qryx is a security tool, so its own build is held to the standard it audits
 others against. A dedicated `security` CI job runs `govulncheck`
 against every dependency and `gosec` static analysis on every push to `main`;
-both are clean. Every job in CI pins the same toolchain `go.mod` asks for
-(`1.27.0`), because until 1 August 2026 the workflows said `1.26.5` while
+the results are in each run's log, not in this file. Every job in CI pins the
+same toolchain `go.mod` asks for (`1.27.2`), because until 1 August 2026 the workflows said `1.26.5` while
 `go.mod` said 1.27, and Go quietly downloaded the newer toolchain rather than
 failing: the pin said one thing and the build did another. Every gosec finding was either fixed (scoped file reads via
 `os.Root`, tightened file/dir permissions, explicit handling of best-effort
@@ -466,8 +471,8 @@ your download arrive intact. It cannot answer this one, because `tar` and
 when every byte of the binary inside it is.
 
 Measured on 5 August 2026, against the real published artifact rather than in
-principle: `qryx_v0.3.0_darwin_arm64` from the Releases page, built on a Linux
-runner cross-compiling to darwin/arm64, and a local build of that same tag on
+principle: `qryx_v0.3.0_darwin_arm64` from the Releases page (v0.3.0 was the last release
+whose asset names carried a version), built on a Linux runner cross-compiling to darwin/arm64, and a local build of that same tag on
 macOS are both
 
 ```
@@ -650,10 +655,11 @@ agent-governance stack's own trust surface: Agent Passport `attestation.method`
 → token-based, none → a `misconfig` finding) and agent-event NDJSON
 `prev_hash` chains (every event carries a distinct sha256 prev_hash → a
 sha256 hash asset; any event missing one, or the same value repeated across
-events, → a `misconfig` finding). The chain check is structural: it confirms
-every event is linked and no hash is suspiciously reused, but it does not
-recompute each event's canonical hash to verify a prev_hash equals the actual
-predecessor. Passport/event files are told apart by their `schema` field, not
+events, → a `misconfig` finding). The chain check has two passes: a structural
+pass confirms every event is linked and no hash is suspiciously reused, and a
+stream that passes it is then checked by agent-stack-go's `event.VerifyChain`,
+which recomputes each event's RFC 8785 canonical hash and compares it with the
+`prev_hash` of the event after it. Passport/event files are told apart by their `schema` field, not
 extension; malformed files are counted and skipped, never fatal. Identity and
 privilege stay Idryx's job - this connector stays strictly on the crypto axis.
 
