@@ -343,9 +343,27 @@ an absent invariant.
     nothing for a textual `name=value` check to point at; they stay out of
     `frozen` rather than being faked against a bare integer, and a future named
     constant can bring them in. `env` and `http.routes` are absent for a
-    different reason: this repository reads no environment variable and serves
-    no HTTP route at all, so each would be a kind with zero names, which the
-    gate itself refuses to accept rather than pass on nothing.
+    different reason: the shipped code reads no environment variable itself and
+    serves no HTTP route at all, so each would be a kind with zero names, which
+    the gate itself refuses to accept rather than pass on nothing. The
+    environment claim is narrower than "nothing in the process reads the
+    environment", and what it covers is measured, not assumed:
+
+    - Held: every non-test `.go` file. `TestEveryEnvironmentReadIsDeclaredAndEveryDeclaredReadIsRead`
+      (`internal/manifest`, since #67) fails on an `os.Getenv` or `os.LookupEnv`
+      whose name is a literal that `components.json` does not declare, on a
+      declared name that nothing reads, and on a computed name it cannot check.
+    - Not held by that test: test files (`internal/store/postgres_test.go`
+      reads `DATABASE_URL` for the integration job), and `os.Environ`,
+      `os.ExpandEnv` and `syscall.Getenv`, which the test does not match. None
+      of the three appears in non-test code today.
+    - Read on the binary's behalf by code this repository does not own: the AWS
+      SDK's default config chain reads `AWS_REGION` and `AWS_PROFILE` when
+      `qryx aws` is given neither `--region` nor `--profile`; `azidentity`'s
+      default credential reads `AZURE_CLIENT_ID` and `AZURE_TENANT_ID` for
+      `qryx azure`; Google's application default credentials read
+      `GOOGLE_APPLICATION_CREDENTIALS` for `qryx gcp`; the Go runtime reads
+      `GODEBUG`. The frozen surface lists none of them.
 
     Additive things (a detector, a new connector's own subcommand, a flag on an
     existing one, an output format, a schema version added to what
@@ -360,11 +378,14 @@ an absent invariant.
     count, and `lhs=rhs` entries are read as assignments. It does not prove the
     code does what the name says, and it does not prove a name absent from the
     manifest is not part of the surface.
-    *(gate: `scripts/compat-surface.sh`; seven cases in `gates-have-teeth.sh`:
-    a frozen subcommand renamed, an emitted event type gone from its file, an
-    accepted schema string gone from its file, the human form edited by hand,
-    an additive subcommand that must pass, and the manifest and a named file
-    taken away, both of which must read as measured nothing)*
+    *(gate: `scripts/compat-surface.sh` for the frozen surface; seven cases in
+    `gates-have-teeth.sh`: a frozen subcommand renamed, an emitted event type
+    gone from its file, an accepted schema string gone from its file, the human
+    form edited by hand, an additive subcommand that must pass, and the manifest
+    and a named file taken away, both of which must read as measured nothing;
+    test: `internal/manifest` `TestEveryEnvironmentReadIsDeclaredAndEveryDeclaredReadIsRead`
+    for the environment half, which is not among the `gates-have-teeth.sh` cases,
+    and which proves its own reader against a planted read)*
 
 18. **A CBOM says only what CycloneDX 1.6 lets it say.** The internal
     vocabulary (`model.Primitive`, `model.AssetType`) is wider than the spec's
