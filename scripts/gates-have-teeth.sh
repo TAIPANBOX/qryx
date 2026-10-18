@@ -259,6 +259,32 @@ open("features/ai-inventory.feature", "w").write(re.sub(r"(?s)  # @test.*", "", 
 	"a feature file with no scenarios"
 
 echo
+echo "=== declared-attestation: a passport's method is declared, never verified ==="
+
+# A finding that reads as an attestation that happened is the failure F-020
+# named. The gate must name the line, so the reader is not sent to a whole file.
+run_case "declared-attestation: a finding that reads as an attestation that happened" fail \
+	'./scripts/declared-attestation.sh' \
+	"$(py 'edit("internal/agentstack/agentstack.go", "agent %s declares attestation method %s (%s); the declaration is not verified", "agent %s attests via %s (%s)")')" \
+	"UNDECLARED"
+
+run_case "declared-attestation: the no-method finding loses the word declares" fail \
+	'./scripts/declared-attestation.sh' \
+	"$(py 'edit("internal/agentstack/agentstack.go", "agent %s declares no attestation method", "agent %s has no attestation method")')" \
+	"UNDECLARED"
+
+# The non-fault: a reworded sentence that still says the method is declared.
+run_case "declared-attestation: a reworded finding that still says declares" pass \
+	'./scripts/declared-attestation.sh' \
+	"$(py 'edit("internal/agentstack/agentstack.go", "agent %s declares attestation method %s", "agent %s declares the attestation method %s")')"
+
+# And the subject taken away: the function renamed, so there is nothing to read.
+run_case "declared-attestation: passportFindings renamed away" fail \
+	'./scripts/declared-attestation.sh' \
+	"$(py 'edit("internal/agentstack/agentstack.go", "func passportFindings(", "func passportFindingz(")')" \
+	"measured nothing"
+
+echo
 echo "=== compat-surface: the surface 1.0 will freeze ==="
 
 # A global, quote-aware substitution rather than the `py()` helper's

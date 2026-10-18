@@ -56,7 +56,8 @@ func run(args []string) error {
 		project   = fs.String("project", "", "GCP project ID (gcp)")
 		location  = fs.String("location", gcpcloud.AllLocations, "GCP KMS location, or - for every location the caller can see (gcp)")
 		vaultURL  = fs.String("vault-url", "", "Azure Key Vault URL, e.g. https://myvault.vault.azure.net/ (azure)")
-		signer    = fs.String("signer", "", "require this key fingerprint, e.g. sha256:0123456789abcdef (verify-evidence); without it the signature is only checked against the key inside the document")
+		signer    = fs.String("signer", "", "pin the key fingerprint that must have signed, e.g. sha256:0123456789abcdef (verify-evidence); without it the check is reported as not verified, and --ci refuses it")
+		ciMode    = fs.Bool("ci", false, "verify-evidence in CI: refuse to pass unless --signer pins the expected key, so a re-signed forgery cannot pass (other subcommands ignore it)")
 		write     = fs.Bool("write", false, "apply fixes in place (fix); default prints a unified diff")
 		minRSA    = fs.Int("min-rsa-bits", 3072, "raise RSA keys below this size when fixing (fix)")
 		openPR    = fs.Bool("open-pr", false, "apply fixes and open a GitHub PR via git+gh (fix)")
@@ -72,7 +73,7 @@ func run(args []string) error {
 		withTests = fs.Bool("include-tests", false, "count crypto found in test code (_test.go, testdata/, conftest.py, ...) as part of the production inventory; by default it is reported on stderr and excluded from the graph, the verdict and every format")
 	)
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage:\n  qryx scan [flags] <path>\n  qryx fix [--write] [--open-pr [--branch NAME]] [--min-rsa-bits N] <path>\n  qryx trend <evidence-trail.jsonl>\n  qryx verify-evidence [--signer sha256:...] <evidence.json>\n  qryx tls [flags] <host:port>...\n  qryx bin [flags] <file|dir>...\n  qryx image [flags] <image.tar>...\n  qryx aws [flags]\n  qryx gcp --project <id> [flags]\n  qryx azure --vault-url <url> [flags]\n  qryx agents [flags] <path>\n  qryx version\n\nflags:\n")
+		fmt.Fprintf(os.Stderr, "usage:\n  qryx scan [flags] <path>\n  qryx fix [--write] [--open-pr [--branch NAME]] [--min-rsa-bits N] <path>\n  qryx trend <evidence-trail.jsonl>\n  qryx verify-evidence [--ci] [--signer sha256:...] <evidence.json>\n  qryx tls [flags] <host:port>...\n  qryx bin [flags] <file|dir>...\n  qryx image [flags] <image.tar>...\n  qryx aws [flags]\n  qryx gcp --project <id> [flags]\n  qryx azure --vault-url <url> [flags]\n  qryx agents [flags] <path>\n  qryx version\n\nflags:\n")
 		fs.PrintDefaults()
 	}
 
@@ -141,26 +142,7 @@ func run(args []string) error {
 		if err != nil {
 			return err
 		}
-		alg, fp, err := report.VerifyEvidence(data, *signer)
-		if err != nil {
-			return fmt.Errorf("verify-evidence: %w", err)
-		}
-		// Two different sentences for two different guarantees. The key travels
-		// inside the document, so without --signer the only thing established is
-		// that the document is internally consistent and was signed by whoever
-		// signed it. Saying VERIFIED alone let a forgery read as authentic in a
-		// CI log, which is the defect this flag closes; the word stays for the
-		// pinned case, where it is true.
-		if *signer == "" {
-			fmt.Fprintf(os.Stdout,
-				"evidence: consistent and self-signed (%s, key %s)\n"+
-					"note: no signer was pinned, so this does not establish WHO signed it. "+
-					"Re-run with --signer %s once you have confirmed that key is the one you expect.\n",
-				alg, fp, fp)
-			return nil
-		}
-		fmt.Fprintf(os.Stdout, "evidence: VERIFIED (%s, signed by the expected key %s)\n", alg, fp)
-		return nil
+		return verifyEvidence(os.Stdout, data, *signer, *ciMode)
 	}
 
 	var (
@@ -761,4 +743,33 @@ func parseSeverity(s string) (model.Severity, bool) {
 	default:
 		return model.SeverityNone, false
 	}
+}
+
+// verifyEvidence is the verify-evidence subcommand's body. Consistency is all
+// an unpinned check establishes: the key travels inside the document, so a
+// forger who rewrote it and signed again with their own key produces a
+// document that passes. A pin (--signer) is what makes the check answer WHO
+// signed. In CI mode (--ci) an unpinned check is refused before any verdict is
+// printed, because a CI step that cannot fail on a forgery is not a check.
+// Outside CI mode an unpinned check still runs, is reported as not verified,
+// and never prints VERIFIED.
+func verifyEvidence(out io.Writer, data []byte, pin string, ci bool) error {
+	if ci && pin == "" {
+		return errors.New("verify-evidence --ci: no signer pinned, so nothing was verified; " +
+			"pass --signer sha256:... with the key you expect the document to be signed by")
+	}
+	alg, fp, err := report.VerifyEvidence(data, pin)
+	if err != nil {
+		return fmt.Errorf("verify-evidence: %w", err)
+	}
+	if pin == "" {
+		fmt.Fprintf(out,
+			"evidence: not verified: no signer pinned. The signature matches the key inside the document "+
+				"(%s, key %s), which shows the document is consistent, not who signed it. "+
+				"Re-run with --signer %s once you have confirmed that key is the one you expect.\n",
+			alg, fp, fp)
+		return nil
+	}
+	fmt.Fprintf(out, "evidence: VERIFIED (%s, signed by the expected key %s)\n", alg, fp)
+	return nil
 }

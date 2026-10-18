@@ -41,6 +41,7 @@ else's infrastructure.
    ./scripts/features-are-bound.sh   # invariant 15
    ./scripts/reproducible-build.sh   # builds from git archive HEAD: run it after committing
    ./scripts/compat-surface.sh       # invariant 17
+   ./scripts/declared-attestation.sh # invariant 19
    ./scripts/gates-have-teeth.sh     # invariant 12; needs a clean tree
    ```
 4. **Verify end-to-end** when possible: build `/tmp/qryx` and run the real
@@ -211,8 +212,8 @@ an absent invariant.
     A text parser does not break loudly: it stops matching and reports success.
     The mutants that proved these gates lived in commit messages and in the
     `*(gate: ...)*` markers above, which is a record of what was true once.
-    *(gate: `scripts/gates-have-teeth.sh`, 21 cases: eleven real faults each gate
-    must catch, four non-faults they must not, and six subjects taken away
+    *(gate: `scripts/gates-have-teeth.sh`, 25 cases: thirteen real faults each gate
+    must catch, five non-faults they must not, and seven subjects taken away
     entirely, where the gate must say it measured nothing rather than report
     OK. Every mutation asserts it applied, because a mutation that changed no
     bytes is indistinguishable from a gate that passed.)*
@@ -410,6 +411,26 @@ an absent invariant.
     mapping so "everything is other" cannot pass; both red on the old writer.
     Not held: validation against the live schema file, which would need a
     schema library; the enums are copied, with the schema version named.)*
+
+19. **A passport's attestation method is a declaration, never a verified fact,
+    and an evidence check in CI mode cannot pass without a pinned signer.**
+    `qryx agents` reads the method a passport names in its own JSON. Nothing in
+    qryx checks the certificate, SVID or enclave key behind that name, so every
+    finding text says the method is declared and not verified, and the phrasing
+    "attests via" is refused. Separately, a signed evidence document is only
+    consistent with the key inside it, and a forger who rewrites and re-signs
+    produces one that is consistent too. So `verify-evidence --ci` refuses when
+    no `--signer` is pinned, and outside CI mode an unpinned check is reported
+    as "not verified: no signer pinned", never as VERIFIED. CI mode is an
+    explicit flag because the shipped code reads no environment variable
+    (invariant 17), so it cannot detect a CI runner by itself.
+    *(gate: `scripts/declared-attestation.sh` for the wording, with four cases in
+    `scripts/gates-have-teeth.sh`; test: `TestVerifyEvidenceCIModeRefusesWithoutAPin`,
+    `TestVerifyEvidenceUnpinnedIsNotVerified` and
+    `TestVerifyEvidenceCIRejectsAForgeryResignedByAnotherKey` for the refusal;
+    `TestPassportAttestationIsDeclaredNotVerified` for the wording. Not held: a CI
+    job that omits `--ci` is not refused. Not held: the classification of
+    enclave-key as RiskNone still rests on the declared method.)*
 
 ## Decisions that have no gate yet
 

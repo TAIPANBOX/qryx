@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-300-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-306-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Status](https://img.shields.io/badge/phase-4%20(governance)-success.svg)
 
@@ -88,7 +88,7 @@ flowchart TB
   SPEC[["agent-passport: the spec"]] -.->|governs| BUS
 ```
 
-- **Consumes**: Agent Passports and agent-event NDJSON (`qryx agents` checks attestation and `prev_hash` chains), plus real crypto artifacts (code, binaries, TLS, cloud KMS).
+- **Consumes**: Agent Passports and agent-event NDJSON (`qryx agents` reads each passport's declared attestation method and checks `prev_hash` chains), plus real crypto artifacts (code, binaries, TLS, cloud KMS).
 - **Produces**: NCSC/CNSA/CycloneDX crypto posture reports.
 - **Talks to**: **agent-passport** (the passport and event schema it scans), fed by the same agent-event bus that **TokenFuse**, **Wardryx**, and **Engram** write to. Imports **agent-stack-go** for that contract rather than re-implementing it, like the other Go services in the stack.
 
@@ -532,7 +532,7 @@ qryx scan --format ncsc <path>               # NCSC PQC migration readiness, 202
 qryx scan --format ncsc-html <path> > ncsc.html  # NCSC readiness (HTML)
 qryx scan --format evidence <path> > evidence.json  # tamper-evident compliance attestation
 qryx scan --format evidence --sign-key key.pem <path> > evidence.json  # ...signed (ed25519/ECDSA/ML-DSA)
-qryx verify-evidence evidence.json     # verify a signed attestation
+qryx verify-evidence --ci --signer sha256:... evidence.json  # verify a signed attestation (CI: refuses without a pinned signer)
 qryx scan --format dashboard <path> > dashboard.html # one-page governance dashboard
 qryx scan --format ai-inventory <path>  # where this tree reaches an AI model (JSON)
 qryx scan --save-evidence trail.jsonl <path>   # append a dated compliance record
@@ -651,8 +651,10 @@ there is no inventory to be partial about.
 
 **AI-agent infrastructure** (`qryx agents <path>`) - inventories the
 agent-governance stack's own trust surface: Agent Passport `attestation.method`
-(mTLS/SPIFFE → certificate-based, enclave key → hardware-backed and safe, OIDC
-→ token-based, none → a `misconfig` finding) and agent-event NDJSON
+(mTLS/SPIFFE → certificate-based, enclave key → hardware-backed, OIDC
+→ token-based, none → a `misconfig` finding). The method is what the passport
+declares: qryx does not check the certificate, SVID or enclave key behind it,
+and every finding says "declares" and, for a named mechanism, "not verified" and agent-event NDJSON
 `prev_hash` chains (every event carries a distinct sha256 prev_hash → a
 sha256 hash asset; any event missing one, or the same value repeated across
 events, → a `misconfig` finding). The chain check has two passes: a structural
@@ -823,19 +825,25 @@ dependency), embedding the public key so the artifact is self-verifying:
 ```bash
 openssl genpkey -algorithm ed25519 -out key.pem
 qryx scan --format evidence --sign-key key.pem ./src > evidence.json
-qryx verify-evidence evidence.json   # VERIFIED (ed25519, key sha256:...) or exit 1
+qryx verify-evidence --ci --signer sha256:... evidence.json   # VERIFIED (ed25519, key sha256:...) or exit 1
 
 # post-quantum: ML-DSA-44/65/87, all three levels accepted -- seed-only
 # encoding required (Go's x509 parser doesn't support OpenSSL's default
 # seed+expanded PKCS#8 form)
 openssl genpkey -algorithm ML-DSA-44 -provparam ml-dsa.output_formats=seed-only -out mldsa-key.pem
 qryx scan --format evidence --sign-key mldsa-key.pem ./src > evidence.json
-qryx verify-evidence evidence.json   # VERIFIED (ml-dsa-44, key sha256:...) or exit 1
+qryx verify-evidence --ci --signer sha256:... evidence.json   # VERIFIED (ml-dsa-44, key sha256:...) or exit 1
 ```
 
 `verify-evidence` recomputes the digest, confirms the document is unmodified,
-and checks the signature against the embedded key, printing its fingerprint to
-compare against your trusted signer. ed25519 and ECDSA P-256 remain
+and checks the signature against the embedded key. That proves the document is
+consistent, not who signed it: the key travels inside the document, so anyone
+who rewrites it and signs again with their own key produces one that passes.
+Pin the key you expect with `--signer sha256:...` (the fingerprint it prints)
+to make the check answer who signed it. Without `--signer` the result is
+reported as `not verified: no signer pinned`, never as `VERIFIED`. In a CI
+step, pass `--ci` as well: it refuses to pass unless `--signer` is set, so the
+step cannot succeed on a forgery. ed25519 and ECDSA P-256 remain
 classically strong but quantum-vulnerable; ML-DSA is the quantum-resistant
 option, requiring Go 1.27+ (`crypto/mldsa`).
 
