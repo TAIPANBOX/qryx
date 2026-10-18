@@ -731,3 +731,35 @@ func TestScanDirectory(t *testing.T) {
 		t.Errorf("total findings = %d, want %d", len(got), len(want))
 	}
 }
+
+// TestPassportAttestationIsDeclaredNotVerified holds F-020's first half. The
+// attestation method a passport names is what the passport says, not evidence
+// that the mechanism behind the name was checked: qryx reads no certificate,
+// SVID or enclave key. Every finding text for a passport's method must say the
+// method is declared, and must not read as an attestation that happened.
+func TestPassportAttestationIsDeclaredNotVerified(t *testing.T) {
+	for _, method := range []string{"mtls-cert", "spiffe-svid", "enclave-key", "oidc", "none", ""} {
+		t.Run(method, func(t *testing.T) {
+			p := passport{ID: "agent://acme-bank.example/x", Owner: "team@acme-bank.example"}
+			p.Attestation.Method = method
+			p.Attestation.Detail = "detail"
+			got := passportFindings("p.json", p)
+			if len(got) != 1 {
+				t.Fatalf("want 1 finding, got %d: %+v", len(got), got)
+			}
+			f := got[0]
+			if !strings.Contains(f.Evidence, "declare") {
+				t.Errorf("evidence %q does not say the method is declared", f.Evidence)
+			}
+			if strings.Contains(f.Evidence, "attests via") {
+				t.Errorf("evidence %q reads as an attestation that happened", f.Evidence)
+			}
+			if method != "none" && method != "" && !strings.Contains(f.Evidence, "not verified") {
+				t.Errorf("evidence %q does not say the declaration is not verified", f.Evidence)
+			}
+			if method == "enclave-key" && !strings.Contains(f.Risk.Reason, "declared") {
+				t.Errorf("risk reason %q does not say the enclave key attestation is declared", f.Risk.Reason)
+			}
+		})
+	}
+}

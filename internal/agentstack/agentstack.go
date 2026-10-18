@@ -5,8 +5,10 @@
 // https://github.com/TAIPANBOX/agent-passport, SPEC.md §4 and §6) and turns
 // them into two kinds of finding, strictly on the crypto-hygiene axis:
 //
-//   - Attestation crypto: what cryptographic binding, if any, backs an
-//     agent's identity (its passport's attestation.method).
+//   - Attestation crypto: what cryptographic binding, if any, the agent's
+//     passport DECLARES as backing its identity (attestation.method). qryx
+//     does not verify the declaration: no certificate, SVID or enclave key
+//     is read, so every finding text says "declares" and "not verified".
 //   - Event-stream integrity: whether the agent-event NDJSON streams a
 //     product emits are hash-chained (tamper-evident) or not. A cheap
 //     structural pass (every event carries a well-formed, non-repeated
@@ -197,12 +199,15 @@ func parseEvents(content []byte) (events []agentEvent, malformed int) {
 	return events, malformed
 }
 
-// passportFindings maps one passport's attestation method to the crypto asset
-// it implies. mtls-cert/spiffe-svid inventory an x509-based identity binding
+// passportFindings maps one passport's DECLARED attestation method to the
+// crypto asset it would imply. The method is the passport's own string and is
+// never checked here, so each Evidence text says it is declared and not
+// verified. mtls-cert/spiffe-svid inventory an x509-based identity binding
 // with an unknown algorithm (the document alone can't say more); enclave-key
-// is a hardware-backed key, the safe end of the spectrum; oidc is token-based
-// with no key material visible; none/absent is a misconfig: the identity has
-// no cryptographic attestation at all.
+// declares a hardware-backed key, the safe end of the spectrum if the
+// declaration holds; oidc declares token-based identity with no key material
+// visible; none/absent is a misconfig: the identity declares no cryptographic
+// attestation at all.
 func passportFindings(path string, p passport) []model.Finding {
 	loc := model.Location{File: path}
 	tags := findingTags(p)
@@ -212,7 +217,7 @@ func passportFindings(path string, p passport) []model.Finding {
 		return []model.Finding{{
 			Asset:    model.Asset{Type: model.TypeCertificate, Algorithm: "X509", Primitive: model.PrimitiveUnknown},
 			Location: loc,
-			Evidence: fmt.Sprintf("agent %s attests via %s (%s)", p.ID, p.Attestation.Method, p.Attestation.Detail),
+			Evidence: fmt.Sprintf("agent %s declares attestation method %s (%s); the declaration is not verified", p.ID, p.Attestation.Method, p.Attestation.Detail),
 			Source:   "agentstack",
 			Tags:     tags,
 		}}
@@ -220,16 +225,16 @@ func passportFindings(path string, p passport) []model.Finding {
 		return []model.Finding{{
 			Asset:    model.Asset{Type: model.TypeKey, Algorithm: "enclave-key", Primitive: model.PrimitiveUnknown},
 			Location: loc,
-			Evidence: fmt.Sprintf("agent %s attests via hardware enclave key (%s)", p.ID, p.Attestation.Detail),
+			Evidence: fmt.Sprintf("agent %s declares a hardware enclave key attestation (%s); not verified", p.ID, p.Attestation.Detail),
 			Source:   "agentstack",
-			Risk:     model.Risk{Class: model.RiskNone, Severity: model.SeverityNone, Reason: "hardware-backed enclave key attestation"},
+			Risk:     model.Risk{Class: model.RiskNone, Severity: model.SeverityNone, Reason: "declared hardware-backed enclave key attestation, not verified"},
 			Tags:     tags,
 		}}
 	case "oidc":
 		return []model.Finding{{
 			Asset:    model.Asset{Type: model.TypeProtocol, Algorithm: "OIDC", Primitive: model.PrimitiveUnknown},
 			Location: loc,
-			Evidence: fmt.Sprintf("agent %s attests via OIDC token (%s); no key material visible in the passport", p.ID, p.Attestation.Detail),
+			Evidence: fmt.Sprintf("agent %s declares an OIDC token attestation (%s); not verified; no key material visible in the passport", p.ID, p.Attestation.Detail),
 			Source:   "agentstack",
 			Tags:     tags,
 		}}
@@ -237,7 +242,7 @@ func passportFindings(path string, p passport) []model.Finding {
 		return []model.Finding{{
 			Asset:    model.Asset{Type: model.TypeProtocol, Algorithm: "no-attestation", Primitive: model.PrimitiveUnknown},
 			Location: loc,
-			Evidence: fmt.Sprintf("agent %s has no attestation method set", p.ID),
+			Evidence: fmt.Sprintf("agent %s declares no attestation method", p.ID),
 			Source:   "agentstack",
 			Risk:     model.Risk{Class: model.RiskMisconfig, Severity: model.SeverityMedium, Reason: "agent identity has no cryptographic attestation"},
 			Tags:     tags,

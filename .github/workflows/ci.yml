@@ -97,6 +97,10 @@ jobs:
       - name: the surface 1.0 will freeze is still held
         run: ./scripts/compat-surface.sh
 
+      # Declared attestations are never reported as verified (invariant 19).
+      - name: a passport attestation is declared, never verified
+        run: ./scripts/declared-attestation.sh
+
       # Last, because it mutates tracked files and restores them. It needs a
       # clean tree and says so plainly, so it also reports any earlier step
       # that starts writing into the checkout.
