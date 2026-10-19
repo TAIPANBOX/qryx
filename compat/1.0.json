@@ -2,7 +2,7 @@
   "schema": "taipanbox.dev/compat/v1",
   "repo": "TAIPANBOX/qryx",
   "major": 1,
-  "status": "frozen at 1.0.0 (2026-09-13): the surface below is the promise of this major; the gate has held it since the manifest was written ahead of the tag",
+  "status": "frozen at 1.0.0 (2026-09-13), carried unchanged into 1.1.0 (2026-10-19): the surface below is the promise of this major; the gate has held it since the manifest was written ahead of the tag",
   "frozen": {
     "cli.subcommands": ["scan", "fix", "trend", "verify-evidence", "tls", "bin", "image", "aws", "gcp", "azure", "agents", "version"],
     "events.emitted": ["crypto_finding", "crypto_drift", "policy_violation", "evidence_signed"],

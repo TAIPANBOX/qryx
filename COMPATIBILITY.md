@@ -2,7 +2,7 @@
 
 `TAIPANBOX/qryx` promises the surface below from its 1.0 (`compat/1.0.json`, held by `scripts/compat-surface.sh` on every push). A frozen name is not removed or renamed within a major; an additive thing may appear as a minor; an experimental thing may change in any release.
 
-Status: frozen at 1.0.0 (2026-09-13): the surface below is the promise of this major; the gate has held it since the manifest was written ahead of the tag
+Status: frozen at 1.0.0 (2026-09-13), carried unchanged into 1.1.0 (2026-10-19): the surface below is the promise of this major; the gate has held it since the manifest was written ahead of the tag
 
 ## Frozen
 
