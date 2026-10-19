@@ -18,7 +18,7 @@ cd "$(git rev-parse --show-toplevel)" || exit 1
 # name<TAB>reason
 ALLOWED=$(
 	cat <<'LIST'
-github.com/TAIPANBOX/agent-stack-go	the shared wire contract; a local copy is the drift it exists to prevent
+github.com/TAIPANBOX/agent-stack-go/v2	the shared wire contract; a local copy is the drift it exists to prevent
 github.com/jackc/pgx/v5	the persistence layer, and stdlib database/sql alone will not do the JSON columns
 github.com/hashicorp/hcl/v2	correct Terraform parsing; string-scraping .tf files produced false matches
 github.com/zclconf/go-cty	hcl's value model, unavoidable once hcl is in
