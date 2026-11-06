@@ -42,6 +42,7 @@ else's infrastructure.
    ./scripts/reproducible-build.sh   # builds from git archive HEAD: run it after committing
    ./scripts/compat-surface.sh       # invariant 17
    ./scripts/declared-attestation.sh # invariant 19
+   ./scripts/no-reader-leaves-a-pipe-early.sh  # invariant 20
    ./scripts/gates-have-teeth.sh     # invariant 12; needs a clean tree
    ```
 4. **Verify end-to-end** when possible: build `/tmp/qryx` and run the real
@@ -431,6 +432,8 @@ an absent invariant.
     `TestPassportAttestationIsDeclaredNotVerified` for the wording. Not held: a CI
     job that omits `--ci` is not refused. Not held: the classification of
     enclave-key as RiskNone still rests on the declared method.)*
+20. **A check says what the text holds, not which of a writer and its reader finished first.** `@claude 2026-11-06`, carried from stack-k8s#226 and stack-single#167; it records no decision of the owner. Under `set -o pipefail` a pipe into `grep -q` reports the writer too: grep leaves at its first match, a writer with more to write takes SIGPIPE, the pipeline returns 141, and a line that is there reads as missing. In the negative form, `if ... | grep -q bad`, the 141 reads as clean and a refused line passes. The rate follows the load on the machine. @measured forge, 4 cores, bash 5.2.37, GNU grep 3.11, 2026-11-06, `gate-loop.sh` beside six busy loops (estate-gates `evidence/pipe-readers-2026-11-06/`): `scripts/declared-attestation.sh` at `f46af87` failed 0 of 100 runs, and 0 of 100 once fixed; it reads one line at a time, which is one write. Every such pipe in live shell code here moved, 2 in 2 files: to a here-string, `grep -q x <<<"$text"`, or to a pipe into `grep -c x >/dev/null`.
+    *(gate: `scripts/no-reader-leaves-a-pipe-early.sh`: a control that breaks a real pipe, known lines through the reader, then every tracked shell file and workflow `run:` step masked down to live code. It refuses to report OK on no shell file, no pipe, no step or a file it lost its place in. Eighteen cases in `scripts/gates-have-teeth.sh`. Not held: `| head`, the same race, which here takes a few lines from a writer of a few lines.)*
 
 ## Decisions that have no gate yet
 

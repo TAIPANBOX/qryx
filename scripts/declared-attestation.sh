@@ -42,7 +42,7 @@ fi
 fail=0
 while IFS= read -r line; do
 	case "$line" in *Evidence:*) ;; *) continue ;; esac
-	if ! printf '%s' "$line" | grep -qi 'declare'; then
+	if ! grep -qi 'declare' <<<"$line"; then
 		printf 'UNDECLARED  %s\n' "$(printf '%s' "$line" | sed 's/^[[:space:]]*//')"
 		printf '            a passport attestation finding that does not say the method is declared\n'
 		fail=$((fail + 1))
