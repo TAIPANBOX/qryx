@@ -18,7 +18,8 @@ qryx builds an organization-wide inventory of cryptography across code,
 binaries, container images, live TLS endpoints, certificates, dependencies and
 cloud KMS - normalizes it into a single **cryptographic asset graph**, scores
 each asset for post-quantum and hygiene risk, and emits a standard **CBOM**
-(CycloneDX). Open source, dev-first, built for mid-market. See
+(CycloneDX). Open source and built for the enterprise: organization-wide and
+auditable, yet light enough to run from a single CLI or a CI job. See
 [`qryx-plan.md`](./qryx-plan.md) for the full design and roadmap.
 
 <div align="center">
@@ -379,7 +380,7 @@ qryx is a security tool, so its own build is held to the standard it audits
 others against. A dedicated `security` CI job runs `govulncheck`
 against every dependency and `gosec` static analysis on every push to `main`;
 the results are in each run's log, not in this file. Every job in CI pins the
-same toolchain `go.mod` asks for (`1.27.3`), because until 1 August 2026 the workflows said `1.26.5` while
+same toolchain `go.mod` asks for (`1.27.4`), because until 1 August 2026 the workflows said `1.26.5` while
 `go.mod` said 1.27, and Go quietly downloaded the newer toolchain rather than
 failing: the pin said one thing and the build did another. Every gosec finding was either fixed (scoped file reads via
 `os.Root`, tightened file/dir permissions, explicit handling of best-effort
@@ -417,7 +418,7 @@ The version is still there, in the binary rather than in the filename:
 places to fake, since anything between us and you can rename a file. It
 prints `qryx <tag>` and exits 0.
 
-Or build from source (Go 1.27; the pinned go1.27.3 toolchain auto-downloads on first build):
+Or build from source (Go 1.27; the pinned go1.27.4 toolchain auto-downloads on first build):
 
 ```bash
 make build   # → ./bin/qryx
@@ -908,7 +909,7 @@ qryx trend 'postgres://user:pass@host:5432/db'
   agent-governance stack's own trust surface (Agent Passport attestation crypto,
   agent-event NDJSON hash-chain integrity) into the same asset graph
 - [x] ML-DSA signing (`internal/attest`): stdlib `crypto/mldsa` (Go 1.27,
-  `toolchain go1.27.3` in `go.mod`), additive 3rd case in the
+  `toolchain go1.27.4` in `go.mod`), additive 3rd case in the
   existing ed25519/ECDSA switch; live-verified against real openssl-generated
   keys end to end, all three security levels (`ML-DSA-44/65/87`)
 - [x] Agent-event export (`--events`, `internal/exporter`): the emitter half
