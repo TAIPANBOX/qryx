@@ -2,7 +2,7 @@
 
 `TAIPANBOX/qryx` promises the surface below from its 1.0 (`compat/1.0.json`, held by `scripts/compat-surface.sh` on every push). A frozen name is not removed or renamed within a major; an additive thing may appear as a minor; an experimental thing may change in any release.
 
-Status: frozen at 1.0.0 (2026-09-13), carried unchanged into 1.1.0 (2026-10-19) and into 1.1.1 (2026-10-26): the surface below is the promise of this major; the gate has held it since the manifest was written ahead of the tag
+Status: frozen at 1.0.0 (2026-09-13), carried unchanged into 1.1.0 (2026-10-19) and into 1.1.1 (2026-10-26), and carried into 1.2.0 (2026-11-12) with additions only: the surface below is the promise of this major; no frozen name was removed or renamed in 1.2.0, its additions (the ssh subcommand, the ssh-probe source, the ssh primitive, the tls key exchange group finding) are listed under additive, and its behaviour changes are in docs/releases/v1.2.0.md; the gate has held it since the manifest was written ahead of the tag
 
 ## Frozen
 
@@ -67,6 +67,9 @@ Status: frozen at 1.0.0 (2026-09-13), carried unchanged into 1.1.0 (2026-10-19) 
 - the agent-event schema version this repository emits, which moves in its own release (agent-passport SPEC 6.4.1)
 - an environment variable, since none exists today (components.json's reads_no_environment claim)
 - an HTTP surface, since qryx serves none today: no listen address, no health path, a one-shot CLI
+- the ssh subcommand (qryx ssh host:port), added in 1.2.0 behind a connector that does not fit the file walker
+- the ssh-probe finding source and the ssh primitive, added in 1.2.0 with qryx ssh
+- a key exchange group finding from qryx tls (source tls-probe), added in 1.2.0: a server that agrees a classical group alone is quantum-vulnerable, severity high
 
 ## Experimental
 
