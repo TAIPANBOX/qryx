@@ -196,8 +196,9 @@ func TestCBOMStaysInsideCycloneDX16Vocabulary(t *testing.T) {
 		model.PrimitiveSignature:  {"RSA", "ECDSA", "Ed25519"},
 		model.PrimitiveEncryption: {"AES", "DES", "3DES", "RC4", "RC2", "ChaCha20", "EVP_CIPHER"},
 		model.PrimitiveHash:       {"SHA-1", "MD5", "HMAC"},
-		model.PrimitiveKeyExch:    {"ECDH", "DH", "ML-KEM"},
+		model.PrimitiveKeyExch:    {"ECDH", "DH", "ML-KEM", "X25519", "X25519MLKEM768", "mlkem768x25519-sha256", "sntrup761x25519-sha512", "curve25519-sha256"},
 		model.PrimitiveTLS:        {"TLS"},
+		model.PrimitiveSSH:        {"SSH"},
 		model.PrimitiveUnknown:    {"X"},
 	}
 	var findings []model.Finding
@@ -221,6 +222,7 @@ func TestCBOMStaysInsideCycloneDX16Vocabulary(t *testing.T) {
 	add(model.TypeKey, "AES-256", model.PrimitiveEncryption)
 	add(model.TypeCertificate, "RSA-cert", model.PrimitiveSignature)
 	add(model.TypeProtocol, "TLS-endpoint", model.PrimitiveTLS)
+	add(model.TypeProtocol, "SSH", model.PrimitiveSSH)
 	add(model.TypeProtocol, "no-attestation", model.PrimitiveUnknown)
 	add(model.TypeProtocol, "hash-chain-broken", model.PrimitiveHash)
 	add(model.TypeLibrary, "libcrypto", model.PrimitiveUnknown)
@@ -318,6 +320,14 @@ func TestCBOMPrimitiveMappingIsSpecific(t *testing.T) {
 		{"ECDH", model.PrimitiveKeyExch, "key-agree"},
 		{"DH", model.PrimitiveKeyExch, "key-agree"},
 		{"ML-KEM", model.PrimitiveKeyExch, "kem"},
+		// A hybrid is a KEM with a classical exchange beside it, by either naming.
+		{"X25519MLKEM768", model.PrimitiveKeyExch, "kem"},
+		{"SecP256r1MLKEM768", model.PrimitiveKeyExch, "kem"},
+		{"mlkem768x25519-sha256", model.PrimitiveKeyExch, "kem"},
+		{"sntrup761x25519-sha512", model.PrimitiveKeyExch, "kem"},
+		{"X25519", model.PrimitiveKeyExch, "key-agree"},
+		{"curve25519-sha256", model.PrimitiveKeyExch, "key-agree"},
+		{"SSH", model.PrimitiveSSH, "other"},
 		{"RSA", model.PrimitiveSignature, "signature"},
 		{"SHA-1", model.PrimitiveHash, "hash"},
 		{"HMAC", model.PrimitiveHash, "mac"},

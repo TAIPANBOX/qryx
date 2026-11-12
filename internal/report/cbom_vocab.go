@@ -27,7 +27,7 @@ import (
 // AES and DES, a stream cipher for RC4, public-key encryption for RSA, and
 // "other" for a symbol like EVP_CIPHER that names the API rather than a
 // cipher; "key-exchange" is key agreement for ECDH and DH and a KEM for
-// ML-KEM; a "hash" named HMAC is a MAC.
+// ML-KEM and for the hybrids that carry it; a "hash" named HMAC is a MAC.
 func cdxPrimitive(algorithm string, p model.Primitive) string {
 	name := strings.ToUpper(strings.TrimSpace(algorithm))
 	base := name
@@ -46,6 +46,12 @@ func cdxPrimitive(algorithm string, p model.Primitive) string {
 		if strings.HasPrefix(name, "ML-KEM") || strings.HasPrefix(name, "KYBER") || strings.HasPrefix(name, "HQC") || strings.HasPrefix(name, "BIKE") {
 			return "kem"
 		}
+		// A hybrid (X25519MLKEM768 in TLS, mlkem768x25519-sha256 or
+		// sntrup761x25519-sha512 in SSH) is a KEM with a classical exchange
+		// beside it; calling it key agreement would hide the post-quantum half.
+		if strings.Contains(name, "MLKEM") || strings.HasPrefix(name, "SNTRUP") {
+			return "kem"
+		}
 		return "key-agree"
 	case model.PrimitiveEncryption:
 		switch {
@@ -61,7 +67,7 @@ func cdxPrimitive(algorithm string, p model.Primitive) string {
 			return "pke"
 		}
 		return "other"
-	case model.PrimitiveTLS:
+	case model.PrimitiveTLS, model.PrimitiveSSH:
 		// A protocol has no algorithm primitive; a caller that reaches here with
 		// an algorithm-typed asset gets the nearest honest word.
 		return "other"

@@ -61,6 +61,7 @@ const (
 	PrimitiveHash       Primitive = "hash"
 	PrimitiveKeyExch    Primitive = "key-exchange"
 	PrimitiveTLS        Primitive = "tls"
+	PrimitiveSSH        Primitive = "ssh"
 	PrimitiveUnknown    Primitive = "unknown"
 )
 

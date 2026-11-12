@@ -60,7 +60,7 @@ func verdictClass(v ncscVerdict) string {
 // highestPriorityCriteria documents, in one string surfaced in both report
 // formats, exactly which finding dimensions decide the 2031 "highest
 // priority" subset (see isExternallyFacing / isLongLivedData below).
-const highestPriorityCriteria = "quantum-vulnerable AND (externally-facing: an occurrence sourced from a live TLS probe or AWS ACM certificate; OR long-lived-data: the asset's primitive is encryption or key-exchange, i.e. subject to harvest-now-decrypt-later)"
+const highestPriorityCriteria = "quantum-vulnerable AND (externally-facing: an occurrence sourced from a live TLS or SSH probe or an AWS ACM certificate; OR long-lived-data: the asset's primitive is encryption or key-exchange, i.e. subject to harvest-now-decrypt-later)"
 
 // discoveryPlanNote documents how "migration plan artifact exists" is decided
 // for the 2028 milestone: qryx does not persist a separate plan file, so this
@@ -71,7 +71,7 @@ const highestPriorityCriteria = "quantum-vulnerable AND (externally-facing: an o
 // risk.Classify can flag as quantum-vulnerable (e.g. SM2 is not yet mapped).
 const discoveryPlanNote = "reuses the qryx migration report's plan (agility.Assess over the asset graph); an asset counts as planned when its algorithm has a recognized migration target"
 
-// sourceBucket classifies an occurrence into one of the six discovery-coverage
+// sourceBucket classifies an occurrence into one of the seven discovery-coverage
 // categories the milestone-1 report tracks. Container provenance is not a
 // per-finding Source in qryx today, because `qryx image` reuses the code
 // (goast, deps, ...) and binary detectors on extracted layers, so container
@@ -87,6 +87,7 @@ var sourceBucket = map[string]string{
 	"binary": "binaries",
 
 	"tls-probe": "tls",
+	"ssh-probe": "ssh",
 
 	"certfile": "certs",
 	"aws-acm":  "certs",
@@ -115,12 +116,12 @@ func bucketFor(root string, o graph.Occurrence) string {
 }
 
 // isExternallyFacing reports whether any occurrence of the asset was observed
-// on an externally-reachable surface: a live TLS probe of a network endpoint,
+// on an externally-reachable surface: a live TLS or SSH probe of a network endpoint,
 // or an AWS ACM certificate (which is bound to a public-facing load balancer
 // or CloudFront distribution in normal use).
 func isExternallyFacing(n graph.AssetNode) bool {
 	for _, o := range n.Occurrences {
-		if o.Source == "tls-probe" || o.Source == "aws-acm" {
+		if o.Source == "tls-probe" || o.Source == "ssh-probe" || o.Source == "aws-acm" {
 			return true
 		}
 	}

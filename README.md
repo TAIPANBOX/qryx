@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-306-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-319-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Status](https://img.shields.io/badge/phase-4%20(governance)-success.svg)
 
@@ -15,7 +15,7 @@
 </div>
 
 qryx builds an organization-wide inventory of cryptography across code,
-binaries, container images, live TLS endpoints, certificates, dependencies and
+binaries, container images, live TLS and SSH endpoints, certificates, dependencies and
 cloud KMS - normalizes it into a single **cryptographic asset graph**, scores
 each asset for post-quantum and hygiene risk, and emits a standard **CBOM**
 (CycloneDX). Open source and built for the enterprise: organization-wide and
@@ -161,7 +161,7 @@ deduplicated into a graph of unique assets, each carrying every place it occurs.
 
 | Stage | What it covers |
 |---|---|
-| **Sources** | source code (Go · Python · JS · TS · Rust), Terraform/HCL, binaries (ELF · PE · Mach-O), container images (`docker save` / OCI), live TLS endpoints, PEM/x509 certificates, dependency manifests, cloud KMS (AWS KMS + ACM · GCP KMS · Azure Key Vault), AI-agent infrastructure (Agent Passport identity docs + agent-event NDJSON streams) |
+| **Sources** | source code (Go · Python · JS · TS · Rust), Terraform/HCL, binaries (ELF · PE · Mach-O), container images (`docker save` / OCI), live TLS and SSH endpoints, PEM/x509 certificates, dependency manifests, cloud KMS (AWS KMS + ACM · GCP KMS · Azure Key Vault), AI-agent infrastructure (Agent Passport identity docs + agent-event NDJSON streams) |
 | **Scan engine** | AST + parser detectors (`goast`, `cryptocall`, `rust`, `certfile`, `tlsconfig`, `hardcoded`, `deps`, `terraform`, `aiusage`), the binary/image/TLS/cloud connectors, and the risk classifier |
 | **Asset graph** | one node per logical asset **and risk class** (algorithm + key size + risk class), deduplicated across all sources, with every occurrence attached |
 | **Outputs** | CycloneDX 1.6 CBOM · human · HTML · CNSA 2.0 audit · NCSC PQC readiness · migration plan · signed evidence attestation · governance dashboard · JSON/Postgres snapshots · CI drift, severity & policy gates |
@@ -554,7 +554,8 @@ qryx fix <path>                        # show safe code patches as a unified dif
 qryx fix --write <path>                # apply them in place (e.g. raise RSA key size)
 qryx fix --open-pr <path>              # apply, branch, commit and open a GitHub PR (git+gh)
 
-qryx tls example.com:443               # probe a live endpoint's TLS posture
+qryx tls example.com:443               # probe a live endpoint's TLS posture, incl. its key exchange group
+qryx ssh router.lan:22                 # what an SSH server offers, incl. post-quantum key exchange
 qryx bin /usr/bin/openssl              # crypto in a binary (ELF/PE/Mach-O)
 docker save app:latest -o img.tar && qryx image img.tar   # scan a container image
 qryx aws --region us-east-1            # inventory AWS KMS keys + ACM certs
@@ -570,8 +571,9 @@ qryx scan --baseline base.json --fail-on-new high --allow-missing-baseline <path
 ```
 
 > Flags must precede the positional path/targets (`qryx scan [flags] <path>`).
-> `qryx tls` connects only to the exact `host:port` arguments you pass - no port
-> ranges, no host discovery. Probe only endpoints you are authorized to test.
+> `qryx tls` and `qryx ssh` connect only to the exact `host:port` arguments you
+> pass - no port ranges, no host discovery. Probe only endpoints you are
+> authorized to test.
 
 Run against the bundled fixtures with `make scan`.
 
@@ -594,7 +596,25 @@ Run against the bundled fixtures with `make scan`.
 | `aiusage` | the operator's own LLM/AI provider SDKs, imports and endpoint literals, informational and never a crypto risk (see [AI usage inventory](#ai-usage-inventory)) |
 
 **TLS probing** (`qryx tls`) - negotiated TLS version, insecure cipher suites,
-and the leaf certificate's public-key algorithm, size and expiry.
+the key exchange group the session key was agreed with, and the leaf
+certificate's public-key algorithm, size and expiry. qryx offers the hybrid
+`X25519MLKEM768` first, so a server that supports it is reported with it and no
+risk, and a server that agrees `X25519` or a NIST curve alone is reported
+quantum-vulnerable: traffic recorded today can be decrypted later. The group is
+named from its IANA code point, so a hybrid the Go toolchain has no name for is
+still read as a hybrid.
+
+**SSH probing** (`qryx ssh`) - sends an identification string and reads the
+server's identification and `SSH_MSG_KEXINIT`, the algorithm lists every SSH
+server sends in the clear before any key exchange or authentication. qryx
+never sends a KEXINIT of its own, so nothing is negotiated or logged in. It
+reports the banner as the SSH protocol asset; the key exchange, with no risk
+when a hybrid post-quantum exchange (`mlkem768x25519-sha256`,
+`sntrup761x25519-sha512`) is offered and quantum-vulnerable when it is not;
+each broken algorithm still offered (SHA-1 Diffie-Hellman, `ssh-rsa`, DSA,
+3DES, RC4, CBC modes, MD5 and SHA-1 MACs), once however many directions offer
+it; and one finding per host key family, graded like every other key. Every
+length the server sends is checked before it is used.
 
 **Binary scanning** (`qryx bin`) - ELF/PE/Mach-O via `debug/elf|pe|macho`,
 mapping needed crypto libraries and imported symbols to assets: both the
@@ -750,7 +770,7 @@ everything by 2035. Each milestone gets a deterministic
 `on-track`/`at-risk`/`not-started` verdict - 2028 is at-risk if any
 quantum-vulnerable asset has no recognized migration target; the 2031
 "highest-priority" subset is quantum-vulnerable **and** either
-externally-facing (seen via a live TLS probe or an AWS ACM certificate) or
+externally-facing (seen via a live TLS or SSH probe or an AWS ACM certificate) or
 long-lived data (an encryption/key-exchange primitive, i.e. exposed to
 harvest-now-decrypt-later) - the exact predicate is embedded as a criteria
 string in both outputs, so the report documents its own rules. The migrated

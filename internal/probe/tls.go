@@ -1,6 +1,7 @@
 // Package probe actively connects to network endpoints to discover the
-// cryptography they negotiate: TLS version, cipher suite, and certificate
-// chain. Unlike the static detectors it observes real deployed crypto.
+// cryptography they negotiate: TLS version, cipher suite, key exchange group
+// and certificate chain, and what an SSH server offers in its KEXINIT. Unlike
+// the static detectors it observes real deployed crypto.
 //
 // It probes only the explicit targets it is given: no port ranges, no host
 // discovery. Callers must be authorized to connect to the targets.
@@ -47,10 +48,61 @@ func Endpoint(addr string, timeout time.Duration) ([]model.Finding, error) {
 	if cf, ok := cipherFinding(addr, state.CipherSuite); ok {
 		out = append(out, cf)
 	}
+	if kf, ok := kexGroupFinding(addr, state.CurveID); ok {
+		out = append(out, kf)
+	}
 	if len(state.PeerCertificates) > 0 {
 		out = append(out, certFindings(addr, state.PeerCertificates[0])...)
 	}
 	return out, nil
+}
+
+// kexGroups names a key exchange group by its IANA code point. It does not ask
+// the toolchain: a hybrid this Go release cannot name would print as
+// "CurveID(4587)" and read as classical, which is the one wrong answer a
+// post-quantum inventory cannot give.
+var kexGroups = map[tls.CurveID]struct {
+	name   string
+	hybrid bool
+}{
+	0x11EC: {"X25519MLKEM768", true},
+	0x11EB: {"SecP256r1MLKEM768", true},
+	0x11ED: {"SecP384r1MLKEM1024", true},
+	0x001D: {"X25519", false},
+	0x001E: {"X448", false},
+	0x0017: {"P-256", false},
+	0x0018: {"P-384", false},
+	0x0019: {"P-521", false},
+}
+
+// kexGroupFinding reports the group the session key was agreed with. It sets
+// its own verdict: the central classifier knows no "X25519" and would grade a
+// classical group as carrying no risk.
+func kexGroupFinding(addr string, id tls.CurveID) (model.Finding, bool) {
+	if id == 0 {
+		return model.Finding{}, false
+	}
+	f := model.Finding{
+		Asset:    model.Asset{Type: model.TypeAlgorithm, Primitive: model.PrimitiveKeyExch},
+		Location: model.Location{File: addr},
+		Source:   "tls-probe",
+	}
+	g, known := kexGroups[id]
+	switch {
+	case !known:
+		f.Asset.Algorithm = fmt.Sprintf("group 0x%04x", uint16(id))
+		f.Evidence = "session key agreed with a group qryx has no entry for"
+	case g.hybrid:
+		f.Asset.Algorithm = g.name
+		f.Evidence = "session key agreed with the hybrid post-quantum group " + g.name
+		f.Risk = model.Risk{Class: model.RiskNone, Severity: model.SeverityNone}
+	default:
+		f.Asset.Algorithm = g.name
+		f.Evidence = "session key agreed with " + g.name + " alone"
+		f.Risk = model.Risk{Class: model.RiskQuantumVulnerable, Severity: model.SeverityHigh,
+			Reason: "classical elliptic-curve key agreement is broken by Shor, so traffic recorded today can be decrypted later; qryx offered X25519MLKEM768 first and the server did not take it"}
+	}
+	return f, true
 }
 
 // insecureSuites is the set of cipher-suite IDs the standard library considers

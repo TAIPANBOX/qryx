@@ -377,6 +377,19 @@ CBOM/CNSA -> policy gate (+drift) -> remediation (fix/PR) -> evidence
   `scripts/declared-deps.sh`, `scripts/readme-numbers.sh`,
   `scripts/reproducible-build.sh`, 2026-08-06)*
 
+- **Live key exchange, TLS and SSH (2026-11-12).** `qryx tls` now reports the
+  group the session key was agreed with (IANA code point, hybrid `X25519MLKEM768`
+  no risk, classical groups quantum-vulnerable with their own reason), and a new
+  `qryx ssh` reads the identification string and KEXINIT: the banner as the SSH
+  protocol asset, a key-exchange verdict (no risk when `mlkem*`/`sntrup*` is
+  offered), each broken algorithm still offered once, and one finding per host key
+  family graded centrally. New source `ssh-probe` has its agility row (Medium), an
+  NCSC coverage bucket `ssh` and counts as externally facing; the CBOM maps hybrids
+  to `kem`. Invariants 21 and 22.
+  *(@measured: 13 new test functions, each run red first against stubs or the
+  unchanged code on main, then green; `go test -race ./...` 319 test functions,
+  forge, Go 1.27.4, 2026-11-12)*
+
 **No remaining deliberate deferrals** -- both items tracked here (ML-DSA
 signing, agent-event export) are done. The `toolchain` pin was moved from
 `go1.27rc2` to `go1.27.0` on 2026-08-20, when Go 1.27 GA shipped; nothing in
