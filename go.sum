@@ -30,6 +30,8 @@ github.com/AzureAD/microsoft-authentication-library-for-go v1.7.0 h1:4iB+IesclUX
 github.com/AzureAD/microsoft-authentication-library-for-go v1.7.0/go.mod h1:HKpQxkWaGLJ+D/5H8QRpyQXA1eKjxkFlOMwck5+33Jk=
 github.com/TAIPANBOX/agent-stack-go/v2 v2.0.2 h1:E/VaxwQFBWQJbdUfKRMSDCmlhtN3R4K+druGg83tFuI=
 github.com/TAIPANBOX/agent-stack-go/v2 v2.0.2/go.mod h1:AgWtwXz1xoJ4DaA3drPEUEZ3rZOpxOuE6rvhUjZJ43E=
+github.com/TAIPANBOX/agent-stack-go/v2 v2.0.3 h1:iSG/a6TqXOIn6Zz12efNnvqm4e+0k28IBLQ9JCkel8A=
+github.com/TAIPANBOX/agent-stack-go/v2 v2.0.3/go.mod h1:nR81yAgY6iwe2GvA5k7eexjXYt3eVaP4P5+yr11/uqo=
 github.com/agext/levenshtein v1.2.1 h1:QmvMAjj2aEICytGiWzmxoE0x2KZvE0fvmqMOfy2tjT8=
 github.com/agext/levenshtein v1.2.1/go.mod h1:JEDfjyjHDjOF/1e4FlBE/PkbqA9OfWu2ki2W0IB5558=
 github.com/apparentlymart/go-textseg/v15 v15.0.0 h1:uYvfpb3DyLSCGWnctWKGj857c6ew1u1fNQOlOtuGxQY=
