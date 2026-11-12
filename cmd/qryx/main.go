@@ -48,7 +48,7 @@ func run(args []string) error {
 		format    = fs.String("format", "human", "output format: human|cbom|html|cnsa|cnsa-html|migration|evidence|dashboard|ncsc|ncsc-html|ai-inventory")
 		failOn    = fs.String("fail-on", "", "exit 2 if any finding is at or above this severity: low|medium|high|critical")
 		failOnNew = fs.String("fail-on-new", "", "exit 2 if a NEW asset (vs --baseline) is at or above this severity")
-		timeout   = fs.Duration("timeout", 5*time.Second, "per-endpoint connect timeout (tls)")
+		timeout   = fs.Duration("timeout", 5*time.Second, "per-endpoint connect timeout (tls, ssh)")
 		save      = fs.String("save", "", "write the asset graph as a snapshot to this file")
 		baseline  = fs.String("baseline", "", "compare the asset graph against this snapshot and report drift")
 		region    = fs.String("region", "", "AWS region (aws)")
@@ -73,7 +73,7 @@ func run(args []string) error {
 		withTests = fs.Bool("include-tests", false, "count crypto found in test code (_test.go, testdata/, conftest.py, ...) as part of the production inventory; by default it is reported on stderr and excluded from the graph, the verdict and every format")
 	)
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage:\n  qryx scan [flags] <path>\n  qryx fix [--write] [--open-pr [--branch NAME]] [--min-rsa-bits N] <path>\n  qryx trend <evidence-trail.jsonl>\n  qryx verify-evidence [--ci] [--signer sha256:...] <evidence.json>\n  qryx tls [flags] <host:port>...\n  qryx bin [flags] <file|dir>...\n  qryx image [flags] <image.tar>...\n  qryx aws [flags]\n  qryx gcp --project <id> [flags]\n  qryx azure --vault-url <url> [flags]\n  qryx agents [flags] <path>\n  qryx version\n\nflags:\n")
+		fmt.Fprintf(os.Stderr, "usage:\n  qryx scan [flags] <path>\n  qryx fix [--write] [--open-pr [--branch NAME]] [--min-rsa-bits N] <path>\n  qryx trend <evidence-trail.jsonl>\n  qryx verify-evidence [--ci] [--signer sha256:...] <evidence.json>\n  qryx tls [flags] <host:port>...\n  qryx ssh [flags] <host:port>...\n  qryx bin [flags] <file|dir>...\n  qryx image [flags] <image.tar>...\n  qryx aws [flags]\n  qryx gcp --project <id> [flags]\n  qryx azure --vault-url <url> [flags]\n  qryx agents [flags] <path>\n  qryx version\n\nflags:\n")
 		fs.PrintDefaults()
 	}
 
@@ -100,7 +100,7 @@ func run(args []string) error {
 		return nil
 	}
 
-	if cmd != "scan" && cmd != "fix" && cmd != "trend" && cmd != "verify-evidence" && cmd != "tls" && cmd != "bin" && cmd != "image" && cmd != "aws" && cmd != "gcp" && cmd != "azure" && cmd != "agents" {
+	if cmd != "scan" && cmd != "fix" && cmd != "trend" && cmd != "verify-evidence" && cmd != "tls" && cmd != "ssh" && cmd != "bin" && cmd != "image" && cmd != "aws" && cmd != "gcp" && cmd != "azure" && cmd != "agents" {
 		fs.Usage()
 		return fmt.Errorf("unknown command %q", cmd)
 	}
@@ -168,6 +168,12 @@ func run(args []string) error {
 			return fmt.Errorf("tls requires at least one host:port target")
 		}
 		res, err = runTLS(fs.Args(), *timeout)
+	case "ssh":
+		if fs.NArg() == 0 {
+			fs.Usage()
+			return fmt.Errorf("ssh requires at least one host:port target")
+		}
+		res, err = runSSH(fs.Args(), *timeout)
 	case "bin":
 		if fs.NArg() == 0 {
 			fs.Usage()
@@ -696,6 +702,25 @@ func runTLS(targets []string, timeout time.Duration) (*scan.Result, error) {
 	res := &scan.Result{Root: "tls://" + strings.Join(targets, ",")}
 	for _, t := range targets {
 		findings, err := probe.Endpoint(t, timeout)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "qryx: %s: %v\n", t, err)
+			continue
+		}
+		res.FilesWalked++
+		res.Findings = append(res.Findings, findings...)
+	}
+	res.Findings = risk.Apply(res.Findings)
+	return res, nil
+}
+
+// runSSH reads what each target SSH server announces before authentication
+// (its identification and KEXINIT) and aggregates the findings into a single
+// Result. A failed dial to one target is reported to stderr but does not abort
+// the others.
+func runSSH(targets []string, timeout time.Duration) (*scan.Result, error) {
+	res := &scan.Result{Root: "ssh://" + strings.Join(targets, ",")}
+	for _, t := range targets {
+		findings, err := probe.SSHEndpoint(t, timeout, version)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "qryx: %s: %v\n", t, err)
 			continue

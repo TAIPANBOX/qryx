@@ -71,6 +71,7 @@ func TestAgilityBySource(t *testing.T) {
 		{"aws-acm", Medium},
 		{"tlsconfig", Medium},
 		{"tls-probe", Medium},
+		{"ssh-probe", Medium},
 		{"certfile", Medium},
 		{"deps", Medium},
 		{"terraform", Medium},

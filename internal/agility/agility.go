@@ -43,6 +43,7 @@ var sourceAgility = map[string]Level{
 
 	"aws-acm":   Medium,
 	"tls-probe": Medium,
+	"ssh-probe": Medium,
 	"tlsconfig": Medium,
 	"certfile":  Medium,
 	"deps":      Medium,

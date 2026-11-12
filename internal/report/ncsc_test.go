@@ -213,3 +213,19 @@ func TestNCSCHighestPriorityCriteriaDocumented(t *testing.T) {
 		t.Error("Priority2031.Criteria must document the highest-priority definition")
 	}
 }
+
+// An SSH host key is read off a live network endpoint, so it is as externally
+// facing as a certificate the TLS probe reads: a quantum-vulnerable one lands
+// in the 2031 highest-priority set, and the probe has its own coverage bucket.
+func TestNCSCCountsAnSSHHostKeyAsExternallyFacing(t *testing.T) {
+	res := &scan.Result{Root: "ssh://router:22", Findings: []model.Finding{
+		{Asset: model.Asset{Type: model.TypeAlgorithm, Algorithm: "Ed25519", Primitive: model.PrimitiveSignature}, Location: model.Location{File: "router:22"}, Source: "ssh-probe", Risk: model.Risk{Class: model.RiskQuantumVulnerable, Severity: model.SeverityMedium}},
+	}}
+	rep := buildNCSC(res)
+	if rep.Priority2031.Count != 1 {
+		t.Errorf("highest-priority count = %d, want 1: a host key read off the wire is externally facing", rep.Priority2031.Count)
+	}
+	if got := rep.Discovery2028.CoverageBySource["ssh"]; got != 1 {
+		t.Errorf("coverage %v, want one occurrence in the ssh bucket", rep.Discovery2028.CoverageBySource)
+	}
+}

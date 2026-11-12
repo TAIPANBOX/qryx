@@ -435,6 +435,33 @@ an absent invariant.
 20. **A check says what the text holds, not which of a writer and its reader finished first.** `@claude 2026-11-06`, carried from stack-k8s#226 and stack-single#167; it records no decision of the owner. Under `set -o pipefail` a pipe into `grep -q` reports the writer too: grep leaves at its first match, a writer with more to write takes SIGPIPE, the pipeline returns 141, and a line that is there reads as missing. In the negative form, `if ... | grep -q bad`, the 141 reads as clean and a refused line passes. The rate follows the load on the machine. @measured forge, 4 cores, bash 5.2.37, GNU grep 3.11, 2026-11-06, `gate-loop.sh` beside six busy loops (estate-gates `evidence/pipe-readers-2026-11-06/`): `scripts/declared-attestation.sh` at `f46af87` failed 0 of 100 runs, and 0 of 100 once fixed; it reads one line at a time, which is one write. Every such pipe in live shell code here moved, 2 in 2 files: to a here-string, `grep -q x <<<"$text"`, or to a pipe into `grep -c x >/dev/null`.
     *(gate: `scripts/no-reader-leaves-a-pipe-early.sh`: a control that breaks a real pipe, known lines through the reader, then every tracked shell file and workflow `run:` step masked down to live code. It refuses to report OK on no shell file, no pipe, no step or a file it lost its place in. Eighteen cases in `scripts/gates-have-teeth.sh`. Not held: `| head`, the same race, which here takes a few lines from a writer of a few lines.)*
 
+21. **A key exchange is graded by the probe that saw it, never by a classifier
+    that does not know its name.** `@claude 2026-11-12`, found while adding the
+    key-exchange findings; it records no decision of the owner. `risk.Classify`
+    returns no risk for a name it has no row for, on purpose, and `X25519`,
+    `P-256` and `curve25519-sha256` have no row, so a key-exchange finding left
+    for central classification would read as safe while being exactly what
+    harvest-now-decrypt-later records. The TLS probe names the negotiated group
+    from its IANA code point (a hybrid this Go release cannot name would print
+    as `CurveID(4587)` and read as classical) and sets its own verdict; the SSH
+    probe sets the verdict on what the server offers, quantum-vulnerable unless
+    a hybrid (`mlkem*`, `sntrup*`) is among it. The CBOM calls a hybrid `kem`,
+    not `key-agree`, so the post-quantum half is not hidden.
+    *(test: `TestKexGroupFinding`, `TestEndpointReportsTheNegotiatedKeyExchangeGroup`,
+    `TestSSHFindingsWithoutPostQuantumKexIsQuantumVulnerable`,
+    `TestSSHFindingsPostQuantumKexOffered`, `TestCBOMPrimitiveMappingIsSpecific`)*
+
+22. **The SSH probe checks every length the server sends before using it.**
+    The probe is pointed at hosts it does not control, so the bounds are the
+    point, not tidiness: an identification line of 255 bytes and 32 lines
+    before it, a packet of 35000 bytes checked before anything is allocated,
+    padding inside the packet, 16 skipped messages before KEXINIT, printable
+    non-empty names, and one deadline over the whole connection. A cleanup that
+    drops one turns the prober into the target.
+    *(test: `TestSSHProbeSurvivesHostileBytes`, with a well-formed control case
+    so a reader that refuses everything cannot pass it;
+    `TestParseKexInitSurvivesRandomMutations`, 200 seeds; `FuzzParseKexInit`)*
+
 ## Decisions that have no gate yet
 
 This list is debt, and it is here to stay visible rather than to be tidy.
