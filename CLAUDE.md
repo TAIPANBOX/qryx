@@ -462,6 +462,31 @@ an absent invariant.
     so a reader that refuses everything cannot pass it;
     `TestParseKexInitSurvivesRandomMutations`, 200 seeds; `FuzzParseKexInit`)*
 
+23. **The NCSC 2031 migrated count is measured from a like-for-like baseline,
+    or it is not measured, and an unmeasured count is never printed as 0.**
+    `@decided 2026-11-23`: the count comes from the `--baseline` snapshot the
+    drift gate already loads; an asset counts as migrated when it was
+    highest-priority in a baseline of the same target and is absent from the
+    current asset graph altogether. It is matched by `graph.AssetKey`, the
+    identity `store.Diff` uses, so an asset that moved files, or one still
+    present that has left the priority subset, is not migrated. No baseline, a
+    baseline not found, a baseline whose `root` differs from this scan's, or one
+    of another `schemaVersion`: `migratedCount` is JSON null,
+    `migratedMeasured` false, `migratedBasis` says why, and the HTML page says
+    "migrated: not measured". Until this date the field was the literal 0 on
+    every run, which a reader cannot tell from a measured zero.
+    *(test: `TestNCSCMigrated*` and `TestNCSCHTML*` in
+    `cmd/qryx/ncsc_migrated_test.go`, through the real CLI, red first against
+    the constant; `TestMeasureMigratedCountsOnlyAssetsGoneFromTheGraph`,
+    `TestMeasureMigratedSaysWhyItDidNotMeasure`,
+    `TestMeasureMigratedListsTheSameOrderEveryRun` and `TestNCSCJSONOutput` in
+    `internal/report`. Four cases in
+    `scripts/gates-have-teeth.sh`: the unmeasured count printed as a number, the
+    root check dropped, a duplicated baseline asset counted twice, and a reworded
+    reason that must pass. The root is compared as written, so `.` and `./`
+    read as two targets and the count is not measured, which errs towards
+    saying nothing.)*
+
 ## Decisions that have no gate yet
 
 This list is debt, and it is here to stay visible rather than to be tidy.

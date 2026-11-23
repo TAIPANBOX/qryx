@@ -30,6 +30,7 @@ import (
 	"github.com/TAIPANBOX/qryx/internal/graph"
 	"github.com/TAIPANBOX/qryx/internal/model"
 	"github.com/TAIPANBOX/qryx/internal/scan"
+	"github.com/TAIPANBOX/qryx/internal/store"
 )
 
 // ncscStandard is the header citation used in both the JSON and HTML reports.
@@ -202,14 +203,23 @@ type ncscDiscovery struct {
 }
 
 // ncscHighestPriority is the 2031 "highest-priority systems" milestone.
+//
+// Migrated is a pointer on purpose: nil encodes as JSON null and means "not
+// measured", which is a different answer from a measured 0 and must never be
+// printed as one. MigratedMeasured says the same thing as a plain boolean for
+// a consumer that would rather not test for null, and MigratedBasis says in
+// words what the figure was measured against or why it was not.
 type ncscHighestPriority struct {
-	Verdict   ncscVerdict       `json:"verdict"`
-	Criteria  string            `json:"criteria"`
-	Count     int               `json:"count"`
-	Migrated  int               `json:"migratedCount"`
-	Remaining int               `json:"remainingCount"`
-	Note      string            `json:"note"`
-	Findings  []ncscFindingJSON `json:"findings"`
+	Verdict          ncscVerdict       `json:"verdict"`
+	Criteria         string            `json:"criteria"`
+	Count            int               `json:"count"`
+	Migrated         *int              `json:"migratedCount"`
+	MigratedMeasured bool              `json:"migratedMeasured"`
+	MigratedBasis    string            `json:"migratedBasis"`
+	MigratedFindings []ncscFindingJSON `json:"migratedFindings,omitempty"`
+	Remaining        int               `json:"remainingCount"`
+	Note             string            `json:"note"`
+	Findings         []ncscFindingJSON `json:"findings"`
 }
 
 // ncscFullMigration is the 2035 "all systems" milestone.
@@ -229,12 +239,75 @@ type ncscReport struct {
 	Full2035      ncscFullMigration   `json:"fullMigration2035"`
 }
 
-// remediationNote explains, in both report formats, why migrated counts are
-// always zero: qryx classifies a single point-in-time scan and does not
-// persist remediation state across runs. Progress over time is tracked via
-// `--baseline` drift or the evidence trail (`--save-evidence` / `qryx
-// trend`), not by this report.
-const remediationNote = "qryx does not track remediation state across runs within a single scan; remaining = full highest-priority count. Track progress over time with --baseline drift or the evidence trail (--save-evidence / qryx trend)."
+// remediationNote explains, in both report formats, what remaining and
+// migrated mean. A single scan cannot see what used to be there, so the
+// migrated count comes only from a --baseline snapshot of the same target.
+const remediationNote = "remaining = this scan's highest-priority count. migrated = highest-priority assets in the --baseline snapshot of the same target that are no longer in the asset graph at all; without such a baseline it is not measured (null), never 0. An asset is matched by type, algorithm, key size and risk class, the identity the drift diff uses, so one that only moved files is still present, and one still present that no longer meets the criteria is not counted as migrated."
+
+// NCSCBaseline carries the --baseline comparison into the NCSC report. The
+// zero value means no --baseline was given.
+type NCSCBaseline struct {
+	// Snapshot is the loaded baseline, nil when there is none.
+	Snapshot *store.Snapshot
+	// NotFound is set when --baseline named a snapshot that does not exist.
+	NotFound bool
+}
+
+// measureMigrated computes the 2031 migrated count against a baseline, or says
+// why it cannot. current is every node of this scan (any type), root this
+// scan's root. The count is the set of highest-priority cryptographic assets in
+// the baseline whose graph.AssetKey is absent from the current graph, which is
+// exactly the baseline half of store.Diff's Removed, narrowed to the 2031
+// criteria; the same identity, so the drift report and this count cannot
+// disagree about whether an asset is still there.
+func measureMigrated(current []graph.AssetNode, root string, base NCSCBaseline) (migrated []graph.AssetNode, measured bool, basis string) {
+	switch {
+	case base.Snapshot == nil && base.NotFound:
+		return nil, false, "not measured: the --baseline snapshot was not found, so there is nothing to compare against"
+	case base.Snapshot == nil:
+		return nil, false, "not measured: no --baseline was given, and a single scan cannot see what used to be there"
+	case base.Snapshot.SchemaVersion != store.SchemaVersion:
+		return nil, false, fmt.Sprintf("not measured: the baseline has schemaVersion %d, and this build reads %d", base.Snapshot.SchemaVersion, store.SchemaVersion)
+	case base.Snapshot.Root != root:
+		return nil, false, fmt.Sprintf("not measured: the baseline is a scan of another target (%q, this scan is of %q), so a difference would be a difference in what was scanned, not in what was migrated", base.Snapshot.Root, root)
+	}
+
+	present := make(map[string]bool, len(current))
+	for _, n := range current {
+		present[graph.AssetKey(n.Asset, n.Risk.Class)] = true
+	}
+	inBaseline := 0
+	seen := map[string]bool{}
+	for _, n := range base.Snapshot.Assets {
+		if !n.Asset.Type.IsCryptographic() || !isHighestPriority(n) {
+			continue
+		}
+		k := graph.AssetKey(n.Asset, n.Risk.Class)
+		if seen[k] {
+			// A hand-edited baseline can list one asset twice; it is one asset.
+			continue
+		}
+		seen[k] = true
+		inBaseline++
+		if !present[k] {
+			migrated = append(migrated, n)
+		}
+	}
+	sort.SliceStable(migrated, func(i, j int) bool {
+		if migrated[i].Risk.Severity != migrated[j].Risk.Severity {
+			return migrated[i].Risk.Severity > migrated[j].Risk.Severity
+		}
+		if a, b := assetName(migrated[i]), assetName(migrated[j]); a != b {
+			return a < b
+		}
+		return graph.AssetKey(migrated[i].Asset, migrated[i].Risk.Class) < graph.AssetKey(migrated[j].Asset, migrated[j].Risk.Class)
+	})
+	created := "at an unrecorded time"
+	if !base.Snapshot.CreatedAt.IsZero() {
+		created = "on " + base.Snapshot.CreatedAt.UTC().Format(time.RFC3339)
+	}
+	return migrated, true, fmt.Sprintf("measured against the --baseline snapshot of this target taken %s: %d of the %d highest-priority assets in it are no longer in the asset graph", created, len(migrated), inBaseline)
+}
 
 // buildNCSC assembles the three milestones from a scan. Shared by the JSON
 // (NCSC) and HTML (NCSCHTML) renderers so they can never disagree.
@@ -249,7 +322,7 @@ const remediationNote = "qryx does not track remediation state across runs withi
 // flip the 2028 verdict from not-started to on-track purely because
 // non-crypto findings existed in an otherwise crypto-empty scan. See
 // model.AssetType.IsCryptographic.
-func buildNCSC(res *scan.Result) ncscReport {
+func buildNCSC(res *scan.Result, base NCSCBaseline) ncscReport {
 	all := graph.Build(res.Findings)
 	nodes := make([]graph.AssetNode, 0, len(all))
 	for _, n := range all {
@@ -326,10 +399,20 @@ func buildNCSC(res *scan.Result) ncscReport {
 		rep.Priority2031.Findings = append(rep.Priority2031.Findings, findingJSON(n, planned))
 	}
 	rep.Priority2031.Count = len(rep.Priority2031.Findings)
-	// Remediation state isn't tracked within a single scan (see remediationNote):
-	// nothing is ever counted as migrated here, so remaining == count.
-	rep.Priority2031.Migrated = 0
 	rep.Priority2031.Remaining = rep.Priority2031.Count
+	// Migrated is measured from a like-for-like baseline or left nil: a single
+	// scan cannot see what used to be there (see remediationNote).
+	migrated, measured, basis := measureMigrated(all, res.Root, base)
+	rep.Priority2031.MigratedMeasured = measured
+	rep.Priority2031.MigratedBasis = basis
+	if measured {
+		count := len(migrated)
+		rep.Priority2031.Migrated = &count
+		for _, n := range migrated {
+			_, planned := planStep(n)
+			rep.Priority2031.MigratedFindings = append(rep.Priority2031.MigratedFindings, findingJSON(n, planned))
+		}
+	}
 
 	switch {
 	case rep.Discovery2028.Verdict == verdictNotStarted:
@@ -371,9 +454,11 @@ func planStep(n graph.AssetNode) (target string, planned bool) {
 	return a.Target, true
 }
 
-// NCSC writes the NCSC PQC migration readiness report as JSON.
-func NCSC(w io.Writer, res *scan.Result) error {
-	rep := buildNCSC(res)
+// NCSC writes the NCSC PQC migration readiness report as JSON. base is the
+// --baseline the 2031 migrated count is measured against; its zero value
+// leaves the count explicitly not measured.
+func NCSC(w io.Writer, res *scan.Result, base NCSCBaseline) error {
+	rep := buildNCSC(res, base)
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(rep)
@@ -387,8 +472,8 @@ type ncscHTMLView struct {
 }
 
 // NCSCHTML renders a self-contained NCSC PQC migration readiness HTML report.
-func NCSCHTML(w io.Writer, res *scan.Result) error {
-	rep := buildNCSC(res)
+func NCSCHTML(w io.Writer, res *scan.Result, base NCSCBaseline) error {
+	rep := buildNCSC(res, base)
 	v := ncscHTMLView{
 		Root:        res.Root,
 		GeneratedAt: time.Now().UTC().Format("2006-01-02 15:04 UTC"),

@@ -17,6 +17,12 @@ import (
 // schemaVersion is bumped when the snapshot format changes incompatibly.
 const schemaVersion = 1
 
+// SchemaVersion is the snapshot format this build writes. A reader that
+// measures something from a baseline (the NCSC report's migrated count) checks
+// it, because Load accepts any JSON object and a file of another version would
+// otherwise be read as a snapshot with whatever fields happened to match.
+const SchemaVersion = schemaVersion
+
 // ErrNotFound is returned by Load when no snapshot exists at the path.
 var ErrNotFound = errors.New("snapshot not found")
 

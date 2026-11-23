@@ -447,6 +447,33 @@ run_case "no-reader-leaves-a-pipe-early: no workflow step is read" fail \
 	'measured NOTHING'
 
 echo
+echo "=== the NCSC 2031 migrated count (invariant 23) ==="
+
+# The subject is a Go test rather than a script: the property is that a figure
+# nobody measured is never printed as a measured zero, and only the report's own
+# output can show that.
+ncsc_gate='go test ./cmd/qryx -run "TestNCSCMigrated|TestNCSCHTML" -count=1'
+
+run_case "ncsc: an unmeasured migrated count printed as a zero" fail \
+	"$ncsc_gate" \
+	"$(py 'edit("internal/report/ncsc.go", "\tif measured {\n\t\tcount := len(migrated)", "\tif true {\n\t\tcount := len(migrated)")')" \
+	'want an explicit null'
+
+run_case "ncsc: a baseline of another target measured against" fail \
+	"$ncsc_gate" \
+	"$(py 'edit("internal/report/ncsc.go", "case base.Snapshot.Root != root:", "case false:")')" \
+	'another target'
+
+run_case "ncsc: one baseline asset listed twice counted twice" fail \
+	"$ncsc_gate" \
+	"$(py 'edit("internal/report/ncsc.go", "\t\tif seen[k] {", "\t\tif false {")')" \
+	'migratedCount = 2'
+
+run_case "ncsc: a reworded not-found reason" pass \
+	"$ncsc_gate" \
+	"$(py 'edit("internal/report/ncsc.go", "was not found, so there is nothing to compare against", "was not found, so nothing was compared")')"
+
+echo
 if [ -n "$(git status --porcelain)" ]; then
 	printf 'FAIL: this script left the tree dirty, so it cannot be trusted about anything above\n'
 	git status --porcelain | head -5

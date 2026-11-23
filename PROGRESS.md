@@ -88,8 +88,8 @@ CBOM/CNSA -> policy gate (+drift) -> remediation (fix/PR) -> evidence
   deterministic on-track/at-risk/not-started verdicts. 2031 subset = quantum-
   vulnerable AND (externally-facing via tls-probe/aws-acm OR long-lived-data via
   encryption/key-exchange primitives); criteria string embedded in both outputs.
-  Migrated-count honestly stubbed at 0 (no per-scan remediation state; trail/
-  trend is the progress mechanism).
+  The migrated count was a constant 0 until 2026-11-23; it is now measured
+  against `--baseline` or reported as not measured (see the entry of that date).
 
 - Phase 4 increment 11: `agility.target()` gained an Ed25519 case (maps to
   ML-DSA (FIPS 204), same as ECDSA/DSA - signature-to-signature) so Ed25519
@@ -389,6 +389,23 @@ CBOM/CNSA -> policy gate (+drift) -> remediation (fix/PR) -> evidence
   *(@measured: 13 new test functions, each run red first against stubs or the
   unchanged code on main, then green; `go test -race ./...` 319 test functions,
   forge, Go 1.27.4, 2026-11-12)*
+
+- **NCSC 2031 migrated count, measured from the baseline (2026-11-23).**
+  `highestPriority2031.migratedCount` was the literal 0 on every run and read
+  like a measurement. It is now the number of highest-priority cryptographic
+  assets in the `--baseline` snapshot that are absent from the current asset
+  graph, matched by `graph.AssetKey` (the drift diff's identity), with the assets
+  listed in `migratedFindings`. Without a baseline, with one that is not found,
+  one of another target (`root` differs) or one of another `schemaVersion`, it
+  is JSON `null`, `migratedMeasured: false`, and `migratedBasis` says why; the
+  page says "migrated: not measured". A malformed baseline stops the scan, as it
+  already did for drift. Invariant 23, `features/ncsc-migrated.feature`, four
+  `gates-have-teeth.sh` cases.
+  *(@measured: 13 new test functions; the 10 in `cmd/qryx` run red first against
+  the unchanged code on main (the unreadable-file subtests passed there too,
+  since the drift loader already refused them), the 3 in `internal/report` red
+  against planted faults in the new code; `go test -race ./...` 332 test
+  functions, `internal/report` coverage 89.9% -> 90.2%, forge, 2026-11-23)*
 
 **No remaining deliberate deferrals** -- both items tracked here (ML-DSA
 signing, agent-event export) are done. The `toolchain` pin was moved from
