@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/qryx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-319-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-332-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Status](https://img.shields.io/badge/phase-4%20(governance)-success.svg)
 
@@ -773,10 +773,23 @@ quantum-vulnerable asset has no recognized migration target; the 2031
 externally-facing (seen via a live TLS or SSH probe or an AWS ACM certificate) or
 long-lived data (an encryption/key-exchange primitive, i.e. exposed to
 harvest-now-decrypt-later) - the exact predicate is embedded as a criteria
-string in both outputs, so the report documents its own rules. The migrated
-count is honestly reported as 0 within a single scan (qryx doesn't persist
-remediation state across runs); track real progress with `--baseline` drift
-or the evidence trail (`--save-evidence` / `qryx trend`) below.
+string in both outputs, so the report documents its own rules. The 2031
+migrated count is measured against `--baseline`: an asset counts as migrated
+when it was highest-priority in a baseline snapshot of the same target and is
+no longer in the asset graph at all, matched by the identity the drift diff
+uses (type, algorithm, key size, risk class), so an asset that only moved to
+another file is still outstanding. Without a baseline of the same target, the
+count is not measured: `"migratedCount": null` with `"migratedMeasured": false`
+and a `migratedBasis` sentence saying why in the JSON, "migrated: not measured"
+on the page, never a 0. For example:
+
+```sh
+qryx scan --save baseline.json .                        # this release
+qryx scan --format ncsc --baseline baseline.json .      # next release
+```
+
+Longer-term progress is in the evidence trail (`--save-evidence` / `qryx
+trend`) below.
 
 **Migration plan** (`--format migration`) - scores each non-compliant asset's
 *agility* (how hard it is to change: `high` for managed KMS keys you rotate via

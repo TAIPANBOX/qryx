@@ -681,7 +681,7 @@ func TestDependencyManifestStaysOutOfTheScoreAndTheMigrationSet(t *testing.T) {
 	}
 
 	var ncscBuf bytes.Buffer
-	if err := NCSC(&ncscBuf, res); err != nil {
+	if err := NCSC(&ncscBuf, res, NCSCBaseline{}); err != nil {
 		t.Fatal(err)
 	}
 	var ncsc ncscReport

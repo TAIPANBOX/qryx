@@ -278,6 +278,10 @@ func run(args []string) error {
 	// reports drift and nothing fails open, so the warning is still the right
 	// answer there.
 	var delta store.Delta
+	// ncscBase hands the same loaded baseline to the NCSC report, whose 2031
+	// migrated count is measured from it and is explicitly not measured
+	// without it.
+	var ncscBase report.NCSCBaseline
 	if *baseline != "" {
 		base, err := openStore(*baseline).Load()
 		switch {
@@ -286,10 +290,12 @@ func run(args []string) error {
 				return fmt.Errorf("baseline %s not found, and %s gates on the comparison against it: pass --allow-missing-baseline if this is genuinely the first run", *baseline, gate)
 			}
 			fmt.Fprintf(os.Stderr, "qryx: baseline %s not found; skipping drift\n", *baseline)
+			ncscBase.NotFound = true
 		case err != nil:
 			return fmt.Errorf("load baseline: %w", err)
 		default:
 			delta = store.Diff(base, store.Snap(res))
+			ncscBase.Snapshot = &base
 		}
 	}
 	if events != nil && !delta.Empty() {
@@ -354,11 +360,11 @@ func run(args []string) error {
 			return err
 		}
 	case "ncsc":
-		if err := report.NCSC(os.Stdout, res); err != nil {
+		if err := report.NCSC(os.Stdout, res, ncscBase); err != nil {
 			return err
 		}
 	case "ncsc-html":
-		if err := report.NCSCHTML(os.Stdout, res); err != nil {
+		if err := report.NCSCHTML(os.Stdout, res, ncscBase); err != nil {
 			return err
 		}
 	default:

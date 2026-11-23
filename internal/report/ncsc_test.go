@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/TAIPANBOX/qryx/internal/graph"
 	"github.com/TAIPANBOX/qryx/internal/model"
 	"github.com/TAIPANBOX/qryx/internal/scan"
+	"github.com/TAIPANBOX/qryx/internal/store"
 )
 
 // TestNCSCJSONOutput golden-tests the report shape against a fixture that has
@@ -49,7 +52,7 @@ func TestNCSCJSONOutput(t *testing.T) {
 	}}
 
 	var buf bytes.Buffer
-	if err := NCSC(&buf, res); err != nil {
+	if err := NCSC(&buf, res, NCSCBaseline{}); err != nil {
 		t.Fatal(err)
 	}
 	var rep ncscReport
@@ -92,8 +95,16 @@ func TestNCSCJSONOutput(t *testing.T) {
 	if !rep.Priority2031.Findings[0].ExternallyFacing || !rep.Priority2031.Findings[0].LongLivedData {
 		t.Error("ECDH finding should be both externally-facing and long-lived-data")
 	}
-	if rep.Priority2031.Migrated != 0 || rep.Priority2031.Remaining != 1 {
-		t.Errorf("migrated/remaining = %d/%d, want 0/1", rep.Priority2031.Migrated, rep.Priority2031.Remaining)
+	// No baseline: migrated is not measured (nil, JSON null), never a 0 that
+	// reads as a measurement. Remaining is this scan's own count.
+	if rep.Priority2031.Migrated != nil || rep.Priority2031.MigratedMeasured {
+		t.Errorf("migrated = %v (measured %v) with no baseline, want nil and not measured", rep.Priority2031.Migrated, rep.Priority2031.MigratedMeasured)
+	}
+	if !strings.Contains(buf.String(), `"migratedCount": null`) {
+		t.Error(`the JSON does not carry "migratedCount": null with no baseline`)
+	}
+	if rep.Priority2031.Remaining != 1 {
+		t.Errorf("remaining = %d, want 1", rep.Priority2031.Remaining)
 	}
 	// A highest-priority item is outstanding, so 2031 reads at-risk even though
 	// discovery (2028) is on-track.
@@ -152,7 +163,7 @@ func TestNCSCVerdicts(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			res := &scan.Result{Root: "test", Findings: tc.findings}
-			rep := buildNCSC(res)
+			rep := buildNCSC(res, NCSCBaseline{})
 			if rep.Discovery2028.Verdict != tc.want {
 				t.Errorf("Discovery2028.Verdict = %q, want %q", rep.Discovery2028.Verdict, tc.want)
 			}
@@ -171,7 +182,7 @@ func TestNCSCHTMLOutput(t *testing.T) {
 		{Asset: model.Asset{Type: model.TypeAlgorithm, Algorithm: "RSA", KeySize: 2048}, Location: model.Location{File: "a.go", Line: 1}, Source: "goast", Risk: model.Risk{Class: model.RiskQuantumVulnerable, Severity: model.SeverityHigh}},
 	}}
 	var buf bytes.Buffer
-	if err := NCSCHTML(&buf, res); err != nil {
+	if err := NCSCHTML(&buf, res, NCSCBaseline{}); err != nil {
 		t.Fatal(err)
 	}
 	out := buf.String()
@@ -197,7 +208,7 @@ func TestNCSCExcludesNonCryptographicAssetTypes(t *testing.T) {
 			Risk:     model.Risk{Class: model.RiskNone, Severity: model.SeverityInfo},
 		},
 	}}
-	rep := buildNCSC(res)
+	rep := buildNCSC(res, NCSCBaseline{})
 	if rep.Discovery2028.TotalInventoried != 0 {
 		t.Errorf("TotalInventoried = %d, want 0 (ai-usage excluded)", rep.Discovery2028.TotalInventoried)
 	}
@@ -208,7 +219,7 @@ func TestNCSCExcludesNonCryptographicAssetTypes(t *testing.T) {
 
 func TestNCSCHighestPriorityCriteriaDocumented(t *testing.T) {
 	res := &scan.Result{Root: "test"}
-	rep := buildNCSC(res)
+	rep := buildNCSC(res, NCSCBaseline{})
 	if rep.Priority2031.Criteria == "" {
 		t.Error("Priority2031.Criteria must document the highest-priority definition")
 	}
@@ -221,11 +232,130 @@ func TestNCSCCountsAnSSHHostKeyAsExternallyFacing(t *testing.T) {
 	res := &scan.Result{Root: "ssh://router:22", Findings: []model.Finding{
 		{Asset: model.Asset{Type: model.TypeAlgorithm, Algorithm: "Ed25519", Primitive: model.PrimitiveSignature}, Location: model.Location{File: "router:22"}, Source: "ssh-probe", Risk: model.Risk{Class: model.RiskQuantumVulnerable, Severity: model.SeverityMedium}},
 	}}
-	rep := buildNCSC(res)
+	rep := buildNCSC(res, NCSCBaseline{})
 	if rep.Priority2031.Count != 1 {
 		t.Errorf("highest-priority count = %d, want 1: a host key read off the wire is externally facing", rep.Priority2031.Count)
 	}
 	if got := rep.Discovery2028.CoverageBySource["ssh"]; got != 1 {
 		t.Errorf("coverage %v, want one occurrence in the ssh bucket", rep.Discovery2028.CoverageBySource)
+	}
+}
+
+// @decided 2026-11-23: migrated counts only an asset that left the asset graph
+// altogether. One that is still there under the same identity but no longer
+// meets the 2031 criteria (its live endpoint was migrated while the same
+// algorithm stays in code) has not been migrated, and is not counted, because
+// the algorithm is still in the estate.
+func TestMeasureMigratedCountsOnlyAssetsGoneFromTheGraph(t *testing.T) {
+	kex := model.Finding{
+		Asset:    model.Asset{Type: model.TypeAlgorithm, Algorithm: "ECDH", Primitive: model.PrimitiveKeyExch},
+		Location: model.Location{File: "tls:example:443"},
+		Source:   "tls-probe",
+		Risk:     model.Risk{Class: model.RiskQuantumVulnerable, Severity: model.SeverityHigh},
+	}
+	rsa := model.Finding{
+		Asset:    model.Asset{Type: model.TypeAlgorithm, Algorithm: "RSA", KeySize: 2048},
+		Location: model.Location{File: "tls:example:443"},
+		Source:   "tls-probe",
+		Risk:     model.Risk{Class: model.RiskQuantumVulnerable, Severity: model.SeverityHigh},
+	}
+	base := store.Snapshot{SchemaVersion: store.SchemaVersion, Root: "r", Assets: graph.Build([]model.Finding{kex, rsa})}
+
+	// Now: the key exchange is gone; RSA-2048 is still there, but only in code,
+	// where it is neither externally facing nor long-lived data.
+	rsaInCode := rsa
+	rsaInCode.Location = model.Location{File: "a.go", Line: 3}
+	rsaInCode.Source = "goast"
+	res := &scan.Result{Root: "r", Findings: []model.Finding{rsaInCode}}
+
+	rep := buildNCSC(res, NCSCBaseline{Snapshot: &base})
+	if !rep.Priority2031.MigratedMeasured || rep.Priority2031.Migrated == nil {
+		t.Fatalf("not measured against a like-for-like baseline: %s", rep.Priority2031.MigratedBasis)
+	}
+	if got := *rep.Priority2031.Migrated; got != 1 {
+		t.Errorf("migrated = %d, want 1 (the key exchange, not RSA)", got)
+	}
+	if len(rep.Priority2031.MigratedFindings) != 1 || rep.Priority2031.MigratedFindings[0].Algorithm != "ECDH" {
+		t.Errorf("migrated findings = %+v, want ECDH alone", rep.Priority2031.MigratedFindings)
+	}
+	if !strings.Contains(rep.Priority2031.MigratedBasis, "1 of the 2 highest-priority assets") {
+		t.Errorf("basis %q does not state 1 of 2", rep.Priority2031.MigratedBasis)
+	}
+}
+
+// Each reason a baseline is not measured against says so in its own words, in
+// the report package itself and not only through the CLI.
+func TestMeasureMigratedSaysWhyItDidNotMeasure(t *testing.T) {
+	ok := store.Snapshot{SchemaVersion: store.SchemaVersion, Root: "r"}
+	future := store.Snapshot{SchemaVersion: store.SchemaVersion + 1, Root: "r"}
+	other := store.Snapshot{SchemaVersion: store.SchemaVersion, Root: "elsewhere"}
+	cases := []struct {
+		name     string
+		base     NCSCBaseline
+		measured bool
+		words    string
+	}{
+		{"no baseline", NCSCBaseline{}, false, "no --baseline"},
+		{"not found", NCSCBaseline{NotFound: true}, false, "not found"},
+		{"another schema version", NCSCBaseline{Snapshot: &future}, false, "schemaVersion 2"},
+		{"another target", NCSCBaseline{Snapshot: &other}, false, `another target ("elsewhere"`},
+		{"same target, no time recorded", NCSCBaseline{Snapshot: &ok}, true, "taken at an unrecorded time: 0 of the 0"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, measured, basis := measureMigrated(nil, "r", c.base)
+			if measured != c.measured || !strings.Contains(basis, c.words) {
+				t.Errorf("measured %v, basis %q; want measured %v and %q", measured, basis, c.measured, c.words)
+			}
+			if !c.measured && (got != nil || !strings.HasPrefix(basis, "not measured")) {
+				t.Errorf("an unmeasured result returned %d assets and basis %q", len(got), basis)
+			}
+		})
+	}
+}
+
+// Migrated assets are listed most severe first, then by name, then by full
+// identity, so the same baseline renders the same list on every run (invariant
+// 8: never an order taken from a map).
+func TestMeasureMigratedListsTheSameOrderEveryRun(t *testing.T) {
+	mk := func(alg string, size int, sev model.Severity) model.Finding {
+		return model.Finding{
+			Asset:    model.Asset{Type: model.TypeAlgorithm, Algorithm: alg, KeySize: size, Primitive: model.PrimitiveKeyExch},
+			Location: model.Location{File: "tls:h:443"},
+			Source:   "tls-probe",
+			Risk:     model.Risk{Class: model.RiskQuantumVulnerable, Severity: sev},
+		}
+	}
+	findings := []model.Finding{
+		mk("RSA", 2048, model.SeverityMedium),
+		mk("ECDH", 0, model.SeverityMedium),
+		mk("DH", 2048, model.SeverityCritical),
+	}
+	// Same algorithm name, different type: equal on severity and name, so only
+	// the full identity can order them.
+	key := mk("DH", 2048, model.SeverityCritical)
+	key.Asset.Type = model.TypeKey
+	findings = append(findings, key)
+
+	created := time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC)
+	for i := 0; i < 5; i++ {
+		// Feed the baseline in a different order each time.
+		rot := append(append([]model.Finding{}, findings[i%len(findings):]...), findings[:i%len(findings)]...)
+		base := store.Snapshot{SchemaVersion: store.SchemaVersion, Root: "r", CreatedAt: created, Assets: graph.Build(rot)}
+		got, measured, basis := measureMigrated(nil, "r", NCSCBaseline{Snapshot: &base})
+		if !measured || len(got) != 4 {
+			t.Fatalf("measured %v, %d assets (%s), want 4", measured, len(got), basis)
+		}
+		var order []string
+		for _, n := range got {
+			order = append(order, string(n.Asset.Type)+":"+assetName(n))
+		}
+		want := "algorithm:DH-2048 key:DH-2048 algorithm:ECDH algorithm:RSA-2048"
+		if strings.Join(order, " ") != want {
+			t.Errorf("rotation %d: order %v, want %s", i, order, want)
+		}
+		if !strings.Contains(basis, "taken on 2026-11-01T09:00:00Z: 4 of the 4") {
+			t.Errorf("basis %q does not name when the baseline was taken", basis)
+		}
 	}
 }

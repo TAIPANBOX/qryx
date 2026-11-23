@@ -41,7 +41,8 @@
     <div class="milestone">
       <h3>2031: Highest-priority systems</h3>
       <span class="verdict {{verdictClass .Report.Priority2031.Verdict}}">{{.Report.Priority2031.Verdict}}</span>
-      <div class="note">{{.Report.Priority2031.Count}} highest-priority &middot; {{.Report.Priority2031.Migrated}} migrated &middot; {{.Report.Priority2031.Remaining}} remaining</div>
+      <div class="note">{{.Report.Priority2031.Count}} highest-priority &middot; {{if .Report.Priority2031.Migrated}}{{.Report.Priority2031.Migrated}} migrated since the baseline{{else}}migrated: not measured{{end}} &middot; {{.Report.Priority2031.Remaining}} remaining</div>
+      <div class="note">{{.Report.Priority2031.MigratedBasis}}</div>
     </div>
     <div class="milestone">
       <h3>2035: Full migration</h3>
@@ -104,6 +105,17 @@
   <div class="note">{{.Report.Priority2031.Note}}</div>
   {{else}}
   <p class="empty">No highest-priority systems outstanding.</p>
+  {{end}}
+  {{if .Report.Priority2031.MigratedFindings}}
+  <h3>Migrated since the baseline</h3>
+  <table>
+    <thead><tr><th>Algorithm</th><th>Severity</th><th>Where it was</th></tr></thead>
+    <tbody>
+      {{range .Report.Priority2031.MigratedFindings}}
+      <tr><td class="algo">{{.Algorithm}}</td><td>{{.Severity}}</td><td class="loc">{{ncscWhere .}}</td></tr>
+      {{end}}
+    </tbody>
+  </table>
   {{end}}
 
   <h2>2035: Full remaining inventory</h2>
