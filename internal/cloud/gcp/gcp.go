@@ -93,10 +93,11 @@ type gcpLister struct {
 // where one location or one ring is out of reach used to lose the whole
 // inventory to it.
 //
-// Per CLAUDE.md invariant 4, this is the thin real-SDK wiring, and it is the
-// part no test covers: the fake in gcp_test.go satisfies keyLister above this
-// code, and no account was used. The skip-and-report shape is verified there;
-// that these particular iterator errors arrive this way is not.
+// Per CLAUDE.md invariant 4, this is the thin real-SDK wiring. sdk_test.go
+// runs it through the SDK's own client, built on its REST transport against a
+// fake endpoint, so the iterator draining and the skip-and-report shape on a
+// refused ring or key are exercised. Not exercised: the gRPC transport Scan
+// builds in production, and a real account.
 func (g gcpLister) list(ctx context.Context, project, location string) ([]keyVersion, []string, error) {
 	var out []keyVersion
 	var skipped []string
