@@ -594,3 +594,7 @@ gate in front of the risky decisions, which keeps quality high on any model.
 ## Memory
 Session learnings live in `~/.claude/projects/-Users-factory-Development-Qryx/memory/`
 (see `MEMORY.md`). Check it for prior lessons before repeating a class of mistake.
+
+## Coverage floor
+
+Total test coverage measured in CI may not fall below the number in `.coverage-floor`, and that number may only rise: it was set to the first CI measurement minus one point, and is raised when coverage rises. The total and the slack are printed in the job summary. *(gate: `scripts/coverage-floor.sh check` and `ratchet` in CI; teeth cases in `scripts/gates-have-teeth.sh`)*
