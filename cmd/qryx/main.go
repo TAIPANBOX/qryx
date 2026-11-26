@@ -37,13 +37,33 @@ var version = "dev"
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
+		var code exitCode
+		if errors.As(err, &code) {
+			os.Exit(int(code))
+		}
 		fmt.Fprintln(os.Stderr, "qryx:", err)
 		os.Exit(1)
 	}
 }
 
+// exitCode is a verdict rather than a failure: a gate that fired (--fail-on,
+// --fail-on-new, a policy violation, a trend regression). main exits with it
+// and prints nothing, exactly as the gate always behaved; returning it instead
+// of calling os.Exit in place lets deferred work such as closing the event log
+// run first, and lets the verdict be tested.
+type exitCode int
+
+func (e exitCode) Error() string { return fmt.Sprintf("exit status %d", int(e)) }
+
 func run(args []string) error {
+	return runWith(args, os.Stdout, os.Stderr)
+}
+
+// runWith is the whole command line, writing its report to stdout and its
+// operator notes to stderr.
+func runWith(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("qryx", flag.ContinueOnError)
+	fs.SetOutput(stderr)
 	var (
 		format    = fs.String("format", "human", "output format: human|cbom|html|cnsa|cnsa-html|migration|evidence|dashboard|ncsc|ncsc-html|ai-inventory")
 		failOn    = fs.String("fail-on", "", "exit 2 if any finding is at or above this severity: low|medium|high|critical")
@@ -73,7 +93,7 @@ func run(args []string) error {
 		withTests = fs.Bool("include-tests", false, "count crypto found in test code (_test.go, testdata/, conftest.py, ...) as part of the production inventory; by default it is reported on stderr and excluded from the graph, the verdict and every format")
 	)
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage:\n  qryx scan [flags] <path>\n  qryx fix [--write] [--open-pr [--branch NAME]] [--min-rsa-bits N] <path>\n  qryx trend <evidence-trail.jsonl>\n  qryx verify-evidence [--ci] [--signer sha256:...] <evidence.json>\n  qryx tls [flags] <host:port>...\n  qryx ssh [flags] <host:port>...\n  qryx bin [flags] <file|dir>...\n  qryx image [flags] <image.tar>...\n  qryx aws [flags]\n  qryx gcp --project <id> [flags]\n  qryx azure --vault-url <url> [flags]\n  qryx agents [flags] <path>\n  qryx version\n\nflags:\n")
+		fmt.Fprintf(stderr, "usage:\n  qryx scan [flags] <path>\n  qryx fix [--write] [--open-pr [--branch NAME]] [--min-rsa-bits N] <path>\n  qryx trend <evidence-trail.jsonl>\n  qryx verify-evidence [--ci] [--signer sha256:...] <evidence.json>\n  qryx tls [flags] <host:port>...\n  qryx ssh [flags] <host:port>...\n  qryx bin [flags] <file|dir>...\n  qryx image [flags] <image.tar>...\n  qryx aws [flags]\n  qryx gcp --project <id> [flags]\n  qryx azure --vault-url <url> [flags]\n  qryx agents [flags] <path>\n  qryx version\n\nflags:\n")
 		fs.PrintDefaults()
 	}
 
@@ -96,7 +116,7 @@ func run(args []string) error {
 	// by -ldflags and had no way out, and the README told people to run a command
 	// that exited 1.
 	if cmd == "version" {
-		fmt.Fprintf(os.Stdout, "qryx %s\n", version)
+		fmt.Fprintf(stdout, "qryx %s\n", version)
 		return nil
 	}
 
@@ -119,15 +139,15 @@ func run(args []string) error {
 			return err
 		}
 		if *htmlOut {
-			if err := report.TrendHTML(os.Stdout, records); err != nil {
+			if err := report.TrendHTML(stdout, records); err != nil {
 				return err
 			}
 		} else {
-			report.Trend(os.Stdout, records)
+			report.Trend(stdout, records)
 		}
 		if *failRegr && len(records) >= 2 &&
 			records[len(records)-1].ScorePct < records[len(records)-2].ScorePct {
-			os.Exit(3)
+			return exitCode(3)
 		}
 		return nil
 	}
@@ -142,7 +162,7 @@ func run(args []string) error {
 		if err != nil {
 			return err
 		}
-		return verifyEvidence(os.Stdout, data, *signer, *ciMode)
+		return verifyEvidence(stdout, data, *signer, *ciMode)
 	}
 
 	var (
@@ -167,13 +187,13 @@ func run(args []string) error {
 			fs.Usage()
 			return fmt.Errorf("tls requires at least one host:port target")
 		}
-		res, err = runTLS(fs.Args(), *timeout)
+		res, err = runTLS(stderr, fs.Args(), *timeout)
 	case "ssh":
 		if fs.NArg() == 0 {
 			fs.Usage()
 			return fmt.Errorf("ssh requires at least one host:port target")
 		}
-		res, err = runSSH(fs.Args(), *timeout)
+		res, err = runSSH(stderr, fs.Args(), *timeout)
 	case "bin":
 		if fs.NArg() == 0 {
 			fs.Usage()
@@ -187,19 +207,19 @@ func run(args []string) error {
 		}
 		res, err = runImage(fs.Args())
 	case "aws":
-		res, err = runAWS(*region, *profile)
+		res, err = runAWS(stderr, *region, *profile)
 	case "gcp":
 		if *project == "" {
 			fs.Usage()
 			return fmt.Errorf("gcp requires --project")
 		}
-		res, err = runGCP(*project, *location)
+		res, err = runGCP(stderr, *project, *location)
 	case "azure":
 		if *vaultURL == "" {
 			fs.Usage()
 			return fmt.Errorf("azure requires --vault-url")
 		}
-		res, err = runAzure(*vaultURL)
+		res, err = runAzure(stderr, *vaultURL)
 	case "agents":
 		if fs.NArg() != 1 {
 			fs.Usage()
@@ -212,7 +232,7 @@ func run(args []string) error {
 	}
 
 	if cmd == "fix" {
-		return runFix(res, fixOptions{minRSABits: *minRSA, write: *write, openPR: *openPR, branch: *branch})
+		return runFix(stdout, stderr, res, fixOptions{minRSABits: *minRSA, write: *write, openPR: *openPR, branch: *branch})
 	}
 
 	// Split test code out ONCE, here, before anything downstream reads
@@ -228,11 +248,11 @@ func run(args []string) error {
 	if !*withTests {
 		var setAside []model.Finding
 		res.Findings, setAside = scan.PartitionTests(res.Findings)
-		reportSetAside(os.Stderr, setAside, res.Findings)
+		reportSetAside(stderr, setAside, res.Findings)
 	}
 
 	// Same principle, one step earlier: what the scan could not look at at all.
-	reportUnexamined(os.Stderr, res)
+	reportUnexamined(stderr, res)
 
 	// Opt-in agent-event emission: only ever fires for findings/nodes/
 	// violations carrying a real agent_id, which today means the agents
@@ -247,9 +267,9 @@ func run(args []string) error {
 		}
 		defer events.Close()
 		if resumed := events.ResumedFrom(); resumed != "" {
-			fmt.Fprintf(os.Stderr, "qryx: resumed the event chain in %s from %s\n", *eventsArg, exporter.ChainPreview(resumed))
+			fmt.Fprintf(stderr, "qryx: resumed the event chain in %s from %s\n", *eventsArg, exporter.ChainPreview(resumed))
 		} else {
-			fmt.Fprintf(os.Stderr, "qryx: starting a fresh event chain in %s\n", *eventsArg)
+			fmt.Fprintf(stderr, "qryx: starting a fresh event chain in %s\n", *eventsArg)
 		}
 		if err := events.EmitFindings(res.Findings); err != nil {
 			return err
@@ -289,7 +309,7 @@ func run(args []string) error {
 			if gate := driftGate(*failOnNew, *policyArg, *policyNew); gate != "" && !*allowNoBL {
 				return fmt.Errorf("baseline %s not found, and %s gates on the comparison against it: pass --allow-missing-baseline if this is genuinely the first run", *baseline, gate)
 			}
-			fmt.Fprintf(os.Stderr, "qryx: baseline %s not found; skipping drift\n", *baseline)
+			fmt.Fprintf(stderr, "qryx: baseline %s not found; skipping drift\n", *baseline)
 			ncscBase.NotFound = true
 		case err != nil:
 			return fmt.Errorf("load baseline: %w", err)
@@ -306,28 +326,28 @@ func run(args []string) error {
 
 	switch *format {
 	case "human":
-		report.Human(os.Stdout, res)
+		report.Human(stdout, res)
 		if *baseline != "" {
-			report.Drift(os.Stdout, delta)
+			report.Drift(stdout, delta)
 		}
 	case "cbom":
-		if err := report.CBOM(os.Stdout, res, version); err != nil {
+		if err := report.CBOM(stdout, res, version); err != nil {
 			return err
 		}
 	case "html":
-		if err := report.HTML(os.Stdout, res); err != nil {
+		if err := report.HTML(stdout, res); err != nil {
 			return err
 		}
 	case "cnsa":
-		if err := report.CNSA(os.Stdout, res); err != nil {
+		if err := report.CNSA(stdout, res); err != nil {
 			return err
 		}
 	case "cnsa-html":
-		if err := report.CNSAHTML(os.Stdout, res); err != nil {
+		if err := report.CNSAHTML(stdout, res); err != nil {
 			return err
 		}
 	case "migration":
-		if err := report.Migration(os.Stdout, res); err != nil {
+		if err := report.Migration(stdout, res); err != nil {
 			return err
 		}
 	case "evidence":
@@ -338,7 +358,7 @@ func run(args []string) error {
 				return fmt.Errorf("load sign key: %w", err)
 			}
 		}
-		sig, err := report.Evidence(os.Stdout, res, version, signer)
+		sig, err := report.Evidence(stdout, res, version, signer)
 		if err != nil {
 			return err
 		}
@@ -352,19 +372,19 @@ func run(args []string) error {
 		// correctly: those are cryptographic documents and an inventory fact
 		// riding in one would be mislabelled. This is the format that carries
 		// them, and the only machine-readable one that does.
-		if err := report.AIInventory(os.Stdout, res, version); err != nil {
+		if err := report.AIInventory(stdout, res, version); err != nil {
 			return err
 		}
 	case "dashboard":
-		if err := report.Dashboard(os.Stdout, res, version); err != nil {
+		if err := report.Dashboard(stdout, res, version); err != nil {
 			return err
 		}
 	case "ncsc":
-		if err := report.NCSC(os.Stdout, res, ncscBase); err != nil {
+		if err := report.NCSC(stdout, res, ncscBase); err != nil {
 			return err
 		}
 	case "ncsc-html":
-		if err := report.NCSCHTML(os.Stdout, res, ncscBase); err != nil {
+		if err := report.NCSCHTML(stdout, res, ncscBase); err != nil {
 			return err
 		}
 	default:
@@ -412,17 +432,16 @@ func run(args []string) error {
 			label += " (new vs baseline)"
 		}
 		violations := policy.Evaluate(pol, nodes)
-		report.Violations(os.Stderr, label, violations)
+		report.Violations(stderr, label, violations)
 		if events != nil {
-			// Before os.Exit below: os.Exit skips deferred calls, including
-			// defer events.Close() above, so the emit itself must happen
-			// first regardless of the exit code that follows.
+			// Before the exit status below, so the violations are in the
+			// log whatever the verdict.
 			if err := events.EmitViolations(violations); err != nil {
 				return err
 			}
 		}
 		if len(violations) > 0 {
-			os.Exit(3)
+			return exitCode(3)
 		}
 	}
 
@@ -433,7 +452,7 @@ func run(args []string) error {
 		}
 		for _, f := range res.Findings {
 			if f.Risk.Severity >= threshold && f.Risk.Class != model.RiskNone {
-				os.Exit(2)
+				return exitCode(2)
 			}
 		}
 	}
@@ -444,7 +463,7 @@ func run(args []string) error {
 		}
 		for _, n := range delta.Added {
 			if n.Risk.Severity >= threshold && n.Risk.Class != model.RiskNone {
-				os.Exit(2)
+				return exitCode(2)
 			}
 		}
 	}
@@ -461,7 +480,7 @@ type fixOptions struct {
 // runFix derives safe source patches from a scan. By default it prints unified
 // diffs; --write applies them in place; --open-pr applies them and opens a
 // GitHub PR via git+gh.
-func runFix(res *scan.Result, opts fixOptions) error {
+func runFix(stdout, stderr io.Writer, res *scan.Result, opts fixOptions) error {
 	if opts.minRSABits < 2048 {
 		return fmt.Errorf("--min-rsa-bits must be >= 2048")
 	}
@@ -470,7 +489,7 @@ func runFix(res *scan.Result, opts fixOptions) error {
 		return err
 	}
 	if len(patches) == 0 {
-		fmt.Fprintln(os.Stderr, "qryx: no safe automatic fixes found")
+		fmt.Fprintln(stderr, "qryx: no safe automatic fixes found")
 		return nil
 	}
 
@@ -481,24 +500,24 @@ func runFix(res *scan.Result, opts fixOptions) error {
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(os.Stderr, "qryx: changed %d file(s); opened PR %s\n", len(patches), url)
+		fmt.Fprintf(stderr, "qryx: changed %d file(s); opened PR %s\n", len(patches), url)
 		return nil
 	}
 
 	if !opts.write {
 		for _, p := range patches {
-			fmt.Print(p.Diff)
+			fmt.Fprint(stdout, p.Diff)
 		}
-		fmt.Fprintf(os.Stderr, "qryx: would change %d file(s)\n", len(patches))
+		fmt.Fprintf(stderr, "qryx: would change %d file(s)\n", len(patches))
 		return nil
 	}
 	for _, p := range patches {
 		if err := os.WriteFile(filepath.Join(res.Root, p.File), []byte(p.NewContent), 0o600); err != nil {
 			return fmt.Errorf("write %s: %w", p.File, err)
 		}
-		fmt.Fprintf(os.Stderr, "fixed %s (%s)\n", p.File, p.Rule)
+		fmt.Fprintf(stderr, "fixed %s (%s)\n", p.File, p.Rule)
 	}
-	fmt.Fprintf(os.Stderr, "qryx: changed %d file(s)\n", len(patches))
+	fmt.Fprintf(stderr, "qryx: changed %d file(s)\n", len(patches))
 	return nil
 }
 
@@ -599,13 +618,22 @@ func runScan(root string) (*scan.Result, error) {
 	return scan.New(detectors.Default()...).Scan(root)
 }
 
+// The cloud connectors' entry points, as variables so the CLI's handling of
+// what they return (the root it names, the partial-inventory line, an error)
+// can be tested without an account.
+var (
+	awsScan   = awscloud.Scan
+	azureScan = azurecloud.Scan
+	gcpScan   = gcpcloud.Scan
+)
+
 // runAWS inventories KMS keys and ACM certificates in an AWS account.
-func runAWS(region, profile string) (*scan.Result, error) {
-	findings, skipped, err := awscloud.Scan(context.Background(), region, profile)
+func runAWS(stderr io.Writer, region, profile string) (*scan.Result, error) {
+	findings, skipped, err := awsScan(context.Background(), region, profile)
 	if err != nil {
 		return nil, err
 	}
-	reportPartialInventory(os.Stderr, "aws", skipped)
+	reportPartialInventory(stderr, "aws", skipped)
 	root := "aws://" + region
 	if region == "" {
 		root = "aws://default"
@@ -616,24 +644,24 @@ func runAWS(region, profile string) (*scan.Result, error) {
 }
 
 // runAzure inventories keys in an Azure Key Vault.
-func runAzure(vaultURL string) (*scan.Result, error) {
-	findings, skipped, err := azurecloud.Scan(context.Background(), vaultURL)
+func runAzure(stderr io.Writer, vaultURL string) (*scan.Result, error) {
+	findings, skipped, err := azureScan(context.Background(), vaultURL)
 	if err != nil {
 		return nil, err
 	}
-	reportPartialInventory(os.Stderr, "azure", skipped)
+	reportPartialInventory(stderr, "azure", skipped)
 	res := &scan.Result{Root: "azure://" + vaultURL, FilesWalked: 1}
 	res.Findings = risk.Apply(findings)
 	return res, nil
 }
 
 // runGCP inventories Cloud KMS key versions in a GCP project/location.
-func runGCP(project, location string) (*scan.Result, error) {
-	findings, skipped, err := gcpcloud.Scan(context.Background(), project, location)
+func runGCP(stderr io.Writer, project, location string) (*scan.Result, error) {
+	findings, skipped, err := gcpScan(context.Background(), project, location)
 	if err != nil {
 		return nil, err
 	}
-	reportPartialInventory(os.Stderr, "gcp", skipped)
+	reportPartialInventory(stderr, "gcp", skipped)
 	res := &scan.Result{Root: fmt.Sprintf("gcp://%s/%s", project, location), FilesWalked: 1}
 	res.Findings = risk.Apply(findings)
 	return res, nil
@@ -704,12 +732,12 @@ func runImage(tars []string) (*scan.Result, error) {
 // runTLS probes each target endpoint and aggregates the findings into a single
 // Result. A failed dial to one target is reported to stderr but does not abort
 // the others.
-func runTLS(targets []string, timeout time.Duration) (*scan.Result, error) {
+func runTLS(stderr io.Writer, targets []string, timeout time.Duration) (*scan.Result, error) {
 	res := &scan.Result{Root: "tls://" + strings.Join(targets, ",")}
 	for _, t := range targets {
 		findings, err := probe.Endpoint(t, timeout)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "qryx: %s: %v\n", t, err)
+			fmt.Fprintf(stderr, "qryx: %s: %v\n", t, err)
 			continue
 		}
 		res.FilesWalked++
@@ -723,12 +751,12 @@ func runTLS(targets []string, timeout time.Duration) (*scan.Result, error) {
 // (its identification and KEXINIT) and aggregates the findings into a single
 // Result. A failed dial to one target is reported to stderr but does not abort
 // the others.
-func runSSH(targets []string, timeout time.Duration) (*scan.Result, error) {
+func runSSH(stderr io.Writer, targets []string, timeout time.Duration) (*scan.Result, error) {
 	res := &scan.Result{Root: "ssh://" + strings.Join(targets, ",")}
 	for _, t := range targets {
 		findings, err := probe.SSHEndpoint(t, timeout, version)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "qryx: %s: %v\n", t, err)
+			fmt.Fprintf(stderr, "qryx: %s: %v\n", t, err)
 			continue
 		}
 		res.FilesWalked++
