@@ -726,3 +726,30 @@ func TestCloudSubcommandsNameTheirScopeAndSayWhenPartial(t *testing.T) {
 		}
 	}
 }
+
+// failingWriter refuses every write, as a closed pipe or a full disk does.
+type failingWriter struct{}
+
+var errWrite = errors.New("write refused")
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errWrite }
+
+// A machine-readable report that could not be written is a failed run. A CI
+// step piping --format cbom into a file on a full disk must not exit 0 with
+// an empty or truncated document behind it.
+func TestAReportThatCannotBeWrittenFailsTheRun(t *testing.T) {
+	trail := filepath.Join(t.TempDir(), "trail.jsonl")
+	if err := (store.JSONLTrail{Path: trail}).Append(store.EvidenceRecord{Root: "r", ScorePct: 50, Total: 2}); err != nil {
+		t.Fatal(err)
+	}
+	cases := [][]string{{"trend", "--html", trail}}
+	for _, f := range []string{"cbom", "html", "cnsa", "cnsa-html", "migration", "evidence", "ai-inventory", "dashboard", "ncsc", "ncsc-html"} {
+		cases = append(cases, []string{"scan", "--format", f, sampleTree})
+	}
+	for _, args := range cases {
+		var errb bytes.Buffer
+		if err := runWith(args, failingWriter{}, &errb); !errors.Is(err, errWrite) {
+			t.Errorf("%v: got %v, want the write error", args, err)
+		}
+	}
+}
