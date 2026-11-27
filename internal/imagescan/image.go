@@ -22,10 +22,14 @@ import (
 )
 
 const (
-	maxTotalBytes = 2 << 30 // per-image extraction cap (tar-bomb defense)
-	ustarOffset   = 257     // offset of the "ustar" magic in a tar header
-	sniffBytes    = 4096    // read-ahead used to recognize a layer, must exceed ustarOffset+5
+	ustarOffset = 257  // offset of the "ustar" magic in a tar header
+	sniffBytes  = 4096 // read-ahead used to recognize a layer, must exceed ustarOffset+5
 )
+
+// maxTotalBytes caps what one image may extract in total (tar-bomb defense). A
+// var for the same reason as maxFileBytes below: a test proves the guard with a
+// few kilobytes instead of two gigabytes. Nothing outside this package changes it.
+var maxTotalBytes int64 = 2 << 30
 
 // maxFileBytes caps a single file extracted out of a layer. A var rather than a
 // const so a test can drive a realistic image shape (a layer larger than the

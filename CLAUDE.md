@@ -141,9 +141,11 @@ an absent invariant.
 7. **The extraction guards in `imagescan` stay.** Path traversal, symlink
    escape and tar-bomb protection, and never following a link out of the temp
    root. These exist because the tool unpacks images it did not build.
-   *(partly gated: `TestExtractRejectsPathTraversal` covers traversal. The
-   symlink-escape and tar-bomb guards have no test of their own, and are the
-   ones a hardening sweep would remove first.)*
+   *(test: `TestExtractRejectsPathTraversal` covers traversal,
+   `TestExtractNeverCreatesOrFollowsLinks` holds that no symlink or hard link
+   from a layer is created and a file written "through" one stays inside the
+   root, and `TestExtractStopsAtTheTotalBudget` holds the cumulative tar-bomb
+   budget at its boundary.)*
 8. **Never derive a stable order from map iteration.** Go randomizes it. Sort
    into a slice. This flaked CI once already, in pagination fakes.
    *(partly gated: `go test -race -count=5` on the affected packages, which
@@ -501,8 +503,8 @@ The rule that follows: set a marker from evidence, both ways. Before writing
 `(not enforced)`, grep the suite for the property. Before writing `(test: ...)`,
 open the test and check it asserts what the invariant claims.
 
-**Held by this file alone: invariants 2, 4 and 6.** Invariants 7 and 8 are
-half held. Invariant 3 is `scripts/declared-deps.sh`, invariant 9 is
+**Held by this file alone: invariants 2, 4 and 6.** Invariant 8 is half
+held; invariant 7 is held by tests for each of its three guards. Invariant 3 is `scripts/declared-deps.sh`, invariant 9 is
 `scripts/reproducible-build.sh`, and invariant 15 is
 `scripts/features-are-bound.sh`. Invariants 13 and 14 are tests: what a script
 could check about them is that a table has a role in every row, which the walk
